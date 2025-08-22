@@ -4,7 +4,6 @@ export const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
-// Add padding for status bar
   },
   section: {
     padding: 16,
@@ -61,21 +60,19 @@ export const styles = StyleSheet.create({
     height: 300,
     borderRadius: 12,
     marginBottom: 20,
-    marginTop:10,
+    marginTop: 10,
   },
-  productsImage:{
+  productsImage: {
     width: '100%',
     height: 300,
     borderRadius: 12,
     marginBottom: 20,
-   
   },
-  faqImage:{
+  faqImage: {
     width: '100%',
     height: 300,
     borderRadius: 12,
     marginBottom: 10,
-   
   },
   heroOverlay: {
     position: 'absolute',
@@ -245,7 +242,7 @@ export const styles = StyleSheet.create({
   teamMember: {
     width: '48%',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
     padding: 12,
     borderRadius: 12,
     backgroundColor: '#FFFFFF',
@@ -453,14 +450,6 @@ export const styles = StyleSheet.create({
   phoneInputContainer: {
     flexDirection: 'row'
   },
-
-  // src/styles/globalStyles.js
-  logo: {
-    width: 56,
-    height: 60,
-    marginRight: 8,
-    resizeMode: 'contain' // Add this to ensure proper scaling
-  },
   countryCodeContainer: {
     backgroundColor: '#F9FAFB',
     borderWidth: 1,
@@ -485,7 +474,7 @@ export const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 4,
     paddingHorizontal: 16,
-    paddingBottom: 12
+    paddingBottom: 12,
   },
   navBarContent: {
     flexDirection: 'row',
@@ -496,10 +485,9 @@ export const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center'
   },
-  // In your globalStyles.js
   logo: {
-    width: 80,  // Increased from 32
-    height: 80, // Increased from 32
+    width: 80,
+    height: 80,
     resizeMode: 'contain'
   },
   logoText: {
@@ -521,8 +509,6 @@ export const styles = StyleSheet.create({
   mainContent: {
     flex: 1
   },
-
-  // Add these to your globalStyles.js
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -547,8 +533,6 @@ export const styles = StyleSheet.create({
     color: '#E0E7FF',
     textAlign: 'center'
   },
-
-  // Footer Styles
   footerSection: {
     marginBottom: 24,
   },
@@ -604,7 +588,6 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
-
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -658,94 +641,4 @@ export const styles = StyleSheet.create({
     color: '#4F46E5',
     fontWeight: '500'
   },
-  // Enhanced team member styles
-  teamMember: {
-    width: '48%',
-    alignItems: 'center',
-    marginBottom: 20,
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  teamImageContainer: {
-    position: 'relative',
-    marginBottom: 10
-  },
-  teamImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: '#EEF2FF'
-  },
-  teamIconContainer: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#4F46E5',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF'
-  },
-  teamName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-    textAlign: 'center'
-  },
-  teamRole: {
-    fontSize: 13,
-    color: '#6B7280',
-    textAlign: 'center'
-  },
-
-
-
-  // Add these to your existing styles
-navBar: {
-  backgroundColor: '#FFFFFF',
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 1 },
-  shadowOpacity: 0.1,
-  shadowRadius: 3,
-  elevation: 4,
-  paddingHorizontal: 16,
-  paddingBottom: 12,
-  zIndex: 100,
-},
-navBarContent: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-},
-logoContainer: {
-  flexDirection: 'row',
-  alignItems: 'center',
-},
-logo: {
-  width: 80,
-  height: 80,
-  resizeMode: 'contain'
-},
-loginButton: {
-  backgroundColor: '#4F46E5',
-  paddingHorizontal: 16,
-  paddingVertical: 8,
-  borderRadius: 20
-},
-loginButtonText: {
-  color: '#FFFFFF',
-  fontSize: 14,
-  fontWeight: '600'
-},
 });

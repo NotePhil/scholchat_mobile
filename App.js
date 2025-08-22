@@ -1,36 +1,52 @@
-// App.js
 import React, { useState } from 'react';
-import { SafeAreaView, StatusBar } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StatusBar } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import MainTabNavigator from './src/navigation/MainTabNavigator';
 import AuthModal from './src/components/common/AuthModal';
 
 const App = () => {
   const [showAuth, setShowAuth] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
 
-  const handleSignIn = (email, password) => {
-    console.log('Signing in with:', email, password);
+  const handleNavigateToDashboard = () => {
+    console.log('Navigating to dashboard...');
+    setShowDashboard(true);
     setShowAuth(false);
   };
 
   const handleSignUp = (formData) => {
     console.log('Signing up with:', formData);
+    // For signup, we can still keep the logic if needed
+    setShowDashboard(true);
     setShowAuth(false);
   };
 
+  const handleLogout = () => {
+    console.log('Logging out...');
+    setShowDashboard(false);
+  };
+
+  // Debug log to see current state
+  console.log('Current app state:', { showDashboard, showAuth });
+
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaProvider>
       <StatusBar barStyle="dark-content" />
       <NavigationContainer>
-        <MainTabNavigator onLoginPress={() => setShowAuth(true)} />
+        <MainTabNavigator
+          showDashboard={showDashboard}
+          onLoginPress={() => setShowAuth(true)}
+          onLogout={handleLogout}
+        />
       </NavigationContainer>
       <AuthModal
         visible={showAuth}
         onClose={() => setShowAuth(false)}
-        onSignIn={handleSignIn}
+        onNavigateToDashboard={handleNavigateToDashboard}
         onSignUp={handleSignUp}
       />
-    </SafeAreaView>
+    </SafeAreaProvider>
   );
 };
 

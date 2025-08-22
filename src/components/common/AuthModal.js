@@ -3,13 +3,14 @@ import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet } from 'reac
 import { FontAwesome5 } from '@expo/vector-icons';
 import { styles } from '../../styles/globalStyles';
 
-const AuthModal = ({ visible, onClose, onSignIn, onSignUp }) => {
+const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
   const [authMode, setAuthMode] = useState('signin');
   const [signupStep, setSignupStep] = useState(1);
   const [rememberMe, setRememberMe] = useState(false);
   const [userType, setUserType] = useState('');
   const [showUserTypeDropdown, setShowUserTypeDropdown] = useState(false);
-  
+  const [showEducationLevelDropdown, setShowEducationLevelDropdown] = useState(false);
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -18,13 +19,26 @@ const AuthModal = ({ visible, onClose, onSignIn, onSignUp }) => {
     address: '',
     password: '',
     confirmPassword: '',
-    userType: ''
+    userType: '',
+    cniRecto: null,
+    cniVerso: null,
+    profilePhoto: null,
+    teacherMatricule: '',
+    educationLevel: ''
   });
 
   const handleInputChange = (name, value) => {
     setFormData(prev => ({
       ...prev,
       [name]: value
+    }));
+  };
+
+  const handleFileUpload = (fieldName) => {
+    console.log(`File upload for ${fieldName} - would open file picker`);
+    setFormData(prev => ({
+      ...prev,
+      [fieldName]: 'file_selected.jpg'
     }));
   };
 
@@ -37,11 +51,8 @@ const AuthModal = ({ visible, onClose, onSignIn, onSignUp }) => {
     }
   };
 
-  const handleSigninSubmit = () => {
-    onSignIn(formData.email, formData.password);
-  };
-
   const userTypes = ['Professeur', 'Élève', 'Parent'];
+  const educationLevels = ['Primaire', 'Collège', 'Lycée', 'Université'];
 
   return (
     <Modal
@@ -113,32 +124,37 @@ const AuthModal = ({ visible, onClose, onSignIn, onSignUp }) => {
                   secureTextEntry={true}
                 />
               </View>
-              
+
               <View style={authModalStyles.rememberForgotContainer}>
-                <TouchableOpacity 
-                  style={authModalStyles.rememberMe} 
+                <TouchableOpacity
+                  style={authModalStyles.rememberMe}
                   onPress={() => setRememberMe(!rememberMe)}
                 >
-                  <FontAwesome5 
-                    name={rememberMe ? "check-square" : "square"} 
-                    size={16} 
-                    color="#4F46E5" 
+                  <FontAwesome5
+                    name={rememberMe ? "check-square" : "square"}
+                    size={16}
+                    color="#4F46E5"
                   />
                   <Text style={authModalStyles.rememberMeText}>Se souvenir de moi</Text>
                 </TouchableOpacity>
-                
+
                 <TouchableOpacity>
                   <Text style={authModalStyles.forgotPassword}>Mot de passe oublié ?</Text>
                 </TouchableOpacity>
               </View>
-              
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={handleSigninSubmit}
-              >
-                <Text style={styles.buttonText}>Se connecter</Text>
-              </TouchableOpacity>
-              
+
+ <TouchableOpacity
+  style={[styles.primaryButton, authModalStyles.signinButton]}
+  onPress={() => {
+    onNavigateToDashboard();
+    onClose();
+  }}
+>
+  <FontAwesome5 name="sign-in-alt" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+  <Text style={styles.buttonText}>Se connecter</Text>
+</TouchableOpacity>
+
+
               <Text style={styles.authSwitchText}>
                 Pas encore de compte?{' '}
                 <Text
@@ -148,7 +164,7 @@ const AuthModal = ({ visible, onClose, onSignIn, onSignUp }) => {
                   S'inscrire
                 </Text>
               </Text>
-              
+
               <Text style={authModalStyles.termsText}>
                 En vous connectant, vous acceptez nos{' '}
                 <Text style={authModalStyles.termsLink}>Conditions d'utilisation</Text>{' '}
@@ -250,10 +266,10 @@ const AuthModal = ({ visible, onClose, onSignIn, onSignUp }) => {
                       onPress={() => setShowUserTypeDropdown(!showUserTypeDropdown)}
                     >
                       <Text>{userType || 'Sélectionnez un type'}</Text>
-                      <FontAwesome5 
-                        name={showUserTypeDropdown ? "chevron-up" : "chevron-down"} 
-                        size={14} 
-                        color="#6B7280" 
+                      <FontAwesome5
+                        name={showUserTypeDropdown ? "chevron-up" : "chevron-down"}
+                        size={14}
+                        color="#6B7280"
                       />
                     </TouchableOpacity>
                     {showUserTypeDropdown && (
@@ -273,45 +289,128 @@ const AuthModal = ({ visible, onClose, onSignIn, onSignUp }) => {
                       </View>
                     )}
                   </View>
-                  {/* <View style={styles.inputContainer}>
-                    <Text style={styles.inputLabel}>Mot de passe</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Créez votre mot de passe"
-                      value={formData.password}
-                      onChangeText={(text) => handleInputChange('password', text)}
-                      secureTextEntry={true}
-                    />
-                  </View>
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.inputLabel}>Confirmer le mot de passe</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Confirmez votre mot de passe"
-                      value={formData.confirmPassword}
-                      onChangeText={(text) => handleInputChange('confirmPassword', text)}
-                      secureTextEntry={true}
-                    />
-                  </View> */}
+
+                  {userType === 'Professeur' && (
+                    <>
+                      <View style={styles.inputContainer}>
+                        <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                          CNI Recto *
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.input, authModalStyles.fileUploadButton]}
+                          onPress={() => handleFileUpload('cniRecto')}
+                        >
+                          <FontAwesome5 name="upload" size={16} color="#6B7280" />
+                          <Text style={authModalStyles.fileUploadText}>
+                            {formData.cniRecto ? 'Fichier sélectionné' : 'Aucun fichier choisi'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.inputContainer}>
+                        <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                          CNI Verso *
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.input, authModalStyles.fileUploadButton]}
+                          onPress={() => handleFileUpload('cniVerso')}
+                        >
+                          <FontAwesome5 name="upload" size={16} color="#6B7280" />
+                          <Text style={authModalStyles.fileUploadText}>
+                            {formData.cniVerso ? 'Fichier sélectionné' : 'Aucun fichier choisi'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.inputContainer}>
+                        <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                          Photo de profil *
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.input, authModalStyles.fileUploadButton]}
+                          onPress={() => handleFileUpload('profilePhoto')}
+                        >
+                          <FontAwesome5 name="upload" size={16} color="#6B7280" />
+                          <Text style={authModalStyles.fileUploadText}>
+                            {formData.profilePhoto ? 'Fichier sélectionné' : 'Aucun fichier choisi'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.inputContainer}>
+                        <Text style={styles.inputLabel}>
+                          Matricule du professeur (Optionnel)
+                        </Text>
+                        <TextInput
+                          style={styles.input}
+                          placeholder="Entrez votre matricule"
+                          value={formData.teacherMatricule}
+                          onChangeText={(text) => handleInputChange('teacherMatricule', text)}
+                        />
+                      </View>
+                    </>
+                  )}
+
+                  {userType === 'Élève' && (
+                    <View style={styles.inputContainer}>
+                      <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                        Niveau d'éducation *
+                      </Text>
+                      <TouchableOpacity
+                        style={[styles.input, authModalStyles.dropdownTrigger]}
+                        onPress={() => setShowEducationLevelDropdown(!showEducationLevelDropdown)}
+                      >
+                        <Text>{formData.educationLevel || 'Sélectionnez un niveau'}</Text>
+                        <FontAwesome5
+                          name={showEducationLevelDropdown ? "chevron-up" : "chevron-down"}
+                          size={14}
+                          color="#6B7280"
+                        />
+                      </TouchableOpacity>
+                      {showEducationLevelDropdown && (
+                        <View style={authModalStyles.dropdown}>
+                          {educationLevels.map((level, index) => (
+                            <TouchableOpacity
+                              key={index}
+                              style={authModalStyles.dropdownItem}
+                              onPress={() => {
+                                handleInputChange('educationLevel', level);
+                                setShowEducationLevelDropdown(false);
+                              }}
+                            >
+                              <Text>{level}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  )}
                 </>
               )}
 
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={handleSignupSubmit}
-              >
-                <Text style={styles.buttonText}>
-                  {signupStep === 1 ? 'Étape suivante' : 'Créer mon compte'}
-                </Text>
-              </TouchableOpacity>
-
-              {signupStep === 2 && (
+              {signupStep === 1 ? (
                 <TouchableOpacity
-                  style={styles.secondaryButton}
-                  onPress={() => setSignupStep(1)}
+                  style={styles.primaryButton}
+                  onPress={handleSignupSubmit}
                 >
-                  <Text style={styles.secondaryButtonText}>Retour</Text>
+                  <FontAwesome5 name="arrow-right" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.buttonText}>Étape suivante</Text>
                 </TouchableOpacity>
+              ) : (
+                <View style={authModalStyles.buttonRow}>
+                  <TouchableOpacity
+                    style={[styles.secondaryButton, authModalStyles.backButton]}
+                    onPress={() => setSignupStep(1)}
+                  >
+                    <FontAwesome5 name="arrow-left" size={16} color="#111827" style={{ marginRight: 8 }} />
+                    <Text style={styles.secondaryButtonText}>Retour</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.primaryButton, authModalStyles.createButton]}
+                    onPress={handleSignupSubmit}
+                  >
+                    <FontAwesome5 name="user-plus" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.buttonText}>Créer</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
           )}
@@ -386,6 +485,44 @@ const authModalStyles = StyleSheet.create({
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
+  },
+  requiredField: {
+    color: '#111827',
+    fontWeight: '500',
+  },
+  fileUploadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingHorizontal: 12,
+  },
+  fileUploadText: {
+    marginLeft: 8,
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  signinButton: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
+  backButton: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  createButton: {
+    flex: 1.2,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
