@@ -1,18 +1,86 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   ScrollView,
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  Animated,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 
 const DashboardMainBody = () => {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const rotationAnim = useRef(new Animated.Value(0)).current;
+
   const handleMessagePress = () => {
     console.log("Opening messages...");
     // Add your message navigation logic here
   };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+
+    // Start rotation animation
+    const rotateAnimation = Animated.loop(
+      Animated.timing(rotationAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      })
+    );
+
+    rotateAnimation.start();
+
+    // Simulate loading time
+    setTimeout(() => {
+      setIsRefreshing(false);
+      rotateAnimation.stop();
+      rotationAnim.setValue(0);
+      console.log("Dashboard refreshed");
+    }, 2000);
+  };
+
+  const spin = rotationAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+
+  // Sample recent activities data
+  const recentActivities = [
+    {
+      id: 1,
+      type: "course",
+      title: "Nouveau cours de Mathématiques ajouté",
+      time: "Il y a 2h",
+      icon: "book-open",
+      color: "#4F46E5",
+    },
+    {
+      id: 2,
+      type: "exercise",
+      title: "Exercice de Physique soumis par Marie",
+      time: "Il y a 4h",
+      icon: "clipboard-list",
+      color: "#10B981",
+    },
+    {
+      id: 3,
+      type: "student",
+      title: "3 nouveaux élèves inscrits",
+      time: "Il y a 6h",
+      icon: "user-plus",
+      color: "#8B5CF6",
+    },
+    {
+      id: 4,
+      type: "scheduled",
+      title: "Cours de Français programmé pour demain",
+      time: "Il y a 1 jour",
+      icon: "calendar-plus",
+      color: "#F97316",
+    },
+  ];
 
   return (
     <View style={mainBodyStyles.container}>
@@ -20,78 +88,156 @@ const DashboardMainBody = () => {
         {/* Welcome Section */}
         <View style={mainBodyStyles.welcomeSection}>
           <Text style={mainBodyStyles.welcomeText}>Bienvenue Mr Simo</Text>
-          <TouchableOpacity style={mainBodyStyles.updateButton}>
-            <Text style={mainBodyStyles.updateButtonText}>Actualiser</Text>
+          <TouchableOpacity
+            style={mainBodyStyles.refreshButton}
+            onPress={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <Animated.View style={{ transform: [{ rotate: spin }] }}>
+              <FontAwesome5 name="sync-alt" size={18} color="#4F46E5" />
+            </Animated.View>
           </TouchableOpacity>
         </View>
+
         {/* Dashboard Description */}
         <Text style={mainBodyStyles.dashboardDescription}>
           Tableau de bord de gestion de la plateforme
         </Text>
+
         {/* Statistics Grid */}
         <View style={mainBodyStyles.statsGrid}>
-          {/* Total Users */}
-          <View
-            style={[mainBodyStyles.statCard, mainBodyStyles.totalUsersCard]}
-          >
-            <View style={mainBodyStyles.statHeader}>
-              <FontAwesome5 name="users" size={20} color="#4F46E5" />
-              <Text style={mainBodyStyles.statGrowth}>+12% ce mois</Text>
-            </View>
-            <Text style={mainBodyStyles.statNumber}>16</Text>
-            <Text style={mainBodyStyles.statTitle}>Total Utilisateurs</Text>
-            <Text style={mainBodyStyles.statSubtitle}>
-              Tous les utilisateurs
-            </Text>
-          </View>
-          {/* Teachers */}
-          <View style={[mainBodyStyles.statCard, mainBodyStyles.teachersCard]}>
-            <View style={mainBodyStyles.statHeader}>
-              <FontAwesome5
-                name="chalkboard-teacher"
-                size={20}
-                color="#10B981"
-              />
-              <Text style={mainBodyStyles.statGrowth}>+8% ce mois</Text>
-            </View>
-            <Text style={mainBodyStyles.statNumber}>4</Text>
-            <Text style={mainBodyStyles.statTitle}>Professeurs</Text>
-            <Text style={mainBodyStyles.statSubtitle}>3 actifs</Text>
-          </View>
-          {/* Classes */}
+          {/* Classes and Students */}
           <View style={[mainBodyStyles.statCard, mainBodyStyles.classesCard]}>
             <View style={mainBodyStyles.statHeader}>
-              <FontAwesome5 name="door-open" size={20} color="#8B5CF6" />
-              <Text style={mainBodyStyles.statGrowth}>+15% ce mois</Text>
+              <FontAwesome5 name="door-open" size={20} color="#4F46E5" />
+              <Text style={mainBodyStyles.statNumber}>12</Text>
             </View>
-            <Text style={mainBodyStyles.statNumber}>6</Text>
             <Text style={mainBodyStyles.statTitle}>Classes</Text>
-            <Text style={mainBodyStyles.statSubtitle}>2 actives</Text>
+            <Text style={mainBodyStyles.statSubtitle}>248 élèves</Text>
           </View>
-          {/* Establishments */}
-          <View
-            style={[mainBodyStyles.statCard, mainBodyStyles.establishmentsCard]}
-          >
+
+          {/* Cours and Scheduled Cours */}
+          <View style={[mainBodyStyles.statCard, mainBodyStyles.coursCard]}>
             <View style={mainBodyStyles.statHeader}>
-              <FontAwesome5 name="building" size={20} color="#F97316" />
-              <Text style={mainBodyStyles.statGrowth}>+5% ce mois</Text>
+              <FontAwesome5 name="book-open" size={20} color="#10B981" />
+              <Text style={mainBodyStyles.statNumber}>34</Text>
             </View>
-            <Text style={mainBodyStyles.statNumber}>2</Text>
-            <Text style={mainBodyStyles.statTitle}>Établissements</Text>
-            <Text style={mainBodyStyles.statSubtitle}>1 actif</Text>
+            <Text style={mainBodyStyles.statTitle}>Cours</Text>
+            <Text style={mainBodyStyles.statSubtitle}>15 programmés</Text>
+          </View>
+
+          {/* Exercises */}
+          <View style={[mainBodyStyles.statCard, mainBodyStyles.exercisesCard]}>
+            <View style={mainBodyStyles.statHeader}>
+              <FontAwesome5 name="clipboard-list" size={20} color="#8B5CF6" />
+              <Text style={mainBodyStyles.statNumber}>87</Text>
+            </View>
+            <Text style={mainBodyStyles.statTitle}>Exercices</Text>
+            <Text style={mainBodyStyles.statSubtitle}>23 en attente</Text>
+          </View>
+
+          {/* Subjects */}
+          <View style={[mainBodyStyles.statCard, mainBodyStyles.subjectsCard]}>
+            <View style={mainBodyStyles.statHeader}>
+              <FontAwesome5 name="graduation-cap" size={20} color="#F97316" />
+              <Text style={mainBodyStyles.statNumber}>8</Text>
+            </View>
+            <Text style={mainBodyStyles.statTitle}>Matières</Text>
+            <Text style={mainBodyStyles.statSubtitle}>6 actives</Text>
           </View>
         </View>
-        {/* User Distribution Chart */}
-        <View style={mainBodyStyles.chartSection}>
-          <Text style={mainBodyStyles.chartTitle}>
-            Répartition des Utilisateurs
-          </Text>
-          <View style={mainBodyStyles.chartContainer}>
-            <Text style={mainBodyStyles.chartPlaceholder}>
-              Graphique en secteurs sera affiché ici
-            </Text>
+
+        {/* Student Progress Chart */}
+        <View style={mainBodyStyles.progressSection}>
+          <Text style={mainBodyStyles.sectionTitle}>Progrès des Élèves</Text>
+          <View style={mainBodyStyles.progressContainer}>
+            <View style={mainBodyStyles.progressItem}>
+              <Text style={mainBodyStyles.progressLabel}>Mathématiques</Text>
+              <View style={mainBodyStyles.progressBarContainer}>
+                <View
+                  style={[
+                    mainBodyStyles.progressBar,
+                    { width: "78%", backgroundColor: "#4F46E5" },
+                  ]}
+                />
+              </View>
+              <Text style={mainBodyStyles.progressPercentage}>78%</Text>
+            </View>
+            <View style={mainBodyStyles.progressItem}>
+              <Text style={mainBodyStyles.progressLabel}>Français</Text>
+              <View style={mainBodyStyles.progressBarContainer}>
+                <View
+                  style={[
+                    mainBodyStyles.progressBar,
+                    { width: "65%", backgroundColor: "#10B981" },
+                  ]}
+                />
+              </View>
+              <Text style={mainBodyStyles.progressPercentage}>65%</Text>
+            </View>
+            <View style={mainBodyStyles.progressItem}>
+              <Text style={mainBodyStyles.progressLabel}>Sciences</Text>
+              <View style={mainBodyStyles.progressBarContainer}>
+                <View
+                  style={[
+                    mainBodyStyles.progressBar,
+                    { width: "82%", backgroundColor: "#8B5CF6" },
+                  ]}
+                />
+              </View>
+              <Text style={mainBodyStyles.progressPercentage}>82%</Text>
+            </View>
+            <View style={mainBodyStyles.progressItem}>
+              <Text style={mainBodyStyles.progressLabel}>Histoire</Text>
+              <View style={mainBodyStyles.progressBarContainer}>
+                <View
+                  style={[
+                    mainBodyStyles.progressBar,
+                    { width: "71%", backgroundColor: "#F97316" },
+                  ]}
+                />
+              </View>
+              <Text style={mainBodyStyles.progressPercentage}>71%</Text>
+            </View>
           </View>
         </View>
+
+        {/* Recent Activities */}
+        <View style={mainBodyStyles.activitiesSection}>
+          <View style={mainBodyStyles.sectionHeader}>
+            <Text style={mainBodyStyles.sectionTitle}>Activités Récentes</Text>
+            <TouchableOpacity>
+              <Text style={mainBodyStyles.seeAllText}>Voir tout</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={mainBodyStyles.activitiesContainer}>
+            {recentActivities.map((activity) => (
+              <View key={activity.id} style={mainBodyStyles.activityItem}>
+                <View
+                  style={[
+                    mainBodyStyles.activityIcon,
+                    { backgroundColor: activity.color },
+                  ]}
+                >
+                  <FontAwesome5
+                    name={activity.icon}
+                    size={14}
+                    color="#FFFFFF"
+                  />
+                </View>
+                <View style={mainBodyStyles.activityContent}>
+                  <Text style={mainBodyStyles.activityTitle}>
+                    {activity.title}
+                  </Text>
+                  <Text style={mainBodyStyles.activityTime}>
+                    {activity.time}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+
         {/* Extra space for bottom navigation */}
         <View style={{ height: 80 }} />
       </ScrollView>
@@ -128,16 +274,15 @@ const mainBodyStyles = StyleSheet.create({
     fontWeight: "bold",
     color: "#111827",
   },
-  updateButton: {
-    backgroundColor: "#4F46E5",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  refreshButton: {
+    width: 40,
+    height: 40,
     borderRadius: 20,
-  },
-  updateButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
+    backgroundColor: "#F3F4F6",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   dashboardDescription: {
     fontSize: 14,
@@ -165,7 +310,7 @@ const mainBodyStyles = StyleSheet.create({
   statHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
+    alignItems: "center",
     marginBottom: 12,
   },
   statGrowth: {
@@ -177,7 +322,6 @@ const mainBodyStyles = StyleSheet.create({
     fontSize: 28,
     fontWeight: "bold",
     color: "#111827",
-    marginBottom: 4,
   },
   statTitle: {
     fontSize: 14,
@@ -189,23 +333,23 @@ const mainBodyStyles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
   },
-  totalUsersCard: {
+  classesCard: {
     borderLeftWidth: 4,
     borderLeftColor: "#4F46E5",
   },
-  teachersCard: {
+  coursCard: {
     borderLeftWidth: 4,
     borderLeftColor: "#10B981",
   },
-  classesCard: {
+  exercisesCard: {
     borderLeftWidth: 4,
     borderLeftColor: "#8B5CF6",
   },
-  establishmentsCard: {
+  subjectsCard: {
     borderLeftWidth: 4,
     borderLeftColor: "#F97316",
   },
-  chartSection: {
+  progressSection: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
@@ -216,21 +360,94 @@ const mainBodyStyles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 2,
   },
-  chartTitle: {
+  sectionTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#111827",
     marginBottom: 16,
   },
-  chartContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    height: 200,
+  progressContainer: {
+    gap: 12,
   },
-  chartPlaceholder: {
+  progressItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  progressLabel: {
     fontSize: 14,
+    color: "#374151",
+    width: 80,
+    fontWeight: "500",
+  },
+  progressBarContainer: {
+    flex: 1,
+    height: 8,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressBar: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  progressPercentage: {
+    fontSize: 12,
     color: "#6B7280",
-    textAlign: "center",
+    fontWeight: "600",
+    width: 35,
+    textAlign: "right",
+  },
+  activitiesSection: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  seeAllText: {
+    fontSize: 14,
+    color: "#4F46E5",
+    fontWeight: "500",
+  },
+  activitiesContainer: {
+    gap: 12,
+  },
+  activityItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  activityIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 2,
+  },
+  activityContent: {
+    flex: 1,
+  },
+  activityTitle: {
+    fontSize: 14,
+    color: "#111827",
+    fontWeight: "500",
+    marginBottom: 2,
+  },
+  activityTime: {
+    fontSize: 12,
+    color: "#6B7280",
   },
   floatingButton: {
     position: "absolute",
