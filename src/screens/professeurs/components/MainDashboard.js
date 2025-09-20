@@ -7,13 +7,33 @@ import DashboardStatsBody from "./DashboardStatsBody";
 import DashboardUsersBody from "./DashboardUsersBody";
 import DashboardActivitiesBody from "./DashboardActivitiesBody";
 import DashboardCoursBody from "./cours/DashboardCoursBody";
+import CreateCoursBody from "./cours/CreateCoursBody";
 
 const MainDashboard = ({ navigation, onLogout }) => {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [coursViewMode, setCoursViewMode] = useState("list"); // 'list' or 'create'
+  const [coursData, setCoursData] = useState([]);
 
   const handleTabPress = (tabId) => {
     setActiveTab(tabId);
+    // Reset cours view mode when switching tabs
+    if (tabId !== "cours") {
+      setCoursViewMode("list");
+    }
     console.log(`Switched to ${tabId} tab`);
+  };
+
+  const handleNavigateToCreateCours = () => {
+    setCoursViewMode("create");
+  };
+
+  const handleBackToCourssList = () => {
+    setCoursViewMode("list");
+  };
+
+  const handleCreateCours = (newCours) => {
+    setCoursData((prev) => [newCours, ...prev]);
+    setCoursViewMode("list");
   };
 
   // Function to render the appropriate body component based on active tab
@@ -21,10 +41,27 @@ const MainDashboard = ({ navigation, onLogout }) => {
     switch (activeTab) {
       case "dashboard":
         return <DashboardMainBody />;
+
       case "activities":
         return <DashboardActivitiesBody />;
+
       case "cours":
-        return <DashboardCoursBody />;
+        if (coursViewMode === "create") {
+          return (
+            <CreateCoursBody
+              onBack={handleBackToCourssList}
+              onCreateCours={handleCreateCours}
+            />
+          );
+        } else {
+          return (
+            <DashboardCoursBody
+              onNavigateToCreate={handleNavigateToCreateCours}
+              onCreateCours={handleCreateCours}
+            />
+          );
+        }
+
       case "class":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
@@ -33,6 +70,7 @@ const MainDashboard = ({ navigation, onLogout }) => {
             </Text>
           </View>
         );
+
       case "settings":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
@@ -41,11 +79,14 @@ const MainDashboard = ({ navigation, onLogout }) => {
             </Text>
           </View>
         );
+
       // Keep the old tabs for backward compatibility
       case "stats":
         return <DashboardStatsBody />;
+
       case "users":
         return <DashboardUsersBody />;
+
       case "trophy":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
@@ -54,6 +95,7 @@ const MainDashboard = ({ navigation, onLogout }) => {
             </Text>
           </View>
         );
+
       default:
         return <DashboardMainBody />;
     }
