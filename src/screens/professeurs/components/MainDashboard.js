@@ -5,6 +5,8 @@ import DashboardBottomNav from "./DashboardBottomNav";
 import DashboardMainBody from "./DashboardMainBody";
 import DashboardStatsBody from "./DashboardStatsBody";
 import DashboardUsersBody from "./DashboardUsersBody";
+import DashboardActivitiesBody from "./DashboardActivitiesBody";
+import DashboardCoursBody from "./cours/DashboardCoursBody";
 
 const MainDashboard = ({ navigation, onLogout }) => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -20,21 +22,9 @@ const MainDashboard = ({ navigation, onLogout }) => {
       case "dashboard":
         return <DashboardMainBody />;
       case "activities":
-        return (
-          <View style={mainDashboardStyles.placeholderContainer}>
-            <Text style={mainDashboardStyles.placeholderText}>
-              Activités - À venir
-            </Text>
-          </View>
-        );
+        return <DashboardActivitiesBody />;
       case "cours":
-        return (
-          <View style={mainDashboardStyles.placeholderContainer}>
-            <Text style={mainDashboardStyles.placeholderText}>
-              Cours - À venir
-            </Text>
-          </View>
-        );
+        return <DashboardCoursBody />;
       case "class":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
