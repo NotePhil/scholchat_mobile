@@ -1,12 +1,10 @@
 import React, { useState } from "react";
-import { Text } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import DashboardHeader from "./DashboardHeader";
 import DashboardBottomNav from "./DashboardBottomNav";
 import DashboardMainBody from "./DashboardMainBody";
 import DashboardStatsBody from "./DashboardStatsBody";
 import DashboardUsersBody from "./DashboardUsersBody";
-// import React, { useState } from "react";
-import { View, StyleSheet } from "react-native";
 
 const MainDashboard = ({ navigation, onLogout }) => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -21,6 +19,39 @@ const MainDashboard = ({ navigation, onLogout }) => {
     switch (activeTab) {
       case "dashboard":
         return <DashboardMainBody />;
+      case "activities":
+        return (
+          <View style={mainDashboardStyles.placeholderContainer}>
+            <Text style={mainDashboardStyles.placeholderText}>
+              Activités - À venir
+            </Text>
+          </View>
+        );
+      case "cours":
+        return (
+          <View style={mainDashboardStyles.placeholderContainer}>
+            <Text style={mainDashboardStyles.placeholderText}>
+              Cours - À venir
+            </Text>
+          </View>
+        );
+      case "class":
+        return (
+          <View style={mainDashboardStyles.placeholderContainer}>
+            <Text style={mainDashboardStyles.placeholderText}>
+              Classes - À venir
+            </Text>
+          </View>
+        );
+      case "settings":
+        return (
+          <View style={mainDashboardStyles.placeholderContainer}>
+            <Text style={mainDashboardStyles.placeholderText}>
+              Paramètres - À venir
+            </Text>
+          </View>
+        );
+      // Keep the old tabs for backward compatibility
       case "stats":
         return <DashboardStatsBody />;
       case "users":
@@ -30,22 +61,6 @@ const MainDashboard = ({ navigation, onLogout }) => {
           <View style={mainDashboardStyles.placeholderContainer}>
             <Text style={mainDashboardStyles.placeholderText}>
               Trophées et Récompenses - À venir
-            </Text>
-          </View>
-        );
-      case "chat":
-        return (
-          <View style={mainDashboardStyles.placeholderContainer}>
-            <Text style={mainDashboardStyles.placeholderText}>
-              Messages et Communications - À venir
-            </Text>
-          </View>
-        );
-      case "settings":
-        return (
-          <View style={mainDashboardStyles.placeholderContainer}>
-            <Text style={mainDashboardStyles.placeholderText}>
-              Paramètres et Configuration - À venir
             </Text>
           </View>
         );

@@ -9,90 +9,109 @@ import {
 import { FontAwesome5 } from "@expo/vector-icons";
 
 const DashboardMainBody = () => {
+  const handleMessagePress = () => {
+    console.log("Opening messages...");
+    // Add your message navigation logic here
+  };
+
   return (
-    <ScrollView style={mainBodyStyles.content}>
-      {/* Welcome Section */}
-      <View style={mainBodyStyles.welcomeSection}>
-        <Text style={mainBodyStyles.welcomeText}>Bienvenue Mr Simo</Text>
-        <TouchableOpacity style={mainBodyStyles.updateButton}>
-          <Text style={mainBodyStyles.updateButtonText}>Actualiser</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Dashboard Description */}
-      <Text style={mainBodyStyles.dashboardDescription}>
-        Tableau de bord de gestion de la plateforme
-      </Text>
-
-      {/* Statistics Grid */}
-      <View style={mainBodyStyles.statsGrid}>
-        {/* Total Users */}
-        <View style={[mainBodyStyles.statCard, mainBodyStyles.totalUsersCard]}>
-          <View style={mainBodyStyles.statHeader}>
-            <FontAwesome5 name="users" size={20} color="#4F46E5" />
-            <Text style={mainBodyStyles.statGrowth}>+12% ce mois</Text>
-          </View>
-          <Text style={mainBodyStyles.statNumber}>16</Text>
-          <Text style={mainBodyStyles.statTitle}>Total Utilisateurs</Text>
-          <Text style={mainBodyStyles.statSubtitle}>Tous les utilisateurs</Text>
+    <View style={mainBodyStyles.container}>
+      <ScrollView style={mainBodyStyles.content}>
+        {/* Welcome Section */}
+        <View style={mainBodyStyles.welcomeSection}>
+          <Text style={mainBodyStyles.welcomeText}>Bienvenue Mr Simo</Text>
+          <TouchableOpacity style={mainBodyStyles.updateButton}>
+            <Text style={mainBodyStyles.updateButtonText}>Actualiser</Text>
+          </TouchableOpacity>
         </View>
-
-        {/* Teachers */}
-        <View style={[mainBodyStyles.statCard, mainBodyStyles.teachersCard]}>
-          <View style={mainBodyStyles.statHeader}>
-            <FontAwesome5 name="chalkboard-teacher" size={20} color="#10B981" />
-            <Text style={mainBodyStyles.statGrowth}>+8% ce mois</Text>
-          </View>
-          <Text style={mainBodyStyles.statNumber}>4</Text>
-          <Text style={mainBodyStyles.statTitle}>Professeurs</Text>
-          <Text style={mainBodyStyles.statSubtitle}>3 actifs</Text>
-        </View>
-
-        {/* Classes */}
-        <View style={[mainBodyStyles.statCard, mainBodyStyles.classesCard]}>
-          <View style={mainBodyStyles.statHeader}>
-            <FontAwesome5 name="door-open" size={20} color="#8B5CF6" />
-            <Text style={mainBodyStyles.statGrowth}>+15% ce mois</Text>
-          </View>
-          <Text style={mainBodyStyles.statNumber}>6</Text>
-          <Text style={mainBodyStyles.statTitle}>Classes</Text>
-          <Text style={mainBodyStyles.statSubtitle}>2 actives</Text>
-        </View>
-
-        {/* Establishments */}
-        <View
-          style={[mainBodyStyles.statCard, mainBodyStyles.establishmentsCard]}
-        >
-          <View style={mainBodyStyles.statHeader}>
-            <FontAwesome5 name="building" size={20} color="#F97316" />
-            <Text style={mainBodyStyles.statGrowth}>+5% ce mois</Text>
-          </View>
-          <Text style={mainBodyStyles.statNumber}>2</Text>
-          <Text style={mainBodyStyles.statTitle}>Établissements</Text>
-          <Text style={mainBodyStyles.statSubtitle}>1 actif</Text>
-        </View>
-      </View>
-
-      {/* User Distribution Chart */}
-      <View style={mainBodyStyles.chartSection}>
-        <Text style={mainBodyStyles.chartTitle}>
-          Répartition des Utilisateurs
+        {/* Dashboard Description */}
+        <Text style={mainBodyStyles.dashboardDescription}>
+          Tableau de bord de gestion de la plateforme
         </Text>
-        <View style={mainBodyStyles.chartContainer}>
-          <Text style={mainBodyStyles.chartPlaceholder}>
-            Graphique en secteurs sera affiché ici
-          </Text>
-          {/* You can add PieChart component here when react-native-chart-kit is installed */}
+        {/* Statistics Grid */}
+        <View style={mainBodyStyles.statsGrid}>
+          {/* Total Users */}
+          <View
+            style={[mainBodyStyles.statCard, mainBodyStyles.totalUsersCard]}
+          >
+            <View style={mainBodyStyles.statHeader}>
+              <FontAwesome5 name="users" size={20} color="#4F46E5" />
+              <Text style={mainBodyStyles.statGrowth}>+12% ce mois</Text>
+            </View>
+            <Text style={mainBodyStyles.statNumber}>16</Text>
+            <Text style={mainBodyStyles.statTitle}>Total Utilisateurs</Text>
+            <Text style={mainBodyStyles.statSubtitle}>
+              Tous les utilisateurs
+            </Text>
+          </View>
+          {/* Teachers */}
+          <View style={[mainBodyStyles.statCard, mainBodyStyles.teachersCard]}>
+            <View style={mainBodyStyles.statHeader}>
+              <FontAwesome5
+                name="chalkboard-teacher"
+                size={20}
+                color="#10B981"
+              />
+              <Text style={mainBodyStyles.statGrowth}>+8% ce mois</Text>
+            </View>
+            <Text style={mainBodyStyles.statNumber}>4</Text>
+            <Text style={mainBodyStyles.statTitle}>Professeurs</Text>
+            <Text style={mainBodyStyles.statSubtitle}>3 actifs</Text>
+          </View>
+          {/* Classes */}
+          <View style={[mainBodyStyles.statCard, mainBodyStyles.classesCard]}>
+            <View style={mainBodyStyles.statHeader}>
+              <FontAwesome5 name="door-open" size={20} color="#8B5CF6" />
+              <Text style={mainBodyStyles.statGrowth}>+15% ce mois</Text>
+            </View>
+            <Text style={mainBodyStyles.statNumber}>6</Text>
+            <Text style={mainBodyStyles.statTitle}>Classes</Text>
+            <Text style={mainBodyStyles.statSubtitle}>2 actives</Text>
+          </View>
+          {/* Establishments */}
+          <View
+            style={[mainBodyStyles.statCard, mainBodyStyles.establishmentsCard]}
+          >
+            <View style={mainBodyStyles.statHeader}>
+              <FontAwesome5 name="building" size={20} color="#F97316" />
+              <Text style={mainBodyStyles.statGrowth}>+5% ce mois</Text>
+            </View>
+            <Text style={mainBodyStyles.statNumber}>2</Text>
+            <Text style={mainBodyStyles.statTitle}>Établissements</Text>
+            <Text style={mainBodyStyles.statSubtitle}>1 actif</Text>
+          </View>
         </View>
-      </View>
+        {/* User Distribution Chart */}
+        <View style={mainBodyStyles.chartSection}>
+          <Text style={mainBodyStyles.chartTitle}>
+            Répartition des Utilisateurs
+          </Text>
+          <View style={mainBodyStyles.chartContainer}>
+            <Text style={mainBodyStyles.chartPlaceholder}>
+              Graphique en secteurs sera affiché ici
+            </Text>
+          </View>
+        </View>
+        {/* Extra space for bottom navigation */}
+        <View style={{ height: 80 }} />
+      </ScrollView>
 
-      {/* Extra space for bottom navigation */}
-      <View style={{ height: 80 }} />
-    </ScrollView>
+      {/* Floating Action Button for Messages */}
+      <TouchableOpacity
+        style={mainBodyStyles.floatingButton}
+        onPress={handleMessagePress}
+      >
+        <FontAwesome5 name="comments" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
+    </View>
   );
 };
 
 const mainBodyStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    position: "relative",
+  },
   content: {
     flex: 1,
     paddingHorizontal: 16,
@@ -212,6 +231,22 @@ const mainBodyStyles = StyleSheet.create({
     fontSize: 14,
     color: "#6B7280",
     textAlign: "center",
+  },
+  floatingButton: {
+    position: "absolute",
+    bottom: 120,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#4F46E5",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
 });
 

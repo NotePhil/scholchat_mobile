@@ -6,8 +6,8 @@ const DashboardHeader = ({ onLogout }) => {
   return (
     <View style={headerStyles.header}>
       <View style={headerStyles.headerLeft}>
-        <View style={headerStyles.logoContainer}>
-          <Text style={headerStyles.logoText}>S</Text>
+        <View style={headerStyles.userAvatarContainer}>
+          <Text style={headerStyles.userInitial}>P</Text>
         </View>
         <View style={headerStyles.headerInfo}>
           <Text style={headerStyles.appName}>SchoolChat</Text>
@@ -21,13 +21,8 @@ const DashboardHeader = ({ onLogout }) => {
             <Text style={headerStyles.notificationText}>3</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={headerStyles.profileContainer}
-          onPress={onLogout}
-        >
-          <View style={headerStyles.profileAvatar}>
-            <Text style={headerStyles.profileInitial}>P</Text>
-          </View>
+        <TouchableOpacity style={headerStyles.logoutButton} onPress={onLogout}>
+          <FontAwesome5 name="sign-out-alt" size={18} color="#6B7280" />
         </TouchableOpacity>
       </View>
     </View>
@@ -60,6 +55,20 @@ const headerStyles = StyleSheet.create({
     marginRight: 12,
   },
   logoText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  userAvatarContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#EC4899",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  userInitial: {
     color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "bold",
@@ -121,6 +130,10 @@ const headerStyles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "bold",
+  },
+  logoutButton: {
+    padding: 8,
+    marginLeft: 8,
   },
 });
 

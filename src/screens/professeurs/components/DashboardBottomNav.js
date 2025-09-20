@@ -5,13 +5,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
   const insets = useSafeAreaInsets();
+
   const navItems = [
-    { id: "trophy", icon: "trophy" },
-    { id: "stats", icon: "chart-bar" },
-    { id: "dashboard", icon: "th-large" },
-    { id: "users", icon: "users" },
-    { id: "chat", icon: "comments" },
-    { id: "settings", icon: "cog" },
+    { id: "activities", icon: "tasks" }, // Activités
+    { id: "cours", icon: "book-open" }, // Cours
+    { id: "dashboard", icon: "th-large" }, // Tableau de bord
+    { id: "class", icon: "door-open" }, // Class
+    { id: "settings", icon: "cog" }, // Paramètres
   ];
 
   const handleTabPress = (tabId) => {
@@ -21,9 +21,7 @@ const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
   };
 
   return (
-    <View
-      style={[bottomNavStyles.bottomNav, { paddingBottom: insets.bottom + 12 }]}
-    >
+    <View style={[bottomNavStyles.bottomNav, { paddingBottom: insets.bottom }]}>
       {navItems.map((item) => (
         <TouchableOpacity
           key={item.id}
@@ -54,7 +52,7 @@ const bottomNavStyles = StyleSheet.create({
     justifyContent: "space-around",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    paddingVertical: 12,
+    paddingVertical: 4,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
   },
