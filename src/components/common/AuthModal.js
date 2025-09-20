@@ -1,58 +1,76 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet } from 'react-native';
-import { FontAwesome5 } from '@expo/vector-icons';
-import { styles } from '../../styles/globalStyles';
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  Modal,
+  StyleSheet,
+} from "react-native";
+import { FontAwesome5 } from "@expo/vector-icons";
+import { styles } from "../../styles/globalStyles";
 
 const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
-  const [authMode, setAuthMode] = useState('signin');
+  const [authMode, setAuthMode] = useState("signin");
   const [signupStep, setSignupStep] = useState(1);
   const [rememberMe, setRememberMe] = useState(false);
-  const [userType, setUserType] = useState('');
+  const [userType, setUserType] = useState("");
   const [showUserTypeDropdown, setShowUserTypeDropdown] = useState(false);
-  const [showEducationLevelDropdown, setShowEducationLevelDropdown] = useState(false);
-
+  const [showEducationLevelDropdown, setShowEducationLevelDropdown] =
+    useState(false);
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-    address: '',
-    password: '',
-    confirmPassword: '',
-    userType: '',
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    address: "",
+    password: "",
+    confirmPassword: "",
+    userType: "",
     cniRecto: null,
     cniVerso: null,
     profilePhoto: null,
-    teacherMatricule: '',
-    educationLevel: ''
+    teacherMatricule: "",
+    educationLevel: "",
   });
 
   const handleInputChange = (name, value) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
   };
 
   const handleFileUpload = (fieldName) => {
     console.log(`File upload for ${fieldName} - would open file picker`);
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [fieldName]: 'file_selected.jpg'
+      [fieldName]: "file_selected.jpg",
     }));
+  };
+
+  const handleSignIn = () => {
+    console.log("Sign in attempt with:", {
+      email: formData.email,
+      password: formData.password,
+    });
+
+    // Here you would normally validate credentials
+    // For now, we'll just navigate to dashboard
+    onNavigateToDashboard();
   };
 
   const handleSignupSubmit = () => {
     if (signupStep === 1) {
       setSignupStep(2);
     } else {
-      onSignUp({...formData, userType});
+      onSignUp({ ...formData, userType });
       setSignupStep(1);
     }
   };
 
-  const userTypes = ['Professeur', 'Élève', 'Parent'];
-  const educationLevels = ['Primaire', 'Collège', 'Lycée', 'Université'];
+  const userTypes = ["Professeur", "Élève", "Parent"];
+  const educationLevels = ["Primaire", "Collège", "Lycée", "Université"];
 
   return (
     <Modal
@@ -63,10 +81,7 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
     >
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.modalCloseButton}
-            onPress={onClose}
-          >
+          <TouchableOpacity style={styles.modalCloseButton} onPress={onClose}>
             <FontAwesome5 name="times" size={20} color="#6B7280" />
           </TouchableOpacity>
 
@@ -74,34 +89,38 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
             <TouchableOpacity
               style={[
                 styles.authTab,
-                authMode === 'signin' && styles.activeAuthTab
+                authMode === "signin" && styles.activeAuthTab,
               ]}
-              onPress={() => setAuthMode('signin')}
+              onPress={() => setAuthMode("signin")}
             >
-              <Text style={[
-                styles.authTabText,
-                authMode === 'signin' && styles.activeAuthTabText
-              ]}>
+              <Text
+                style={[
+                  styles.authTabText,
+                  authMode === "signin" && styles.activeAuthTabText,
+                ]}
+              >
                 Connexion
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
                 styles.authTab,
-                authMode === 'signup' && styles.activeAuthTab
+                authMode === "signup" && styles.activeAuthTab,
               ]}
-              onPress={() => setAuthMode('signup')}
+              onPress={() => setAuthMode("signup")}
             >
-              <Text style={[
-                styles.authTabText,
-                authMode === 'signup' && styles.activeAuthTabText
-              ]}>
+              <Text
+                style={[
+                  styles.authTabText,
+                  authMode === "signup" && styles.activeAuthTabText,
+                ]}
+              >
                 Inscription
               </Text>
             </TouchableOpacity>
           </View>
 
-          {authMode === 'signin' ? (
+          {authMode === "signin" ? (
             <View style={styles.authForm}>
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Email</Text>
@@ -109,18 +128,19 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                   style={styles.input}
                   placeholder="Entrez votre email"
                   value={formData.email}
-                  onChangeText={(text) => handleInputChange('email', text)}
+                  onChangeText={(text) => handleInputChange("email", text)}
                   keyboardType="email-address"
                   autoCapitalize="none"
                 />
               </View>
+
               <View style={styles.inputContainer}>
                 <Text style={styles.inputLabel}>Mot de passe</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Entrez votre mot de passe"
                   value={formData.password}
-                  onChangeText={(text) => handleInputChange('password', text)}
+                  onChangeText={(text) => handleInputChange("password", text)}
                   secureTextEntry={true}
                 />
               </View>
@@ -135,69 +155,91 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                     size={16}
                     color="#4F46E5"
                   />
-                  <Text style={authModalStyles.rememberMeText}>Se souvenir de moi</Text>
+                  <Text style={authModalStyles.rememberMeText}>
+                    Se souvenir de moi
+                  </Text>
                 </TouchableOpacity>
-
                 <TouchableOpacity>
-                  <Text style={authModalStyles.forgotPassword}>Mot de passe oublié ?</Text>
+                  <Text style={authModalStyles.forgotPassword}>
+                    Mot de passe oublié ?
+                  </Text>
                 </TouchableOpacity>
               </View>
 
- <TouchableOpacity
-  style={[styles.primaryButton, authModalStyles.signinButton]}
-  onPress={() => {
-    onNavigateToDashboard();
-    onClose();
-  }}
->
-  <FontAwesome5 name="sign-in-alt" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
-  <Text style={styles.buttonText}>Se connecter</Text>
-</TouchableOpacity>
-
+              <TouchableOpacity
+                style={[styles.primaryButton, authModalStyles.signinButton]}
+                onPress={handleSignIn}
+              >
+                <FontAwesome5
+                  name="sign-in-alt"
+                  size={16}
+                  color="#FFFFFF"
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.buttonText}>Se connecter</Text>
+              </TouchableOpacity>
 
               <Text style={styles.authSwitchText}>
-                Pas encore de compte?{' '}
+                Pas encore de compte?{" "}
                 <Text
                   style={styles.authSwitchLink}
-                  onPress={() => setAuthMode('signup')}
+                  onPress={() => setAuthMode("signup")}
                 >
                   S'inscrire
                 </Text>
               </Text>
 
               <Text style={authModalStyles.termsText}>
-                En vous connectant, vous acceptez nos{' '}
-                <Text style={authModalStyles.termsLink}>Conditions d'utilisation</Text>{' '}
-                et notre{' '}
-                <Text style={authModalStyles.termsLink}>Politique de confidentialité</Text>
+                En vous connectant, vous acceptez nos{" "}
+                <Text style={authModalStyles.termsLink}>
+                  Conditions d'utilisation
+                </Text>{" "}
+                et notre{" "}
+                <Text style={authModalStyles.termsLink}>
+                  Politique de confidentialité
+                </Text>
               </Text>
             </View>
           ) : (
             <View style={styles.authForm}>
               <View style={authModalStyles.signupProgressContainer}>
                 <View style={authModalStyles.progressNumbers}>
-                  <View style={[
-                    styles.progressStep,
-                    signupStep === 1 && styles.activeProgressStep
-                  ]}>
-                    <Text style={[
-                      styles.progressStepText,
-                      signupStep === 1 && styles.activeProgressStepText
-                    ]}>1</Text>
+                  <View
+                    style={[
+                      styles.progressStep,
+                      signupStep === 1 && styles.activeProgressStep,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.progressStepText,
+                        signupStep === 1 && styles.activeProgressStepText,
+                      ]}
+                    >
+                      1
+                    </Text>
                   </View>
                   <View style={styles.progressLine} />
-                  <View style={[
-                    styles.progressStep,
-                    signupStep === 2 && styles.activeProgressStep
-                  ]}>
-                    <Text style={[
-                      styles.progressStepText,
-                      signupStep === 2 && styles.activeProgressStepText
-                    ]}>2</Text>
+                  <View
+                    style={[
+                      styles.progressStep,
+                      signupStep === 2 && styles.activeProgressStep,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.progressStepText,
+                        signupStep === 2 && styles.activeProgressStepText,
+                      ]}
+                    >
+                      2
+                    </Text>
                   </View>
                 </View>
                 <Text style={authModalStyles.progressLabelRight}>
-                  {signupStep === 1 ? 'Informations personnelles' : 'Détails du compte'}
+                  {signupStep === 1
+                    ? "Informations personnelles"
+                    : "Détails du compte"}
                 </Text>
               </View>
 
@@ -209,29 +251,36 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                       style={styles.input}
                       placeholder="Entrez votre prénom"
                       value={formData.firstName}
-                      onChangeText={(text) => handleInputChange('firstName', text)}
+                      onChangeText={(text) =>
+                        handleInputChange("firstName", text)
+                      }
                     />
                   </View>
+
                   <View style={styles.inputContainer}>
                     <Text style={styles.inputLabel}>Nom</Text>
                     <TextInput
                       style={styles.input}
                       placeholder="Entrez votre nom"
                       value={formData.lastName}
-                      onChangeText={(text) => handleInputChange('lastName', text)}
+                      onChangeText={(text) =>
+                        handleInputChange("lastName", text)
+                      }
                     />
                   </View>
+
                   <View style={styles.inputContainer}>
                     <Text style={styles.inputLabel}>Email</Text>
                     <TextInput
                       style={styles.input}
                       placeholder="Entrez votre email"
                       value={formData.email}
-                      onChangeText={(text) => handleInputChange('email', text)}
+                      onChangeText={(text) => handleInputChange("email", text)}
                       keyboardType="email-address"
                       autoCapitalize="none"
                     />
                   </View>
+
                   <View style={styles.inputContainer}>
                     <Text style={styles.inputLabel}>Numéro de téléphone</Text>
                     <View style={styles.phoneInputContainer}>
@@ -242,18 +291,23 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                         style={[styles.input, styles.phoneInput]}
                         placeholder="Numéro de téléphone"
                         value={formData.phone}
-                        onChangeText={(text) => handleInputChange('phone', text)}
+                        onChangeText={(text) =>
+                          handleInputChange("phone", text)
+                        }
                         keyboardType="phone-pad"
                       />
                     </View>
                   </View>
+
                   <View style={styles.inputContainer}>
                     <Text style={styles.inputLabel}>Adresse</Text>
                     <TextInput
                       style={styles.input}
                       placeholder="Entrez votre adresse"
                       value={formData.address}
-                      onChangeText={(text) => handleInputChange('address', text)}
+                      onChangeText={(text) =>
+                        handleInputChange("address", text)
+                      }
                     />
                   </View>
                 </>
@@ -263,11 +317,15 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                     <Text style={styles.inputLabel}>Type d'utilisateur</Text>
                     <TouchableOpacity
                       style={[styles.input, authModalStyles.dropdownTrigger]}
-                      onPress={() => setShowUserTypeDropdown(!showUserTypeDropdown)}
+                      onPress={() =>
+                        setShowUserTypeDropdown(!showUserTypeDropdown)
+                      }
                     >
-                      <Text>{userType || 'Sélectionnez un type'}</Text>
+                      <Text>{userType || "Sélectionnez un type"}</Text>
                       <FontAwesome5
-                        name={showUserTypeDropdown ? "chevron-up" : "chevron-down"}
+                        name={
+                          showUserTypeDropdown ? "chevron-up" : "chevron-down"
+                        }
                         size={14}
                         color="#6B7280"
                       />
@@ -290,50 +348,95 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                     )}
                   </View>
 
-                  {userType === 'Professeur' && (
+                  {userType === "Professeur" && (
                     <>
                       <View style={styles.inputContainer}>
-                        <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                        <Text
+                          style={[
+                            styles.inputLabel,
+                            authModalStyles.requiredField,
+                          ]}
+                        >
                           CNI Recto *
                         </Text>
                         <TouchableOpacity
-                          style={[styles.input, authModalStyles.fileUploadButton]}
-                          onPress={() => handleFileUpload('cniRecto')}
+                          style={[
+                            styles.input,
+                            authModalStyles.fileUploadButton,
+                          ]}
+                          onPress={() => handleFileUpload("cniRecto")}
                         >
-                          <FontAwesome5 name="upload" size={16} color="#6B7280" />
+                          <FontAwesome5
+                            name="upload"
+                            size={16}
+                            color="#6B7280"
+                          />
                           <Text style={authModalStyles.fileUploadText}>
-                            {formData.cniRecto ? 'Fichier sélectionné' : 'Aucun fichier choisi'}
+                            {formData.cniRecto
+                              ? "Fichier sélectionné"
+                              : "Aucun fichier choisi"}
                           </Text>
                         </TouchableOpacity>
                       </View>
+
                       <View style={styles.inputContainer}>
-                        <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                        <Text
+                          style={[
+                            styles.inputLabel,
+                            authModalStyles.requiredField,
+                          ]}
+                        >
                           CNI Verso *
                         </Text>
                         <TouchableOpacity
-                          style={[styles.input, authModalStyles.fileUploadButton]}
-                          onPress={() => handleFileUpload('cniVerso')}
+                          style={[
+                            styles.input,
+                            authModalStyles.fileUploadButton,
+                          ]}
+                          onPress={() => handleFileUpload("cniVerso")}
                         >
-                          <FontAwesome5 name="upload" size={16} color="#6B7280" />
+                          <FontAwesome5
+                            name="upload"
+                            size={16}
+                            color="#6B7280"
+                          />
                           <Text style={authModalStyles.fileUploadText}>
-                            {formData.cniVerso ? 'Fichier sélectionné' : 'Aucun fichier choisi'}
+                            {formData.cniVerso
+                              ? "Fichier sélectionné"
+                              : "Aucun fichier choisi"}
                           </Text>
                         </TouchableOpacity>
                       </View>
+
                       <View style={styles.inputContainer}>
-                        <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                        <Text
+                          style={[
+                            styles.inputLabel,
+                            authModalStyles.requiredField,
+                          ]}
+                        >
                           Photo de profil *
                         </Text>
                         <TouchableOpacity
-                          style={[styles.input, authModalStyles.fileUploadButton]}
-                          onPress={() => handleFileUpload('profilePhoto')}
+                          style={[
+                            styles.input,
+                            authModalStyles.fileUploadButton,
+                          ]}
+                          onPress={() => handleFileUpload("profilePhoto")}
                         >
-                          <FontAwesome5 name="upload" size={16} color="#6B7280" />
+                          <FontAwesome5
+                            name="upload"
+                            size={16}
+                            color="#6B7280"
+                          />
                           <Text style={authModalStyles.fileUploadText}>
-                            {formData.profilePhoto ? 'Fichier sélectionné' : 'Aucun fichier choisi'}
+                            {formData.profilePhoto
+                              ? "Fichier sélectionné"
+                              : "Aucun fichier choisi"}
                           </Text>
                         </TouchableOpacity>
                       </View>
+
                       <View style={styles.inputContainer}>
                         <Text style={styles.inputLabel}>
                           Matricule du professeur (Optionnel)
@@ -342,24 +445,41 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                           style={styles.input}
                           placeholder="Entrez votre matricule"
                           value={formData.teacherMatricule}
-                          onChangeText={(text) => handleInputChange('teacherMatricule', text)}
+                          onChangeText={(text) =>
+                            handleInputChange("teacherMatricule", text)
+                          }
                         />
                       </View>
                     </>
                   )}
 
-                  {userType === 'Élève' && (
+                  {userType === "Élève" && (
                     <View style={styles.inputContainer}>
-                      <Text style={[styles.inputLabel, authModalStyles.requiredField]}>
+                      <Text
+                        style={[
+                          styles.inputLabel,
+                          authModalStyles.requiredField,
+                        ]}
+                      >
                         Niveau d'éducation *
                       </Text>
                       <TouchableOpacity
                         style={[styles.input, authModalStyles.dropdownTrigger]}
-                        onPress={() => setShowEducationLevelDropdown(!showEducationLevelDropdown)}
+                        onPress={() =>
+                          setShowEducationLevelDropdown(
+                            !showEducationLevelDropdown
+                          )
+                        }
                       >
-                        <Text>{formData.educationLevel || 'Sélectionnez un niveau'}</Text>
+                        <Text>
+                          {formData.educationLevel || "Sélectionnez un niveau"}
+                        </Text>
                         <FontAwesome5
-                          name={showEducationLevelDropdown ? "chevron-up" : "chevron-down"}
+                          name={
+                            showEducationLevelDropdown
+                              ? "chevron-up"
+                              : "chevron-down"
+                          }
                           size={14}
                           color="#6B7280"
                         />
@@ -371,7 +491,7 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                               key={index}
                               style={authModalStyles.dropdownItem}
                               onPress={() => {
-                                handleInputChange('educationLevel', level);
+                                handleInputChange("educationLevel", level);
                                 setShowEducationLevelDropdown(false);
                               }}
                             >
@@ -390,7 +510,12 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                   style={styles.primaryButton}
                   onPress={handleSignupSubmit}
                 >
-                  <FontAwesome5 name="arrow-right" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <FontAwesome5
+                    name="arrow-right"
+                    size={16}
+                    color="#FFFFFF"
+                    style={{ marginRight: 8 }}
+                  />
                   <Text style={styles.buttonText}>Étape suivante</Text>
                 </TouchableOpacity>
               ) : (
@@ -399,15 +524,24 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
                     style={[styles.secondaryButton, authModalStyles.backButton]}
                     onPress={() => setSignupStep(1)}
                   >
-                    <FontAwesome5 name="arrow-left" size={16} color="#111827" style={{ marginRight: 8 }} />
+                    <FontAwesome5
+                      name="arrow-left"
+                      size={16}
+                      color="#111827"
+                      style={{ marginRight: 8 }}
+                    />
                     <Text style={styles.secondaryButtonText}>Retour</Text>
                   </TouchableOpacity>
-
                   <TouchableOpacity
                     style={[styles.primaryButton, authModalStyles.createButton]}
                     onPress={handleSignupSubmit}
                   >
-                    <FontAwesome5 name="user-plus" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <FontAwesome5
+                      name="user-plus"
+                      size={16}
+                      color="#FFFFFF"
+                      style={{ marginRight: 8 }}
+                    />
                     <Text style={styles.buttonText}>Créer</Text>
                   </TouchableOpacity>
                 </View>
@@ -422,107 +556,107 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
 
 const authModalStyles = StyleSheet.create({
   rememberForgotContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 16,
   },
   rememberMe: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   rememberMeText: {
     marginLeft: 8,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   forgotPassword: {
-    color: '#4F46E5',
-    textDecorationLine: 'underline',
+    color: "#4F46E5",
+    textDecorationLine: "underline",
   },
   termsText: {
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: 16,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   termsLink: {
-    color: '#4F46E5',
-    textDecorationLine: 'underline',
+    color: "#4F46E5",
+    textDecorationLine: "underline",
   },
   signupProgressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 24,
   },
   progressNumbers: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   progressLabelRight: {
     fontSize: 12,
-    color: '#6B7280',
-    textAlign: 'right',
+    color: "#6B7280",
+    textAlign: "right",
   },
   dropdownTrigger: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingRight: 12,
   },
   dropdown: {
-    position: 'absolute',
+    position: "absolute",
     top: 60,
     left: 0,
     right: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     zIndex: 10,
     marginTop: 4,
   },
   dropdownItem: {
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   requiredField: {
-    color: '#111827',
-    fontWeight: '500',
+    color: "#111827",
+    fontWeight: "500",
   },
   fileUploadButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
     paddingHorizontal: 12,
   },
   fileUploadText: {
     marginLeft: 8,
-    color: '#6B7280',
+    color: "#6B7280",
     fontSize: 14,
   },
   signinButton: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
   },
   buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     gap: 12,
   },
   backButton: {
     flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
   },
   createButton: {
     flex: 1.2,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
   },
 });
 
