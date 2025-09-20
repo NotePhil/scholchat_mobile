@@ -8,6 +8,7 @@ import DashboardUsersBody from "./DashboardUsersBody";
 import DashboardActivitiesBody from "./DashboardActivitiesBody";
 import DashboardCoursBody from "./cours/DashboardCoursBody";
 import CreateCoursBody from "./cours/CreateCoursBody";
+import DashboardExercisesBody from "./exercise/DashboardExercisesBody";
 
 const MainDashboard = ({ navigation, onLogout }) => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -41,10 +42,8 @@ const MainDashboard = ({ navigation, onLogout }) => {
     switch (activeTab) {
       case "dashboard":
         return <DashboardMainBody />;
-
       case "activities":
         return <DashboardActivitiesBody />;
-
       case "cours":
         if (coursViewMode === "create") {
           return (
@@ -61,7 +60,8 @@ const MainDashboard = ({ navigation, onLogout }) => {
             />
           );
         }
-
+      case "exercises":
+        return <DashboardExercisesBody />;
       case "class":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
@@ -70,7 +70,6 @@ const MainDashboard = ({ navigation, onLogout }) => {
             </Text>
           </View>
         );
-
       case "settings":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
@@ -79,14 +78,11 @@ const MainDashboard = ({ navigation, onLogout }) => {
             </Text>
           </View>
         );
-
       // Keep the old tabs for backward compatibility
       case "stats":
         return <DashboardStatsBody />;
-
       case "users":
         return <DashboardUsersBody />;
-
       case "trophy":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
@@ -95,7 +91,6 @@ const MainDashboard = ({ navigation, onLogout }) => {
             </Text>
           </View>
         );
-
       default:
         return <DashboardMainBody />;
     }

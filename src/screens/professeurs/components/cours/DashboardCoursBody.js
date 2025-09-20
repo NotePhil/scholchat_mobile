@@ -240,21 +240,27 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }) => {
             </Text>
           </View>
 
-          {/* Statistics Cards */}
+          {/* Statistics Cards - Modified Layout */}
           <View style={coursStyles.statsContainer}>
             <View style={[coursStyles.statCard, coursStyles.totalCard]}>
-              <FontAwesome5 name="book" size={24} color="#4F46E5" />
-              <Text style={coursStyles.statNumber}>{totalCours}</Text>
+              <View style={coursStyles.statTopRow}>
+                <FontAwesome5 name="book" size={24} color="#4F46E5" />
+                <Text style={coursStyles.statNumber}>{totalCours}</Text>
+              </View>
               <Text style={coursStyles.statLabel}>Total Cours</Text>
             </View>
             <View style={[coursStyles.statCard, coursStyles.brouillonCard]}>
-              <FontAwesome5 name="edit" size={24} color="#F59E0B" />
-              <Text style={coursStyles.statNumber}>{brouillonCount}</Text>
+              <View style={coursStyles.statTopRow}>
+                <FontAwesome5 name="edit" size={24} color="#F59E0B" />
+                <Text style={coursStyles.statNumber}>{brouillonCount}</Text>
+              </View>
               <Text style={coursStyles.statLabel}>Brouillons</Text>
             </View>
             <View style={[coursStyles.statCard, coursStyles.publieCard]}>
-              <FontAwesome5 name="check-circle" size={24} color="#10B981" />
-              <Text style={coursStyles.statNumber}>{publieCount}</Text>
+              <View style={coursStyles.statTopRow}>
+                <FontAwesome5 name="check-circle" size={24} color="#10B981" />
+                <Text style={coursStyles.statNumber}>{publieCount}</Text>
+              </View>
               <Text style={coursStyles.statLabel}>Publiés</Text>
             </View>
           </View>
@@ -302,7 +308,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }) => {
             />
           </View>
 
-          {/* Cours List */}
+          {/* Cours List - Modified Layout */}
           <View style={coursStyles.coursList}>
             {filteredCours.map((coursItem) => (
               <View key={coursItem.id} style={coursStyles.coursCard}>
@@ -332,31 +338,42 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }) => {
                   <Text style={coursStyles.coursDescription} numberOfLines={2}>
                     {coursItem.description}
                   </Text>
-                  <Text style={coursStyles.coursDate}>
-                    Créé le{" "}
-                    {new Date(coursItem.dateCreation).toLocaleDateString(
-                      "fr-FR"
-                    )}
-                  </Text>
-                </View>
-                {/* Action Buttons */}
-                <View style={coursStyles.actionButtons}>
-                  <TouchableOpacity
-                    style={[coursStyles.actionButton, coursStyles.viewButton]}
-                    onPress={() => handleViewDetails(coursItem)}
-                  >
-                    <FontAwesome5 name="eye" size={16} color="#4F46E5" />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[coursStyles.actionButton, coursStyles.editButton]}
-                  >
-                    <FontAwesome5 name="edit" size={16} color="#F59E0B" />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[coursStyles.actionButton, coursStyles.deleteButton]}
-                  >
-                    <FontAwesome5 name="trash" size={16} color="#EF4444" />
-                  </TouchableOpacity>
+                  {/* Modified Bottom Row: Date and Action Buttons on same line */}
+                  <View style={coursStyles.coursBottomRow}>
+                    <Text style={coursStyles.coursDate}>
+                      Créé le{" "}
+                      {new Date(coursItem.dateCreation).toLocaleDateString(
+                        "fr-FR"
+                      )}
+                    </Text>
+                    <View style={coursStyles.actionButtons}>
+                      <TouchableOpacity
+                        style={[
+                          coursStyles.actionButton,
+                          coursStyles.viewButton,
+                        ]}
+                        onPress={() => handleViewDetails(coursItem)}
+                      >
+                        <FontAwesome5 name="eye" size={16} color="#4F46E5" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          coursStyles.actionButton,
+                          coursStyles.editButton,
+                        ]}
+                      >
+                        <FontAwesome5 name="edit" size={16} color="#F59E0B" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          coursStyles.actionButton,
+                          coursStyles.deleteButton,
+                        ]}
+                      >
+                        <FontAwesome5 name="trash" size={16} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 </View>
               </View>
             ))}
@@ -440,7 +457,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }) => {
           </Animated.View>
         </View>
 
-        {/* Details Modal */}
+        {/* Enhanced Details Modal */}
         <Modal
           visible={showDetailsModal}
           animationType="slide"
@@ -449,8 +466,20 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }) => {
         >
           <View style={coursStyles.modalOverlay}>
             <View style={coursStyles.modalContainer}>
+              {/* Header */}
               <View style={coursStyles.modalHeader}>
-                <Text style={coursStyles.modalTitle}>Détails du Cours</Text>
+                <View style={coursStyles.headerLeft}>
+                  <View style={coursStyles.courseIcon}>
+                    <Text style={coursStyles.courseIconText}>
+                      {selectedCours
+                        ? selectedCours.titre.substring(0, 2).toUpperCase()
+                        : ""}
+                    </Text>
+                  </View>
+                  <Text style={coursStyles.modalTitle}>
+                    {selectedCours ? selectedCours.titre : ""}
+                  </Text>
+                </View>
                 <TouchableOpacity
                   onPress={() => setShowDetailsModal(false)}
                   style={coursStyles.modalCloseButton}
@@ -458,84 +487,223 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }) => {
                   <FontAwesome5 name="times" size={20} color="#6B7280" />
                 </TouchableOpacity>
               </View>
+
+              {/* Tabs */}
+              <View style={coursStyles.tabsContainer}>
+                <TouchableOpacity
+                  style={[coursStyles.tab, coursStyles.activeTab]}
+                >
+                  <Text
+                    style={[coursStyles.tabText, coursStyles.activeTabText]}
+                  >
+                    Détails
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={coursStyles.tab}>
+                  <Text style={coursStyles.tabText}>Documents (0)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={coursStyles.tab}>
+                  <Text style={coursStyles.tabText}>Historique</Text>
+                </TouchableOpacity>
+              </View>
+
               {selectedCours && (
-                <ScrollView style={coursStyles.modalContent}>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>Titre:</Text>
-                    <Text style={coursStyles.detailValue}>
-                      {selectedCours.titre}
-                    </Text>
-                  </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>Description:</Text>
-                    <Text style={coursStyles.detailValue}>
-                      {selectedCours.description}
-                    </Text>
-                  </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>
-                      Date de création:
-                    </Text>
-                    <Text style={coursStyles.detailValue}>
-                      {new Date(selectedCours.dateCreation).toLocaleDateString(
-                        "fr-FR"
-                      )}
-                    </Text>
-                  </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>État:</Text>
-                    <View
-                      style={[
-                        coursStyles.statusBadge,
-                        {
-                          backgroundColor: getStatusBackground(
-                            selectedCours.etat
-                          ),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          coursStyles.statusText,
-                          { color: getStatusColor(selectedCours.etat) },
-                        ]}
-                      >
-                        {getStatusText(selectedCours.etat)}
+                <ScrollView
+                  style={coursStyles.modalContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {/* Course Information Section */}
+                  <View style={coursStyles.sectionContainer}>
+                    <View style={coursStyles.sectionHeader}>
+                      <FontAwesome5
+                        name="info-circle"
+                        size={16}
+                        color="#4F46E5"
+                      />
+                      <Text style={coursStyles.sectionTitle}>
+                        Informations du Cours
                       </Text>
                     </View>
+
+                    <View style={coursStyles.courseInfoCard}>
+                      <View style={coursStyles.courseInfoLeft}>
+                        <View style={coursStyles.largeCourseIcon}>
+                          <Text style={coursStyles.largeCourseIconText}>
+                            {selectedCours.titre.substring(0, 2).toUpperCase()}
+                          </Text>
+                          <View style={coursStyles.statusIndicator} />
+                        </View>
+                      </View>
+
+                      <View style={coursStyles.courseInfoRight}>
+                        <Text style={coursStyles.courseInfoTitle}>
+                          {selectedCours.titre}
+                        </Text>
+                        <Text style={coursStyles.courseInfoSubtitle}>
+                          {selectedCours.matieres
+                            ? selectedCours.matieres.join(", ")
+                            : "Matière non définie"}
+                        </Text>
+                      </View>
+
+                      <View style={coursStyles.courseInfoDetails}>
+                        <View style={coursStyles.detailItem}>
+                          <FontAwesome5
+                            name="calendar"
+                            size={14}
+                            color="#10B981"
+                          />
+                          <View style={coursStyles.detailContent}>
+                            <Text style={coursStyles.detailLabel}>
+                              Date de début
+                            </Text>
+                            <Text style={coursStyles.detailValue}>
+                              Non défini
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={coursStyles.detailItem}>
+                          <FontAwesome5
+                            name="clock"
+                            size={14}
+                            color="#F59E0B"
+                          />
+                          <View style={coursStyles.detailContent}>
+                            <Text style={coursStyles.detailLabel}>
+                              Date de fin
+                            </Text>
+                            <Text style={coursStyles.detailValue}>
+                              Non défini
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={coursStyles.detailItem}>
+                          <FontAwesome5
+                            name="calendar-plus"
+                            size={14}
+                            color="#8B5CF6"
+                          />
+                          <View style={coursStyles.detailContent}>
+                            <Text style={coursStyles.detailLabel}>
+                              Date de création
+                            </Text>
+                            <Text style={coursStyles.detailValue}>
+                              {new Date(
+                                selectedCours.dateCreation
+                              ).toLocaleDateString("fr-FR")}{" "}
+                              09:00
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={coursStyles.detailItem}>
+                          <FontAwesome5
+                            name="map-marker-alt"
+                            size={14}
+                            color="#F59E0B"
+                          />
+                          <View style={coursStyles.detailContent}>
+                            <Text style={coursStyles.detailLabel}>Lieu</Text>
+                            <Text style={coursStyles.detailValue}>
+                              Non spécifié
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={coursStyles.detailItem}>
+                          <FontAwesome5 name="user" size={14} color="#6B7280" />
+                          <View style={coursStyles.detailContent}>
+                            <Text style={coursStyles.detailLabel}>
+                              Professeur
+                            </Text>
+                            <Text style={coursStyles.detailValue}>
+                              Non spécifié
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
                   </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>Références:</Text>
-                    <Text style={coursStyles.detailValue}>
-                      {selectedCours.references}
+
+                  {/* Description Section */}
+                  <View style={coursStyles.sectionContainer}>
+                    <View style={coursStyles.sectionHeader}>
+                      <FontAwesome5
+                        name="align-left"
+                        size={16}
+                        color="#4F46E5"
+                      />
+                      <Text style={coursStyles.sectionTitle}>Description</Text>
+                    </View>
+                    <Text style={coursStyles.descriptionText}>
+                      {selectedCours.description ||
+                        "Cours d'introduction aux concepts mathématiques de base"}
                     </Text>
                   </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>Restriction:</Text>
-                    <Text style={coursStyles.detailValue}>
-                      {selectedCours.restriction}
+
+                  {/* References Section */}
+                  <View style={coursStyles.sectionContainer}>
+                    <View style={coursStyles.sectionHeader}>
+                      <FontAwesome5 name="book" size={16} color="#4F46E5" />
+                      <Text style={coursStyles.sectionTitle}>Références</Text>
+                    </View>
+                    <Text style={coursStyles.referencesText}>
+                      {selectedCours.references || "Aucune référence spécifiée"}
                     </Text>
                   </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>Chapitres:</Text>
-                    <Text style={coursStyles.detailValue}>
-                      {selectedCours.chapitres.join(", ")}
-                    </Text>
-                  </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>Matières:</Text>
-                    <Text style={coursStyles.detailValue}>
-                      {selectedCours.matieres.join(", ")}
-                    </Text>
-                  </View>
-                  <View style={coursStyles.detailRow}>
-                    <Text style={coursStyles.detailLabel}>ID Rédacteur:</Text>
-                    <Text style={coursStyles.detailValue}>
-                      {selectedCours.redacteurId}
+
+                  {/* Course ID */}
+                  <View style={coursStyles.courseIdContainer}>
+                    <Text style={coursStyles.courseIdText}>
+                      ID:{" "}
+                      {selectedCours.id ||
+                        "660e8400-e29b-41d4-a716-446855441100"}
                     </Text>
                   </View>
                 </ScrollView>
               )}
+
+              {/* Bottom Action Buttons */}
+              <View style={coursStyles.bottomActions}>
+                <TouchableOpacity
+                  style={[
+                    coursStyles.actionButtonBottom,
+                    coursStyles.updateButton,
+                  ]}
+                  onPress={() => {
+                    console.log("Update course:", selectedCours);
+                    setShowDetailsModal(false);
+                  }}
+                >
+                  <FontAwesome5 name="edit" size={16} color="#FFFFFF" />
+                  <Text style={coursStyles.updateButtonText}>Modifier</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    coursStyles.actionButtonBottom,
+                    coursStyles.shareButton,
+                  ]}
+                  onPress={() => {
+                    console.log("Share course:", selectedCours);
+                  }}
+                >
+                  <FontAwesome5 name="share-alt" size={16} color="#FFFFFF" />
+                  <Text style={coursStyles.shareButtonText}>Partager</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    coursStyles.actionButtonBottom,
+                    coursStyles.closeButton,
+                  ]}
+                  onPress={() => setShowDetailsModal(false)}
+                >
+                  <Text style={coursStyles.closeButtonText}>Fermer</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
@@ -578,12 +746,18 @@ const coursStyles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginHorizontal: 4,
-    alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
+  },
+  // New style for top row with icon and number
+  statTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
   },
   totalCard: {
     borderLeftWidth: 4,
@@ -601,12 +775,10 @@ const coursStyles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "bold",
     color: "#111827",
-    marginTop: 8,
   },
   statLabel: {
     fontSize: 12,
     color: "#6B7280",
-    marginTop: 4,
     textAlign: "center",
   },
   filterContainer: {
@@ -660,9 +832,6 @@ const coursStyles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -697,12 +866,19 @@ const coursStyles = StyleSheet.create({
   coursDescription: {
     fontSize: 14,
     color: "#6B7280",
-    marginBottom: 8,
+    marginBottom: 12,
     lineHeight: 20,
+  },
+  // New style for bottom row with date and action buttons
+  coursBottomRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   coursDate: {
     fontSize: 12,
     color: "#9CA3AF",
+    flex: 1,
   },
   actionButtons: {
     flexDirection: "row",
@@ -804,8 +980,9 @@ const coursStyles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
     margin: 20,
-    maxHeight: "80%",
+    maxHeight: "85%",
     width: "90%",
+    flex: 1,
   },
   modalHeader: {
     flexDirection: "row",
@@ -816,31 +993,207 @@ const coursStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  courseIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: "#4F46E5",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  courseIconText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "600",
     color: "#111827",
+    flex: 1,
   },
   modalCloseButton: {
-    padding: 4,
+    padding: 8,
+  },
+  tabsContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E5E7EB",
+  },
+  tab: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginRight: 20,
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: "#4F46E5",
+  },
+  tabText: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  activeTabText: {
+    color: "#4F46E5",
+    fontWeight: "500",
   },
   modalContent: {
+    flex: 1,
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
-  detailRow: {
+  sectionContainer: {
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 16,
   },
-  detailLabel: {
-    fontSize: 14,
+  sectionTitle: {
+    fontSize: 16,
     fontWeight: "600",
-    color: "#374151",
+    color: "#111827",
+    marginLeft: 8,
+  },
+  courseInfoCard: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 20,
+  },
+  courseInfoLeft: {
+    marginBottom: 16,
+  },
+  largeCourseIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: "#4F46E5",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  largeCourseIconText: {
+    color: "#FFFFFF",
+    fontSize: 24,
+    fontWeight: "bold",
+  },
+  statusIndicator: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#10B981",
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+  },
+  courseInfoRight: {
+    marginBottom: 20,
+  },
+  courseInfoTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 4,
+  },
+  courseInfoSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  courseInfoDetails: {
+    gap: 16,
+  },
+  detailItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  detailContent: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 2,
   },
   detailValue: {
     fontSize: 14,
-    color: "#6B7280",
+    color: "#111827",
+    fontWeight: "500",
+  },
+  descriptionText: {
+    fontSize: 14,
+    color: "#374151",
     lineHeight: 20,
+  },
+  referencesText: {
+    fontSize: 14,
+    color: "#374151",
+    lineHeight: 20,
+  },
+  courseIdContainer: {
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    marginTop: 24,
+  },
+  courseIdText: {
+    fontSize: 12,
+    color: "#9CA3AF",
+  },
+  bottomActions: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    gap: 12,
+  },
+  actionButtonBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    flex: 1,
+  },
+  updateButton: {
+    backgroundColor: "#4F46E5",
+  },
+  shareButton: {
+    backgroundColor: "#6B7280",
+  },
+  closeButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+  },
+  updateButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "500",
+    marginLeft: 8,
+  },
+  shareButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "500",
+    marginLeft: 8,
+  },
+  closeButtonText: {
+    color: "#374151",
+    fontSize: 14,
+    fontWeight: "500",
   },
 });
 

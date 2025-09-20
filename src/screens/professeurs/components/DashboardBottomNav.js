@@ -10,6 +10,7 @@ const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
     { id: "activities", icon: "tasks" }, // Activités
     { id: "cours", icon: "book-open" }, // Cours
     { id: "dashboard", icon: "th-large" }, // Tableau de bord
+    { id: "exercises", icon: "clipboard-list" }, // Exercises
     { id: "class", icon: "door-open" }, // Class
     { id: "settings", icon: "cog" }, // Paramètres
   ];
@@ -33,7 +34,7 @@ const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
         >
           <FontAwesome5
             name={item.icon}
-            size={20}
+            size={18}
             color={activeTab === item.id ? "#FFFFFF" : "#9CA3AF"}
           />
         </TouchableOpacity>
