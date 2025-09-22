@@ -9,19 +9,12 @@ import {
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 
-const DashboardMainBody = () => {
+const DashboardMainBody = ({ onOpenMessages }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const rotationAnim = useRef(new Animated.Value(0)).current;
 
-  const handleMessagePress = () => {
-    console.log("Opening messages...");
-    // Add your message navigation logic here
-  };
-
   const handleRefresh = async () => {
     setIsRefreshing(true);
-
-    // Start rotation animation
     const rotateAnimation = Animated.loop(
       Animated.timing(rotationAnim, {
         toValue: 1,
@@ -29,15 +22,11 @@ const DashboardMainBody = () => {
         useNativeDriver: true,
       })
     );
-
     rotateAnimation.start();
-
-    // Simulate loading time
     setTimeout(() => {
       setIsRefreshing(false);
       rotateAnimation.stop();
       rotationAnim.setValue(0);
-      console.log("Dashboard refreshed");
     }, 2000);
   };
 
@@ -46,7 +35,6 @@ const DashboardMainBody = () => {
     outputRange: ["0deg", "360deg"],
   });
 
-  // Sample recent activities data
   const recentActivities = [
     {
       id: 1,
@@ -85,7 +73,6 @@ const DashboardMainBody = () => {
   return (
     <View style={mainBodyStyles.container}>
       <ScrollView style={mainBodyStyles.content}>
-        {/* Welcome Section */}
         <View style={mainBodyStyles.welcomeSection}>
           <Text style={mainBodyStyles.welcomeText}>Bienvenue Mr Simo</Text>
           <TouchableOpacity
@@ -98,15 +85,10 @@ const DashboardMainBody = () => {
             </Animated.View>
           </TouchableOpacity>
         </View>
-
-        {/* Dashboard Description */}
         <Text style={mainBodyStyles.dashboardDescription}>
           Tableau de bord de gestion de la plateforme
         </Text>
-
-        {/* Statistics Grid */}
         <View style={mainBodyStyles.statsGrid}>
-          {/* Classes and Students */}
           <View style={[mainBodyStyles.statCard, mainBodyStyles.classesCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="door-open" size={20} color="#4F46E5" />
@@ -115,8 +97,6 @@ const DashboardMainBody = () => {
             <Text style={mainBodyStyles.statTitle}>Classes</Text>
             <Text style={mainBodyStyles.statSubtitle}>248 élèves</Text>
           </View>
-
-          {/* Cours and Scheduled Cours */}
           <View style={[mainBodyStyles.statCard, mainBodyStyles.coursCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="book-open" size={20} color="#10B981" />
@@ -125,8 +105,6 @@ const DashboardMainBody = () => {
             <Text style={mainBodyStyles.statTitle}>Cours</Text>
             <Text style={mainBodyStyles.statSubtitle}>15 programmés</Text>
           </View>
-
-          {/* Exercises */}
           <View style={[mainBodyStyles.statCard, mainBodyStyles.exercisesCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="clipboard-list" size={20} color="#8B5CF6" />
@@ -135,8 +113,6 @@ const DashboardMainBody = () => {
             <Text style={mainBodyStyles.statTitle}>Exercices</Text>
             <Text style={mainBodyStyles.statSubtitle}>23 en attente</Text>
           </View>
-
-          {/* Subjects */}
           <View style={[mainBodyStyles.statCard, mainBodyStyles.subjectsCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="graduation-cap" size={20} color="#F97316" />
@@ -146,8 +122,6 @@ const DashboardMainBody = () => {
             <Text style={mainBodyStyles.statSubtitle}>6 actives</Text>
           </View>
         </View>
-
-        {/* Student Progress Chart */}
         <View style={mainBodyStyles.progressSection}>
           <Text style={mainBodyStyles.sectionTitle}>Progrès des Élèves</Text>
           <View style={mainBodyStyles.progressContainer}>
@@ -201,8 +175,6 @@ const DashboardMainBody = () => {
             </View>
           </View>
         </View>
-
-        {/* Recent Activities */}
         <View style={mainBodyStyles.activitiesSection}>
           <View style={mainBodyStyles.sectionHeader}>
             <Text style={mainBodyStyles.sectionTitle}>Activités Récentes</Text>
@@ -237,15 +209,11 @@ const DashboardMainBody = () => {
             ))}
           </View>
         </View>
-
-        {/* Extra space for bottom navigation */}
         <View style={{ height: 80 }} />
       </ScrollView>
-
-      {/* Floating Action Button for Messages */}
       <TouchableOpacity
         style={mainBodyStyles.floatingButton}
-        onPress={handleMessagePress}
+        onPress={onOpenMessages}
       >
         <FontAwesome5 name="comments" size={24} color="#FFFFFF" />
       </TouchableOpacity>
@@ -312,11 +280,6 @@ const mainBodyStyles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
-  },
-  statGrowth: {
-    fontSize: 12,
-    color: "#10B981",
-    fontWeight: "500",
   },
   statNumber: {
     fontSize: 28,

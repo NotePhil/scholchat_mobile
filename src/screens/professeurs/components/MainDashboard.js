@@ -1,27 +1,28 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import DashboardHeader from "./DashboardHeader";
 import DashboardBottomNav from "./DashboardBottomNav";
 import DashboardMainBody from "./DashboardMainBody";
+import DashboardMessagesBody from "./messages/DashboardMessagesBody";
 import DashboardStatsBody from "./DashboardStatsBody";
 import DashboardUsersBody from "./DashboardUsersBody";
 import DashboardActivitiesBody from "./DashboardActivitiesBody";
 import DashboardCoursBody from "./cours/DashboardCoursBody";
 import CreateCoursBody from "./cours/CreateCoursBody";
 import DashboardExercisesBody from "./exercise/DashboardExercisesBody";
+import DashboardClassesBody from "./classes/DashboardClassesBody";
 
 const MainDashboard = ({ navigation, onLogout }) => {
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [coursViewMode, setCoursViewMode] = useState("list"); // 'list' or 'create'
+  const [coursViewMode, setCoursViewMode] = useState("list");
   const [coursData, setCoursData] = useState([]);
+  const [showMessages, setShowMessages] = useState(false);
 
   const handleTabPress = (tabId) => {
     setActiveTab(tabId);
-    // Reset cours view mode when switching tabs
     if (tabId !== "cours") {
       setCoursViewMode("list");
     }
-    console.log(`Switched to ${tabId} tab`);
   };
 
   const handleNavigateToCreateCours = () => {
@@ -37,11 +38,21 @@ const MainDashboard = ({ navigation, onLogout }) => {
     setCoursViewMode("list");
   };
 
-  // Function to render the appropriate body component based on active tab
+  const handleOpenMessages = () => {
+    setShowMessages(true);
+  };
+
+  const handleBackFromMessages = () => {
+    setShowMessages(false);
+  };
+
   const renderBody = () => {
+    if (showMessages) {
+      return <DashboardMessagesBody onBack={handleBackFromMessages} />;
+    }
     switch (activeTab) {
       case "dashboard":
-        return <DashboardMainBody />;
+        return <DashboardMainBody onOpenMessages={handleOpenMessages} />;
       case "activities":
         return <DashboardActivitiesBody />;
       case "cours":
@@ -63,13 +74,7 @@ const MainDashboard = ({ navigation, onLogout }) => {
       case "exercises":
         return <DashboardExercisesBody />;
       case "class":
-        return (
-          <View style={mainDashboardStyles.placeholderContainer}>
-            <Text style={mainDashboardStyles.placeholderText}>
-              Classes - À venir
-            </Text>
-          </View>
-        );
+        return <DashboardClassesBody />;
       case "settings":
         return (
           <View style={mainDashboardStyles.placeholderContainer}>
@@ -78,7 +83,6 @@ const MainDashboard = ({ navigation, onLogout }) => {
             </Text>
           </View>
         );
-      // Keep the old tabs for backward compatibility
       case "stats":
         return <DashboardStatsBody />;
       case "users":
@@ -92,19 +96,14 @@ const MainDashboard = ({ navigation, onLogout }) => {
           </View>
         );
       default:
-        return <DashboardMainBody />;
+        return <DashboardMainBody onOpenMessages={handleOpenMessages} />;
     }
   };
 
   return (
     <View style={mainDashboardStyles.container}>
-      {/* Header - Always visible */}
       <DashboardHeader onLogout={onLogout} />
-
-      {/* Dynamic Body Content */}
       {renderBody()}
-
-      {/* Bottom Navigation - Always visible */}
       <DashboardBottomNav activeTab={activeTab} onTabPress={handleTabPress} />
     </View>
   );
