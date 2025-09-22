@@ -11,6 +11,7 @@ import DashboardCoursBody from "./cours/DashboardCoursBody";
 import CreateCoursBody from "./cours/CreateCoursBody";
 import DashboardExercisesBody from "./exercise/DashboardExercisesBody";
 import DashboardClassesBody from "./classes/DashboardClassesBody";
+import DashboardProfileBody from "./settings/DashboardProfileBody";
 
 const MainDashboard = ({ navigation, onLogout }) => {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -76,13 +77,7 @@ const MainDashboard = ({ navigation, onLogout }) => {
       case "class":
         return <DashboardClassesBody />;
       case "settings":
-        return (
-          <View style={mainDashboardStyles.placeholderContainer}>
-            <Text style={mainDashboardStyles.placeholderText}>
-              Paramètres - À venir
-            </Text>
-          </View>
-        );
+        return <DashboardProfileBody onLogout={onLogout} />;
       case "stats":
         return <DashboardStatsBody />;
       case "users":
