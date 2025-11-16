@@ -474,7 +474,7 @@ export const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 4,
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 8,
   },
   navBarContent: {
     flexDirection: 'row',
@@ -486,8 +486,8 @@ export const styles = StyleSheet.create({
     alignItems: 'center'
   },
   logo: {
-    width: 80,
-    height: 80,
+    width: 75,
+    height: 75,
     resizeMode: 'contain'
   },
   logoText: {

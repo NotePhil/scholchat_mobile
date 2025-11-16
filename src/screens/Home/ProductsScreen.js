@@ -1,8 +1,8 @@
 import React from 'react';
 import { ScrollView, View, Text,Image, TouchableOpacity } from 'react-native';
-import NavBar from '../components/common/NavBar';
-import { styles } from '../styles/globalStyles';
-import products from '../../assets/produit.png'; 
+import NavBar from '../../components/common/NavBar';
+import { styles } from '../../styles/globalStyles';
+import products from '../../../assets/produit.png'; 
 const ProductsScreen = ({navigation, onLoginPress }) => {
   return (
     <View style={styles.container}>

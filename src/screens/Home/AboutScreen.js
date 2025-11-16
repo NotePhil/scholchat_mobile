@@ -1,10 +1,10 @@
 import React, { useEffect } from 'react';
 import { ScrollView, View, Text, Image, Animated, Easing } from 'react-native';
-import NavBar from '../components/common/NavBar';
-import TeamMember from '../components/common/TeamMember';
-import { styles } from '../styles/globalStyles'; // Ensure this path is correct
+import NavBar from '../../components/common/NavBar';
+import TeamMember from '../../components/common/TeamMember';
+import { styles } from '../../styles/globalStyles'; // Ensure this path is correct
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import aboutImage from '../../assets/about.png'; // Add this import
+import aboutImage from '../../../assets/about.png'; // Add this import
 const AboutScreen = ({ navigation, onLoginPress }) => {
   const fadeAnim = new Animated.Value(0);
   const slideUpAnim = new Animated.Value(30);

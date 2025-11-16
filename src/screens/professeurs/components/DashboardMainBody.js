@@ -209,7 +209,7 @@ const DashboardMainBody = ({ onOpenMessages }) => {
             ))}
           </View>
         </View>
-        <View style={{ height: 80 }} />
+        <View style={{ height: 150 }} />
       </ScrollView>
       <TouchableOpacity
         style={mainBodyStyles.floatingButton}
@@ -229,6 +229,7 @@ const mainBodyStyles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 16,
+    paddingBottom: 100,
   },
   welcomeSection: {
     flexDirection: "row",
@@ -365,7 +366,7 @@ const mainBodyStyles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 150,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,

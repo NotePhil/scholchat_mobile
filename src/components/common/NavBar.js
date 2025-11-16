@@ -31,7 +31,7 @@ const NavBar = ({ onLoginPress }) => {
       <View style={[globalStyles.navBar, { paddingTop: insets.top }]}>
         <View style={globalStyles.navBarContent}>
           <View style={globalStyles.logoContainer}>
-            <Image source={logo} style={[globalStyles.logo, { width: 50, height: 50 }]} />
+            <Image source={logo} style={globalStyles.logo} />
           </View>
           <View style={navBarStyles.navButtonsContainer}>
             <TouchableOpacity
@@ -70,7 +70,7 @@ const NavBar = ({ onLoginPress }) => {
               navBarStyles.languageDropdown,
               {
                 position: 'absolute',
-                top: insets.top + 60, // Adjust based on your navbar height
+                top: insets.top + 60,
                 right: 20,
               }
             ]}>

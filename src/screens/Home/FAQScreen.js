@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ScrollView, View, Text,Image, TextInput } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import NavBar from '../components/common/NavBar';
-import FAQItem from '../components/home/FAQItem';
-import { styles } from '../styles/globalStyles';
-import faq from '../../assets/faq.png'; 
+import NavBar from '../../components/common/NavBar';
+import FAQItem from '../../components/home/FAQItem';
+import { styles } from '../../styles/globalStyles';
+import faq from '../../../assets/faq.png'; 
 const FAQScreen = ({ navigation, onLoginPress }) => {
   const [activeFaqItem, setActiveFaqItem] = useState(null);
 

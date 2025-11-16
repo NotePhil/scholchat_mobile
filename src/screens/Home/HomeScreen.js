@@ -1,15 +1,15 @@
 import React from "react";
 import { ScrollView, View, Text, Image, TouchableOpacity } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import NavBar from "../components/common/NavBar";
-import FeatureSlider from "../components/home/FeatureSlider";
-import FeatureCard from "../components/common/FeatureCard";
+import NavBar from "../../components/common/NavBar";
+import FeatureSlider from "../../components/home/FeatureSlider";
+import FeatureCard from "../../components/common/FeatureCard";
 import AnimatedText from "./AnimatedText";
-import { styles } from "../styles/globalStyles";
+import { styles } from "../../styles/globalStyles";
 
 // Import the images from the assets folder
-import homeimg1 from "../../assets/homeimg1.jpg";
-import homeimg2 from "../../assets/homeimg2.jpg";
+import homeimg1 from "../../../assets/homeimg1.jpg";
+import homeimg2 from "../../../assets/homeimg2.jpg";
 
 const HomeScreen = ({ navigation, onLoginPress, onNavigateToDashboard }) => {
   const features = [
@@ -310,7 +310,7 @@ const HomeScreen = ({ navigation, onLoginPress, onNavigateToDashboard }) => {
           <View style={styles.footerSection}>
             <View style={styles.footerLogoContainer}>
               <Image
-                source={require("../../assets/logo.png")}
+                source={require("../../../assets/logo.png")}
                 style={styles.footerLogo}
               />
               <Text style={styles.footerLogoText}>ScholChat</Text>
