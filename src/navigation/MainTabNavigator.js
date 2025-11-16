@@ -3,10 +3,10 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createStackNavigator } from "@react-navigation/stack";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import HomeScreen from "../screens/HomeScreen";
-import AboutScreen from "../screens/AboutScreen";
-import FAQScreen from "../screens/FAQScreen";
-import ProductsScreen from "../screens/ProductsScreen";
+import HomeScreen from "../screens/Home/HomeScreen";
+import AboutScreen from "../screens/Home/AboutScreen";
+import FAQScreen from "../screens/Home/FAQScreen";
+import ProductsScreen from "../screens/Home/ProductsScreen";
 import DashboardScreen from "../screens/professeurs/DashboardScreen";
 
 const Tab = createBottomTabNavigator();
