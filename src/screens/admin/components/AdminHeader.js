@@ -12,55 +12,43 @@ import { FontAwesome5 } from "@expo/vector-icons";
 
 const { width: screenWidth } = Dimensions.get("window");
 
-const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
-  const [showNotificationDropdown, setShowNotificationDropdown] =
-    useState(false);
+const AdminHeader = ({ onLogout, onNavigateToProfile }) => {
+  const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
-  // Animation values
   const notificationDropdownAnim = useRef(new Animated.Value(0)).current;
   const profileDropdownAnim = useRef(new Animated.Value(0)).current;
 
-  // Mock user data (you can replace this with actual user data)
   const userData = {
-    name: "Pierre Martin",
-    role: "Professeur",
+    name: "Admin User",
+    role: "Administrateur",
     connectionDate: "20/09/2025 14:30",
-    initial: "P",
+    initial: "A",
   };
 
-  // Mock notifications data
   const notifications = [
     {
       id: 1,
-      title: "Nouveau message",
-      message: "Vous avez reçu un nouveau message",
+      title: "Nouvelle inscription",
+      message: "Un nouveau professeur s'est inscrit",
       time: "5min",
     },
     {
       id: 2,
-      title: "Cours programmé",
-      message: "Cours de mathématiques dans 1h",
+      title: "Rapport système",
+      message: "Rapport mensuel disponible",
       time: "1h",
-    },
-    {
-      id: 3,
-      title: "Rappel",
-      message: "Réunion parents-professeurs demain",
-      time: "2h",
     },
   ];
 
   const toggleNotificationDropdown = () => {
     if (showNotificationDropdown) {
-      // Close animation
       Animated.timing(notificationDropdownAnim, {
         toValue: 0,
         duration: 200,
         useNativeDriver: false,
       }).start(() => setShowNotificationDropdown(false));
     } else {
-      // Open animation
       setShowNotificationDropdown(true);
       Animated.timing(notificationDropdownAnim, {
         toValue: 1,
@@ -68,8 +56,6 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
         useNativeDriver: false,
       }).start();
     }
-
-    // Close profile dropdown if open
     if (showProfileDropdown) {
       closeProfileDropdown();
     }
@@ -79,7 +65,6 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
     if (showProfileDropdown) {
       closeProfileDropdown();
     } else {
-      // Open animation
       setShowProfileDropdown(true);
       Animated.timing(profileDropdownAnim, {
         toValue: 1,
@@ -87,8 +72,6 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
         useNativeDriver: false,
       }).start();
     }
-
-    // Close notification dropdown if open
     if (showNotificationDropdown) {
       closeNotificationDropdown();
     }
@@ -131,7 +114,6 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
     onLogout();
   };
 
-  // Animation styles
   const notificationDropdownStyle = {
     opacity: notificationDropdownAnim,
     transform: [
@@ -139,12 +121,6 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
         translateY: notificationDropdownAnim.interpolate({
           inputRange: [0, 1],
           outputRange: [-10, 0],
-        }),
-      },
-      {
-        scale: notificationDropdownAnim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.95, 1],
         }),
       },
     ],
@@ -159,146 +135,103 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
           outputRange: [-10, 0],
         }),
       },
-      {
-        scale: profileDropdownAnim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.95, 1],
-        }),
-      },
     ],
   };
 
   return (
     <>
-      {/* Overlay to close dropdowns when clicking outside */}
       {(showNotificationDropdown || showProfileDropdown) && (
         <TouchableWithoutFeedback onPress={closeAllDropdowns}>
-          <View style={headerStyles.overlay} />
+          <View style={styles.overlay} />
         </TouchableWithoutFeedback>
       )}
 
-      <View style={headerStyles.header}>
-        <View style={headerStyles.headerLeft}>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
           <TouchableOpacity
-            style={headerStyles.userAvatarContainer}
+            style={styles.userAvatarContainer}
             onPress={toggleProfileDropdown}
           >
-            <Text style={headerStyles.userInitial}>{userData.initial}</Text>
+            <Text style={styles.userInitial}>{userData.initial}</Text>
           </TouchableOpacity>
-          <View style={headerStyles.headerInfo}>
-            <Text style={headerStyles.appName}>SchoolChat</Text>
-            <Text style={headerStyles.userRole}>{userData.role}</Text>
+          <View style={styles.headerInfo}>
+            <Text style={styles.appName}>SchoolChat Admin</Text>
+            <Text style={styles.userRole}>{userData.role}</Text>
           </View>
         </View>
 
-        <View style={headerStyles.headerRight}>
+        <View style={styles.headerRight}>
           <TouchableOpacity
-            style={headerStyles.notificationButton}
+            style={styles.notificationButton}
             onPress={toggleNotificationDropdown}
           >
             <FontAwesome5 name="bell" size={18} color="#6B7280" />
-            <View style={headerStyles.notificationBadge}>
-              <Text style={headerStyles.notificationText}>3</Text>
+            <View style={styles.notificationBadge}>
+              <Text style={styles.notificationText}>2</Text>
             </View>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={headerStyles.logoutButton}
-            onPress={handleLogout}
-          >
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
             <FontAwesome5 name="sign-out-alt" size={22} color="#EF4444" />
           </TouchableOpacity>
         </View>
 
-        {/* Profile Dropdown */}
         {showProfileDropdown && (
-          <Animated.View
-            style={[headerStyles.profileDropdown, profileDropdownStyle]}
-          >
-            <View style={headerStyles.dropdownHeader}>
-              <View style={headerStyles.profileDropdownAvatar}>
-                <Text style={headerStyles.profileDropdownInitial}>
+          <Animated.View style={[styles.profileDropdown, profileDropdownStyle]}>
+            <View style={styles.dropdownHeader}>
+              <View style={styles.profileDropdownAvatar}>
+                <Text style={styles.profileDropdownInitial}>
                   {userData.initial}
                 </Text>
               </View>
-              <View style={headerStyles.profileDropdownInfo}>
-                <Text style={headerStyles.profileDropdownName}>
-                  {userData.name}
-                </Text>
-                <Text style={headerStyles.profileDropdownRole}>
-                  {userData.role}
-                </Text>
+              <View style={styles.profileDropdownInfo}>
+                <Text style={styles.profileDropdownName}>{userData.name}</Text>
+                <Text style={styles.profileDropdownRole}>{userData.role}</Text>
               </View>
             </View>
 
-            <View style={headerStyles.dropdownDivider} />
-
-            <View style={headerStyles.profileDropdownDetails}>
-              <View style={headerStyles.profileDetailRow}>
-                <FontAwesome5 name="clock" size={14} color="#6B7280" />
-                <Text style={headerStyles.profileDetailText}>
-                  Connecté le {userData.connectionDate}
-                </Text>
-              </View>
-            </View>
+            <View style={styles.dropdownDivider} />
 
             <TouchableOpacity
-              style={headerStyles.viewProfileButton}
+              style={styles.viewProfileButton}
               onPress={handleViewProfile}
             >
-              <Text style={headerStyles.viewProfileButtonText}>
-                Voir le profil
-              </Text>
+              <Text style={styles.viewProfileButtonText}>Voir le profil</Text>
               <FontAwesome5 name="arrow-right" size={12} color="#4F46E5" />
             </TouchableOpacity>
           </Animated.View>
         )}
 
-        {/* Notification Dropdown */}
         {showNotificationDropdown && (
           <Animated.View
-            style={[
-              headerStyles.notificationDropdown,
-              notificationDropdownStyle,
-            ]}
+            style={[styles.notificationDropdown, notificationDropdownStyle]}
           >
-            <View style={headerStyles.dropdownHeader}>
-              <Text style={headerStyles.dropdownTitle}>Notifications</Text>
-              <TouchableOpacity>
-                <Text style={headerStyles.markAllReadText}>
-                  Tout marquer lu
-                </Text>
-              </TouchableOpacity>
+            <View style={styles.dropdownHeader}>
+              <Text style={styles.dropdownTitle}>Notifications</Text>
             </View>
 
-            <View style={headerStyles.dropdownDivider} />
+            <View style={styles.dropdownDivider} />
 
-            <View style={headerStyles.notificationsList}>
+            <View style={styles.notificationsList}>
               {notifications.map((notification) => (
                 <TouchableOpacity
                   key={notification.id}
-                  style={headerStyles.notificationItem}
+                  style={styles.notificationItem}
                 >
-                  <View style={headerStyles.notificationContent}>
-                    <Text style={headerStyles.notificationTitle}>
+                  <View style={styles.notificationContent}>
+                    <Text style={styles.notificationTitle}>
                       {notification.title}
                     </Text>
-                    <Text style={headerStyles.notificationMessage}>
+                    <Text style={styles.notificationMessage}>
                       {notification.message}
                     </Text>
                   </View>
-                  <Text style={headerStyles.notificationTime}>
+                  <Text style={styles.notificationTime}>
                     {notification.time}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
-
-            <TouchableOpacity style={headerStyles.viewAllButton}>
-              <Text style={headerStyles.viewAllButtonText}>
-                Voir toutes les notifications
-              </Text>
-            </TouchableOpacity>
           </Animated.View>
         )}
       </View>
@@ -306,7 +239,7 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
   );
 };
 
-const headerStyles = StyleSheet.create({
+const styles = StyleSheet.create({
   overlay: {
     position: "absolute",
     top: 0,
@@ -336,7 +269,7 @@ const headerStyles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#EC4899",
+    backgroundColor: "#DC2626",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -387,8 +320,6 @@ const headerStyles = StyleSheet.create({
     padding: 8,
     marginLeft: 8,
   },
-
-  // Profile Dropdown Styles
   profileDropdown: {
     position: "absolute",
     top: 70,
@@ -403,8 +334,6 @@ const headerStyles = StyleSheet.create({
     elevation: 8,
     zIndex: 1002,
   },
-
-  // Notification Dropdown Styles
   notificationDropdown: {
     position: "absolute",
     top: 70,
@@ -420,8 +349,6 @@ const headerStyles = StyleSheet.create({
     elevation: 8,
     zIndex: 1002,
   },
-
-  // Shared Dropdown Styles
   dropdownHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -439,13 +366,11 @@ const headerStyles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
     marginHorizontal: 16,
   },
-
-  // Profile Dropdown Specific Styles
   profileDropdownAvatar: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#EC4899",
+    backgroundColor: "#DC2626",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -468,20 +393,6 @@ const headerStyles = StyleSheet.create({
     fontSize: 12,
     color: "#6B7280",
   },
-  profileDropdownDetails: {
-    padding: 16,
-    paddingTop: 12,
-  },
-  profileDetailRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  profileDetailText: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginLeft: 8,
-  },
   viewProfileButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -495,13 +406,6 @@ const headerStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     color: "#4F46E5",
-  },
-
-  // Notification Dropdown Specific Styles
-  markAllReadText: {
-    fontSize: 13,
-    color: "#4F46E5",
-    fontWeight: "500",
   },
   notificationsList: {
     maxHeight: 250,
@@ -532,18 +436,6 @@ const headerStyles = StyleSheet.create({
     fontSize: 12,
     color: "#9CA3AF",
   },
-  viewAllButton: {
-    padding: 16,
-    paddingTop: 12,
-    alignItems: "center",
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  viewAllButtonText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#4F46E5",
-  },
 });
 
-export default DashboardHeader;
+export default AdminHeader;

@@ -59,7 +59,7 @@ const PublicTabNavigator = ({ onLoginPress, onNavigateToDashboard }) => {
         headerShown: false,
       })}
     >
-      <Tab.Screen name="Home">
+      <Tab.Screen name="Home" options={{ title: "Accueil" }}>
         {(props) => (
           <HomeScreen
             {...props}
@@ -68,7 +68,7 @@ const PublicTabNavigator = ({ onLoginPress, onNavigateToDashboard }) => {
           />
         )}
       </Tab.Screen>
-      <Tab.Screen name="About">
+      <Tab.Screen name="About" options={{ title: "À propos" }}>
         {(props) => (
           <AboutScreen
             {...props}
@@ -77,7 +77,7 @@ const PublicTabNavigator = ({ onLoginPress, onNavigateToDashboard }) => {
           />
         )}
       </Tab.Screen>
-      <Tab.Screen name="Products">
+      <Tab.Screen name="Products" options={{ title: "Produits" }}>
         {(props) => (
           <ProductsScreen
             {...props}
@@ -86,7 +86,7 @@ const PublicTabNavigator = ({ onLoginPress, onNavigateToDashboard }) => {
           />
         )}
       </Tab.Screen>
-      <Tab.Screen name="FAQ">
+      <Tab.Screen name="FAQ" options={{ title: "FAQ" }}>
         {(props) => (
           <FAQScreen
             {...props}

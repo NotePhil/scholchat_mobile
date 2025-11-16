@@ -10,7 +10,7 @@ import {
 import { FontAwesome5 } from "@expo/vector-icons";
 import { styles } from "../../styles/globalStyles";
 
-const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
+const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin, onSignUp }) => {
   const [authMode, setAuthMode] = useState("signin");
   const [signupStep, setSignupStep] = useState(1);
   const [rememberMe, setRememberMe] = useState(false);
@@ -55,9 +55,13 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onSignUp }) => {
       password: formData.password,
     });
 
-    // Here you would normally validate credentials
-    // For now, we'll just navigate to dashboard
-    onNavigateToDashboard();
+    // Check for admin credentials
+    if (formData.email === "admin@admin.com" && formData.password === "admin@admin.com") {
+      onNavigateToAdmin();
+    } else {
+      // Navigate to professor dashboard for all other credentials
+      onNavigateToDashboard();
+    }
   };
 
   const handleSignupSubmit = () => {

@@ -3,16 +3,15 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
+const AdminBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
   const insets = useSafeAreaInsets();
 
   const navItems = [
-    { id: "activities", icon: "tasks", label: "Activités" },
-    { id: "cours", icon: "book-open", label: "Cours" },
+    { id: "users", icon: "users", label: "Utilisateurs" },
+    { id: "schools", icon: "school", label: "Écoles" },
     { id: "dashboard", icon: "th-large", label: "Accueil" },
-    { id: "exercises", icon: "clipboard-list", label: "Exercices" },
-    { id: "class", icon: "door-open", label: "Classes" },
-    { id: "settings", icon: "cog", label: "Profil" },
+    { id: "reports", icon: "chart-bar", label: "Rapports" },
+    { id: "settings", icon: "cog", label: "Paramètres" },
   ];
 
   const handleTabPress = (tabId) => {
@@ -22,13 +21,13 @@ const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
   };
 
   return (
-    <View style={[bottomNavStyles.bottomNav, { paddingBottom: insets.bottom }]}>
+    <View style={[styles.bottomNav, { paddingBottom: insets.bottom }]}>
       {navItems.map((item) => (
         <TouchableOpacity
           key={item.id}
           style={[
-            bottomNavStyles.navItem,
-            activeTab === item.id && bottomNavStyles.activeNavItem,
+            styles.navItem,
+            activeTab === item.id && styles.activeNavItem,
           ]}
           onPress={() => handleTabPress(item.id)}
         >
@@ -39,8 +38,8 @@ const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
           />
           <Text
             style={[
-              bottomNavStyles.navLabel,
-              activeTab === item.id && bottomNavStyles.activeNavLabel,
+              styles.navLabel,
+              activeTab === item.id && styles.activeNavLabel,
             ]}
           >
             {item.label}
@@ -51,7 +50,7 @@ const DashboardBottomNav = ({ activeTab = "dashboard", onTabPress }) => {
   );
 };
 
-const bottomNavStyles = StyleSheet.create({
+const styles = StyleSheet.create({
   bottomNav: {
     position: "absolute",
     bottom: 0,
@@ -71,7 +70,7 @@ const bottomNavStyles = StyleSheet.create({
     minWidth: 50,
   },
   activeNavItem: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#DC2626",
     borderRadius: 8,
     padding: 8,
   },
@@ -86,4 +85,4 @@ const bottomNavStyles = StyleSheet.create({
   },
 });
 
-export default DashboardBottomNav;
+export default AdminBottomNav;

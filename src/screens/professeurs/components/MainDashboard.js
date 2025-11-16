@@ -95,9 +95,13 @@ const MainDashboard = ({ navigation, onLogout }) => {
     }
   };
 
+  const handleNavigateToProfile = () => {
+    setActiveTab("settings");
+  };
+
   return (
     <View style={mainDashboardStyles.container}>
-      <DashboardHeader onLogout={onLogout} />
+      <DashboardHeader onLogout={onLogout} onNavigateToProfile={handleNavigateToProfile} />
       {renderBody()}
       <DashboardBottomNav activeTab={activeTab} onTabPress={handleTabPress} />
     </View>

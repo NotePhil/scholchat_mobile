@@ -214,6 +214,8 @@ const DashboardProfileBody = ({ onLogout }) => {
           </View>
         </TouchableOpacity>
       </View>
+      
+      <View style={{ height: 100 }} />
     </ScrollView>
   );
 };
