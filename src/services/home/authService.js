@@ -1,4 +1,5 @@
 import { environment } from '../../environment/environment';
+import { storageService } from '../storageService';
 
 const API_BASE_URL = environment.baseUrl;
 
@@ -15,12 +16,27 @@ export const authService = {
       });
       
       if (!response.ok) {
-        throw new Error('Login failed');
+        const errorData = await response.text();
+        throw new Error(errorData || 'Email ou mot de passe incorrect');
       }
       
-      return await response.json();
+      const loginData = await response.json();
+      
+      // Save user data to local storage
+      await storageService.saveUserData(loginData);
+      
+      return loginData;
     } catch (error) {
       console.error('Login error:', error);
+      throw error;
+    }
+  },
+
+  logout: async () => {
+    try {
+      await storageService.clearUserData();
+    } catch (error) {
+      console.error('Logout error:', error);
       throw error;
     }
   },

@@ -5,6 +5,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import MainTabNavigator from "./src/navigation/MainTabNavigator";
 import AuthModal from "./src/components/common/AuthModal";
 import AdminDashboard from "./src/screens/admin/components/AdminDashboard";
+import { UserProvider } from "./src/context/UserContext";
 
 const App = () => {
   const [showAuth, setShowAuth] = useState(false);
@@ -37,32 +38,36 @@ const App = () => {
 
   if (showAdminDashboard) {
     return (
-      <SafeAreaProvider>
-        <StatusBar barStyle="dark-content" />
-        <AdminDashboard onLogout={handleLogout} />
-      </SafeAreaProvider>
+      <UserProvider>
+        <SafeAreaProvider>
+          <StatusBar barStyle="dark-content" />
+          <AdminDashboard onLogout={handleLogout} />
+        </SafeAreaProvider>
+      </UserProvider>
     );
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar barStyle="dark-content" />
-      <NavigationContainer>
-        <MainTabNavigator
-          showDashboard={showDashboard}
-          onLoginPress={() => setShowAuth(true)}
-          onLogout={handleLogout}
+    <UserProvider>
+      <SafeAreaProvider>
+        <StatusBar barStyle="dark-content" />
+        <NavigationContainer>
+          <MainTabNavigator
+            showDashboard={showDashboard}
+            onLoginPress={() => setShowAuth(true)}
+            onLogout={handleLogout}
+            onNavigateToDashboard={handleNavigateToDashboard}
+          />
+        </NavigationContainer>
+        <AuthModal
+          visible={showAuth}
+          onClose={() => setShowAuth(false)}
           onNavigateToDashboard={handleNavigateToDashboard}
+          onNavigateToAdmin={handleNavigateToAdmin}
+          onSignUp={handleSignUp}
         />
-      </NavigationContainer>
-      <AuthModal
-        visible={showAuth}
-        onClose={() => setShowAuth(false)}
-        onNavigateToDashboard={handleNavigateToDashboard}
-        onNavigateToAdmin={handleNavigateToAdmin}
-        onSignUp={handleSignUp}
-      />
-    </SafeAreaProvider>
+      </SafeAreaProvider>
+    </UserProvider>
   );
 };
 

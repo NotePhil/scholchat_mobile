@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,80 +10,127 @@ import {
   Alert,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { classService } from "../../../services/classService";
+import { useUser } from "../../../../context/UserContext";
 
 const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
+  const { user } = useUser();
   const [className, setClassName] = useState("");
   const [selectedLevel, setSelectedLevel] = useState("");
   const [activationCode, setActivationCode] = useState("");
-  const [selectedEstablishment, setSelectedEstablishment] = useState("");
-  const [selectedModerator, setSelectedModerator] = useState("");
+  const [selectedEstablishment, setSelectedEstablishment] = useState(null);
+  const [selectedModerator, setSelectedModerator] = useState(null);
   const [showLevelDropdown, setShowLevelDropdown] = useState(false);
-  const [showEstablishmentDropdown, setShowEstablishmentDropdown] =
-    useState(false);
+  const [showEstablishmentDropdown, setShowEstablishmentDropdown] = useState(false);
   const [showModeratorDropdown, setShowModeratorDropdown] = useState(false);
+  const [etablissements, setEtablissements] = useState([]);
+  const [professors, setProfessors] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const levels = [
-    "CP (Cours Préparatoire)",
-    "CE1 (Cours Élémentaire 1)",
-    "CE2 (Cours Élémentaire 2)",
-    "CM1 (Cours Moyen 1)",
-    "CM2 (Cours Moyen 2)",
-    "6ème",
-    "5ème",
-    "4ème",
-    "3ème",
-    "2nde (Seconde)",
-    "1ère (Première)",
-    "Terminale",
+  const niveaux = [
+    "MATERNELLE",
+    "PRIMAIRE", 
+    "COLLEGE",
+    "LYCEE",
+    "UNIVERSITE"
   ];
 
-  const establishments = [
-    "Aucun établissement (Optionnel)",
-    "Etablissement A - Yaoundé",
-    "Etablissement B - Douala",
-  ];
+  useEffect(() => {
+    if (visible) {
+      loadData();
+    }
+  }, [visible]);
 
-  const moderators = [
-    "Aucun modérateur (Optionnel)",
-    "Marie Dupont",
-    "Lucas Martin",
-    "Isabelle Lefevre",
-    "Test Professor",
-  ];
+  const loadData = async () => {
+    console.log('=== LOADING DATA FOR CREATE CLASS MODAL ===');
+    console.log('User data:', user);
+    
+    try {
+      console.log('Starting to fetch etablissements and professors...');
+      
+      const etablissementsPromise = classService.getEtablissements();
+      const professorsPromise = classService.getProfessors();
+      
+      const [etablissementsData, professorsData] = await Promise.all([
+        etablissementsPromise,
+        professorsPromise
+      ]);
+      
+      console.log('Etablissements data received:', etablissementsData);
+      console.log('Professors data received:', professorsData);
+      
+      setEtablissements(etablissementsData);
+      setProfessors(professorsData);
+      
+      console.log('Data loaded successfully');
+    } catch (error) {
+      console.error('=== ERROR LOADING DATA ===');
+      console.error('Error details:', error);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      Alert.alert('Erreur', `Impossible de charger les données: ${error.message}`);
+    }
+  };
 
   const generateActivationCode = () => {
     const randomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     setActivationCode(randomCode);
   };
 
-  const handleCreateClass = () => {
+  const handleCreateClass = async () => {
+    console.log('=== STARTING CLASS CREATION ===');
+    console.log('Form data:', {
+      className,
+      selectedLevel,
+      activationCode,
+      selectedEstablishment,
+      selectedModerator,
+      user
+    });
+    
     if (!className.trim() || !selectedLevel || !activationCode.trim()) {
-      Alert.alert(
-        "Erreur",
-        "Veuillez remplir tous les champs obligatoires (*)"
-      );
+      console.log('Validation failed - missing required fields');
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires (*)');
       return;
     }
 
-    const newClass = {
-      id: Date.now().toString(),
-      name: className,
-      level: selectedLevel,
-      state: "PENDING_APPROVAL",
-      activationCode,
-      establishment: selectedEstablishment || "Non spécifié",
-      moderator: selectedModerator || "Non spécifié",
-      studentsCount: 0,
-      parentsCount: 0,
-      creationDate: new Date().toISOString(),
-      description: "",
-      students: [],
-      parents: [],
-      accessRequests: [],
-    };
+    setIsLoading(true);
+    try {
+      const classData = {
+        nom: className,
+        niveau: selectedLevel,
+        dateCreation: new Date().toISOString(),
+        codeActivation: activationCode,
+        etat: 'EN_ATTENTE_APPROBATION',
+        etablissement: selectedEstablishment ? { id: selectedEstablishment.id } : null,
+        moderator: user.userId,
+        parents: [],
+        eleves: []
+      };
+      
+      console.log('Class data to be sent:', classData);
+      console.log('Creating class...');
 
-    onCreateClass(newClass);
-    onClose();
+      const createdClass = await classService.createClass(classData);
+      console.log('Class created successfully:', createdClass);
+      
+      // Grant publication rights to the creator
+      console.log('Granting publication rights...');
+      await classService.grantPublicationRights(user.userId, createdClass.id, true, true);
+      console.log('Publication rights granted successfully');
+      
+      Alert.alert('Succès', 'Classe créée avec succès!');
+      onCreateClass(createdClass);
+      onClose();
+    } catch (error) {
+      console.error('=== CLASS CREATION FAILED ===');
+      console.error('Error details:', error);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+      Alert.alert('Erreur', `Impossible de créer la classe: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -133,16 +180,16 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
               </TouchableOpacity>
               {showLevelDropdown && (
                 <View style={styles.dropdownOptions}>
-                  {levels.map((level) => (
+                  {niveaux.map((niveau) => (
                     <TouchableOpacity
-                      key={level}
+                      key={niveau}
                       style={styles.dropdownOption}
                       onPress={() => {
-                        setSelectedLevel(level);
+                        setSelectedLevel(niveau);
                         setShowLevelDropdown(false);
                       }}
                     >
-                      <Text style={styles.dropdownOptionText}>{level}</Text>
+                      <Text style={styles.dropdownOptionText}>{niveau}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -173,28 +220,35 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
               <Text style={styles.fieldLabel}>Établissement (Optionnel)</Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
-                onPress={() =>
-                  setShowEstablishmentDropdown(!showEstablishmentDropdown)
-                }
+                onPress={() => setShowEstablishmentDropdown(!showEstablishmentDropdown)}
               >
                 <Text style={styles.dropdownText}>
-                  {selectedEstablishment || "Aucun établissement (Optionnel)"}
+                  {selectedEstablishment ? `${selectedEstablishment.nom} - ${selectedEstablishment.localisation}` : "Aucun établissement (Optionnel)"}
                 </Text>
                 <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
               </TouchableOpacity>
               {showEstablishmentDropdown && (
                 <View style={styles.dropdownOptions}>
-                  {establishments.map((establishment) => (
+                  <TouchableOpacity
+                    style={styles.dropdownOption}
+                    onPress={() => {
+                      setSelectedEstablishment(null);
+                      setShowEstablishmentDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownOptionText}>Aucun établissement</Text>
+                  </TouchableOpacity>
+                  {etablissements.map((etablissement) => (
                     <TouchableOpacity
-                      key={establishment}
+                      key={etablissement.id}
                       style={styles.dropdownOption}
                       onPress={() => {
-                        setSelectedEstablishment(establishment);
+                        setSelectedEstablishment(etablissement);
                         setShowEstablishmentDropdown(false);
                       }}
                     >
                       <Text style={styles.dropdownOptionText}>
-                        {establishment}
+                        {etablissement.nom} - {etablissement.localisation}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -210,22 +264,33 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
                 onPress={() => setShowModeratorDropdown(!showModeratorDropdown)}
               >
                 <Text style={styles.dropdownText}>
-                  {selectedModerator || "Aucun modérateur (Optionnel)"}
+                  {selectedModerator ? `${selectedModerator.prenom} ${selectedModerator.nom}` : "Aucun modérateur (Optionnel)"}
                 </Text>
                 <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
               </TouchableOpacity>
               {showModeratorDropdown && (
                 <View style={styles.dropdownOptions}>
-                  {moderators.map((moderator) => (
+                  <TouchableOpacity
+                    style={styles.dropdownOption}
+                    onPress={() => {
+                      setSelectedModerator(null);
+                      setShowModeratorDropdown(false);
+                    }}
+                  >
+                    <Text style={styles.dropdownOptionText}>Aucun modérateur</Text>
+                  </TouchableOpacity>
+                  {professors.map((professor) => (
                     <TouchableOpacity
-                      key={moderator}
+                      key={professor.id}
                       style={styles.dropdownOption}
                       onPress={() => {
-                        setSelectedModerator(moderator);
+                        setSelectedModerator(professor);
                         setShowModeratorDropdown(false);
                       }}
                     >
-                      <Text style={styles.dropdownOptionText}>{moderator}</Text>
+                      <Text style={styles.dropdownOptionText}>
+                        {professor.prenom} {professor.nom}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -256,10 +321,16 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
 
             {/* Create Button */}
             <TouchableOpacity
-              style={styles.createButton}
+              style={[styles.createButton, isLoading && { opacity: 0.7 }]}
               onPress={handleCreateClass}
+              disabled={isLoading}
             >
-              <Text style={styles.createButtonText}>Créer la classe</Text>
+              {isLoading ? (
+                <FontAwesome5 name="spinner" size={16} color="#FFFFFF" />
+              ) : null}
+              <Text style={styles.createButtonText}>
+                {isLoading ? 'Création...' : 'Créer la classe'}
+              </Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

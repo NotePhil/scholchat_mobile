@@ -13,8 +13,11 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { styles } from "../../styles/globalStyles";
 import { authService } from '../../services/home/authService';
 import { Alert } from 'react-native';
+import { useUser } from '../../context/UserContext';
+import { getNavigationRoute } from '../../utils/tokenUtils';
 
 const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin, onSignUp }) => {
+  const { login } = useUser();
   const [authMode, setAuthMode] = useState("signin");
   const [signupStep, setSignupStep] = useState(1);
   const [rememberMe, setRememberMe] = useState(false);
@@ -82,18 +85,41 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin,
     }));
   };
 
-  const handleSignIn = () => {
-    console.log("Sign in attempt with:", {
-      email: formData.email,
-      password: formData.password,
-    });
+  const handleSignIn = async () => {
+    if (!formData.email || !formData.password) {
+      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+      return;
+    }
 
-    // Check for admin credentials
-    if (formData.email === "admin@admin.com" && formData.password === "admin@admin.com") {
-      onNavigateToAdmin();
-    } else {
-      // Navigate to professor dashboard for all other credentials
-      onNavigateToDashboard();
+    setIsLoading(true);
+    setErrorMessage('');
+
+    try {
+      const loginResponse = await authService.login(formData.email, formData.password);
+      
+      console.log('Login successful:', loginResponse);
+      
+      // Update user context
+      login(loginResponse);
+      
+      // Navigate based on JWT token role
+      const route = getNavigationRoute(loginResponse.accessToken);
+      if (route === 'admin') {
+        onNavigateToAdmin();
+      } else {
+        onNavigateToDashboard();
+      }
+      
+      // Close modal and reset form
+      onClose();
+      setFormData({ ...formData, email: '', password: '' });
+      
+    } catch (error) {
+      console.error('Login failed:', error);
+      setErrorMessage(error.message);
+      Alert.alert('Erreur de connexion', error.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -262,7 +288,10 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin,
                 styles.authTab,
                 authMode === "signin" && styles.activeAuthTab,
               ]}
-              onPress={() => setAuthMode("signin")}
+              onPress={() => {
+                setAuthMode("signin");
+                setErrorMessage('');
+              }}
             >
               <Text
                 style={[
@@ -278,7 +307,10 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin,
                 styles.authTab,
                 authMode === "signup" && styles.activeAuthTab,
               ]}
-              onPress={() => setAuthMode("signup")}
+              onPress={() => {
+                setAuthMode("signup");
+                setErrorMessage('');
+              }}
             >
               <Text
                 style={[
@@ -316,6 +348,12 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin,
                 />
               </View>
 
+              {errorMessage ? (
+                <View style={authModalStyles.errorContainer}>
+                  <Text style={authModalStyles.errorText}>{errorMessage}</Text>
+                </View>
+              ) : null}
+
               <View style={authModalStyles.rememberForgotContainer}>
                 <TouchableOpacity
                   style={authModalStyles.rememberMe}
@@ -338,16 +376,28 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin,
               </View>
 
               <TouchableOpacity
-                style={[styles.primaryButton, authModalStyles.signinButton]}
+                style={[styles.primaryButton, authModalStyles.signinButton, isLoading && { opacity: 0.7 }]}
                 onPress={handleSignIn}
+                disabled={isLoading}
               >
-                <FontAwesome5
-                  name="sign-in-alt"
-                  size={16}
-                  color="#FFFFFF"
-                  style={{ marginRight: 8 }}
-                />
-                <Text style={styles.buttonText}>Se connecter</Text>
+                {isLoading ? (
+                  <FontAwesome5
+                    name="spinner"
+                    size={16}
+                    color="#FFFFFF"
+                    style={{ marginRight: 8 }}
+                  />
+                ) : (
+                  <FontAwesome5
+                    name="sign-in-alt"
+                    size={16}
+                    color="#FFFFFF"
+                    style={{ marginRight: 8 }}
+                  />
+                )}
+                <Text style={styles.buttonText}>
+                  {isLoading ? 'Connexion...' : 'Se connecter'}
+                </Text>
               </TouchableOpacity>
 
               <Text style={styles.authSwitchText}>
@@ -815,6 +865,19 @@ const AuthModal = ({ visible, onClose, onNavigateToDashboard, onNavigateToAdmin,
 };
 
 const authModalStyles = StyleSheet.create({
+  errorContainer: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 14,
+    textAlign: 'center',
+  },
   rememberForgotContainer: {
     flexDirection: "row",
     justifyContent: "space-between",

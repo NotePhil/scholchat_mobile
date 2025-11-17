@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useUser } from "../../../context/UserContext";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -21,12 +22,46 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }) => {
   const notificationDropdownAnim = useRef(new Animated.Value(0)).current;
   const profileDropdownAnim = useRef(new Animated.Value(0)).current;
 
-  // Mock user data (you can replace this with actual user data)
+  const { user } = useUser();
+  
+  const getUserInitial = (name) => {
+    return name ? name.charAt(0).toUpperCase() : 'U';
+  };
+  
+  const getConnectionDateTime = () => {
+    if (user?.loginTime) {
+      const loginDate = new Date(user.loginTime);
+      return loginDate.toLocaleString('fr-FR', {
+        day: '2-digit',
+        month: '2-digit', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+    return new Date().toLocaleString('fr-FR', {
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+  
+  const getRoleDisplay = () => {
+    if (user?.decodedToken?.roles) {
+      const nonUserRole = user.decodedToken.roles.find(role => role !== 'ROLE_USER');
+      if (nonUserRole === 'ROLE_PROFESSOR') return 'Professeur';
+      if (nonUserRole === 'ROLE_ADMIN') return 'Administrateur';
+    }
+    return 'Utilisateur';
+  };
+  
   const userData = {
-    name: "Pierre Martin",
-    role: "Professeur",
-    connectionDate: "20/09/2025 14:30",
-    initial: "P",
+    name: user?.username || 'Utilisateur',
+    role: getRoleDisplay(),
+    connectionDate: getConnectionDateTime(),
+    initial: getUserInitial(user?.username),
   };
 
   // Mock notifications data
