@@ -11,14 +11,20 @@ import {
   Alert,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { messageService } from "../../../../services/messageService";
+import { useUser } from "../../../../context/UserContext";
+import ComposeMessageModal from "./ComposeMessageModal";
 
 // Main Messages Body Component
 const DashboardMessagesBody = ({ onBack }) => {
+  const { user } = useUser();
   const [activeTab, setActiveTab] = useState("inbox");
   const [showCompose, setShowCompose] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState(null);
   const [searchText, setSearchText] = useState("");
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState([]);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
+  const [demoMessages] = useState([
     {
       id: 1,
       sender: "Marie Dupont",
@@ -65,7 +71,7 @@ const DashboardMessagesBody = ({ onBack }) => {
     },
   ]);
 
-  const [sentMessages] = useState([
+  const [demoSentMessages] = useState([
     {
       id: 101,
       recipient: "Marie Dupont",
@@ -92,10 +98,10 @@ const DashboardMessagesBody = ({ onBack }) => {
 
     switch (activeTab) {
       case "inbox":
-        messagesToShow = messages;
+        messagesToShow = messages.filter(msg => msg.type === 'received');
         break;
       case "sent":
-        messagesToShow = sentMessages;
+        messagesToShow = messages.filter(msg => msg.type === 'sent');
         break;
       case "starred":
         messagesToShow = messages.filter((msg) => msg.isStarred);
@@ -133,22 +139,61 @@ const DashboardMessagesBody = ({ onBack }) => {
     );
   };
 
-  const handleSendMessage = (messageData) => {
-    const newMessage = {
-      id: Date.now(),
-      ...messageData,
-      time: new Date().toLocaleTimeString("fr-FR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      date: new Date().toISOString().split("T")[0],
-      isRead: true,
-      type: "sent",
-    };
+  // Load messages on component mount
+  React.useEffect(() => {
+    if (user?.userId) {
+      loadMessages();
+    }
+  }, [user?.userId]);
 
-    // Add to sent messages (in a real app, this would be handled by the backend)
+  const loadMessages = async () => {
+    setIsLoadingMessages(true);
+    try {
+      const userMessages = await messageService.getUserMessages(user?.userId);
+      
+      // Format messages for display
+      const formattedMessages = userMessages.map(msg => {
+        const isReceived = msg.type === 'received';
+        const displayPerson = isReceived 
+          ? (msg.expediteur ? `${msg.expediteur.prenom || ''} ${msg.expediteur.nom || ''}`.trim() : 'Expéditeur inconnu')
+          : (msg.destinataires && msg.destinataires.length > 0 
+             ? msg.destinataires.map(d => `${d.prenom || ''} ${d.nom || ''}`.trim()).join(', ')
+             : 'Destinataires inconnus');
+        
+        return {
+          id: msg.id,
+          sender: displayPerson,
+          subject: msg.objet || 'Sans objet',
+          preview: msg.contenu ? msg.contenu.replace(/<[^>]*>/g, '').substring(0, 50) + '...' : '',
+          time: msg.dateCreation ? (() => {
+            try {
+              return new Date(msg.dateCreation).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            } catch {
+              return 'N/A';
+            }
+          })() : 'N/A',
+          date: msg.dateCreation,
+          isRead: msg.etat === 'lu' || msg.etat === 'reçu',
+          isStarred: false,
+          avatar: displayPerson.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2) || 'UK',
+          fullMessage: msg.contenu || '',
+          type: msg.type,
+        };
+      });
+      
+      setMessages(formattedMessages);
+    } catch (error) {
+      console.error('Error loading messages:', error);
+      // Fallback to demo messages
+      setMessages(demoMessages);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  };
+
+  const handleSendMessage = () => {
     setShowCompose(false);
-    Alert.alert("Message envoyé", "Votre message a été envoyé avec succès.");
+    loadMessages(); // Reload messages after sending
   };
 
   if (selectedMessage) {
@@ -226,22 +271,31 @@ const DashboardMessagesBody = ({ onBack }) => {
 
       {/* Messages List */}
       <ScrollView style={messagesStyles.messagesList}>
-        {getMessagesToShow().map((message) => (
-          <MessageItem
-            key={message.id}
-            message={message}
-            onPress={() => handleMessagePress(message)}
-            onStarToggle={() => handleStarToggle(message.id)}
-          />
-        ))}
-
-        {getMessagesToShow().length === 0 && (
-          <View style={messagesStyles.emptyState}>
-            <FontAwesome5 name="inbox" size={48} color="#D1D5DB" />
-            <Text style={messagesStyles.emptyStateText}>
-              {searchText ? "Aucun message trouvé" : "Aucun message"}
-            </Text>
+        {isLoadingMessages ? (
+          <View style={messagesStyles.loadingContainer}>
+            <FontAwesome5 name="spinner" size={32} color="#4F46E5" />
+            <Text style={messagesStyles.loadingText}>Chargement des messages...</Text>
           </View>
+        ) : (
+          <>
+            {getMessagesToShow().map((message) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                onPress={() => handleMessagePress(message)}
+                onStarToggle={() => handleStarToggle(message.id)}
+              />
+            ))}
+
+            {getMessagesToShow().length === 0 && (
+              <View style={messagesStyles.emptyState}>
+                <FontAwesome5 name="inbox" size={48} color="#D1D5DB" />
+                <Text style={messagesStyles.emptyStateText}>
+                  {searchText ? "Aucun message trouvé" : "Aucun message"}
+                </Text>
+              </View>
+            )}
+          </>
         )}
 
         <View style={{ height: 100 }} />
@@ -357,7 +411,9 @@ const MessageDetailView = ({ message, onBack, onReply, onForward }) => {
 
         {/* Message Content */}
         <View style={messagesStyles.messageBody}>
-          <Text style={messagesStyles.messageText}>{message.fullMessage}</Text>
+          <Text style={messagesStyles.messageText}>
+            {message.fullMessage.replace(/<[^>]*>/g, '').replace(/&quot;/g, '"').replace(/&amp;/g, '&')}
+          </Text>
         </View>
 
         <View style={{ height: 120 }} />
@@ -384,128 +440,7 @@ const MessageDetailView = ({ message, onBack, onReply, onForward }) => {
   );
 };
 
-// Compose Message Modal Component
-const ComposeMessageModal = ({ onClose, onSend }) => {
-  const [to, setTo] = useState("");
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
-  const slideAnim = useRef(new Animated.Value(600)).current;
 
-  React.useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, []);
-
-  const handleClose = () => {
-    Animated.timing(slideAnim, {
-      toValue: 600,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      onClose();
-    });
-  };
-
-  const handleSend = () => {
-    if (!to || !subject || !message) {
-      Alert.alert("Erreur", "Veuillez remplir tous les champs.");
-      return;
-    }
-
-    onSend({
-      recipient: to,
-      subject: subject,
-      preview: message.substring(0, 50) + "...",
-      fullMessage: message,
-      avatar: to
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase(),
-    });
-  };
-
-  return (
-    <Modal
-      transparent
-      visible
-      animationType="none"
-      onRequestClose={handleClose}
-    >
-      <View style={messagesStyles.modalOverlay}>
-        <Animated.View
-          style={[
-            messagesStyles.composeModal,
-            { transform: [{ translateY: slideAnim }] },
-          ]}
-        >
-          {/* Modal Header */}
-          <View style={messagesStyles.composeHeader}>
-            <Text style={messagesStyles.composeTitle}>Nouveau message</Text>
-            <TouchableOpacity onPress={handleClose}>
-              <FontAwesome5 name="times" size={20} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Form */}
-          <ScrollView style={messagesStyles.composeForm}>
-            <View style={messagesStyles.inputGroup}>
-              <Text style={messagesStyles.inputLabel}>À:</Text>
-              <TextInput
-                style={messagesStyles.textInput}
-                value={to}
-                onChangeText={setTo}
-                placeholder="Nom du destinataire"
-              />
-            </View>
-
-            <View style={messagesStyles.inputGroup}>
-              <Text style={messagesStyles.inputLabel}>Sujet:</Text>
-              <TextInput
-                style={messagesStyles.textInput}
-                value={subject}
-                onChangeText={setSubject}
-                placeholder="Objet du message"
-              />
-            </View>
-
-            <View style={messagesStyles.inputGroup}>
-              <Text style={messagesStyles.inputLabel}>Message:</Text>
-              <TextInput
-                style={[messagesStyles.textInput, messagesStyles.messageInput]}
-                value={message}
-                onChangeText={setMessage}
-                placeholder="Tapez votre message ici..."
-                multiline
-                textAlignVertical="top"
-              />
-            </View>
-          </ScrollView>
-
-          {/* Actions */}
-          <View style={messagesStyles.composeActions}>
-            <TouchableOpacity
-              style={messagesStyles.cancelButton}
-              onPress={handleClose}
-            >
-              <Text style={messagesStyles.cancelButtonText}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={messagesStyles.sendButton}
-              onPress={handleSend}
-            >
-              <FontAwesome5 name="paper-plane" size={16} color="#FFFFFF" />
-              <Text style={messagesStyles.sendButtonText}>Envoyer</Text>
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-};
 
 const messagesStyles = StyleSheet.create({
   container: {
@@ -858,6 +793,16 @@ const messagesStyles = StyleSheet.create({
     fontWeight: "500",
     color: "#FFFFFF",
     marginLeft: 8,
+  },
+  loadingContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: "#6B7280",
+    textAlign: "center",
+    marginTop: 12,
   },
 });
 
