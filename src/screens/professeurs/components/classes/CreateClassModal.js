@@ -10,7 +10,7 @@ import {
   Alert,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { classService } from "../../../services/classService";
+import { classService } from "../../../../services/classService";
 import { useUser } from "../../../../context/UserContext";
 
 const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
@@ -26,10 +26,11 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
   const [etablissements, setEtablissements] = useState([]);
   const [professors, setProfessors] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false);
 
   const niveaux = [
     "MATERNELLE",
-    "PRIMAIRE", 
+    "PRIMAIRE",
     "COLLEGE",
     "LYCEE",
     "UNIVERSITE"
@@ -45,6 +46,7 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
     console.log('=== LOADING DATA FOR CREATE CLASS MODAL ===');
     console.log('User data:', user);
     
+    setIsLoadingData(true);
     try {
       console.log('Starting to fetch etablissements and professors...');
       
@@ -56,19 +58,27 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
         professorsPromise
       ]);
       
-      console.log('Etablissements data received:', etablissementsData);
-      console.log('Professors data received:', professorsData);
+      console.log('=== ETABLISSEMENTS DATA RECEIVED ===');
+      console.log('Raw etablissements data:', etablissementsData);
+      console.log('Etablissements count:', etablissementsData?.length || 0);
       
-      setEtablissements(etablissementsData);
-      setProfessors(professorsData);
+      console.log('=== PROFESSORS DATA RECEIVED ===');
+      console.log('Raw professors data:', professorsData);
+      console.log('Professors count:', professorsData?.length || 0);
       
-      console.log('Data loaded successfully');
+      setEtablissements(etablissementsData || []);
+      setProfessors(professorsData || []);
+      
+      console.log('Data loaded successfully into state');
     } catch (error) {
       console.error('=== ERROR LOADING DATA ===');
       console.error('Error details:', error);
       console.error('Error message:', error.message);
       console.error('Error stack:', error.stack);
-      Alert.alert('Erreur', `Impossible de charger les données: ${error.message}`);
+      Alert.alert('Erreur', 'Impossible de charger les données');
+    } finally {
+      setIsLoadingData(false);
+      console.log('=== FINISHED LOADING DATA ===');
     }
   };
 
@@ -217,21 +227,26 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
 
             {/* Establishment Selection */}
             <View style={styles.formField}>
-              <Text style={styles.fieldLabel}>Établissement (Optionnel)</Text>
+              <Text style={styles.fieldLabel}>
+                Établissement (Optionnel) {isLoadingData && '(Chargement...)'}
+              </Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
                 onPress={() => setShowEstablishmentDropdown(!showEstablishmentDropdown)}
+                disabled={isLoadingData}
               >
                 <Text style={styles.dropdownText}>
-                  {selectedEstablishment ? `${selectedEstablishment.nom} - ${selectedEstablishment.localisation}` : "Aucun établissement (Optionnel)"}
+                  {selectedEstablishment ? `${selectedEstablishment?.nom || 'Nom non défini'} - ${selectedEstablishment?.localisation || 'Localisation non définie'}` : "Aucun établissement (Optionnel)"}
                 </Text>
                 <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
               </TouchableOpacity>
               {showEstablishmentDropdown && (
                 <View style={styles.dropdownOptions}>
                   <TouchableOpacity
+                    key="no-establishment"
                     style={styles.dropdownOption}
                     onPress={() => {
+                      console.log('Selected establishment: None');
                       setSelectedEstablishment(null);
                       setShowEstablishmentDropdown(false);
                     }}
@@ -240,15 +255,16 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
                   </TouchableOpacity>
                   {etablissements.map((etablissement) => (
                     <TouchableOpacity
-                      key={etablissement.id}
+                      key={etablissement?.id || etablissement?.nom || 'unknown'}
                       style={styles.dropdownOption}
                       onPress={() => {
-                        setSelectedEstablishment(etablissement);
+                        console.log('Selected establishment:', etablissement);
+                        setSelectedEstablissement(etablissement);
                         setShowEstablishmentDropdown(false);
                       }}
                     >
                       <Text style={styles.dropdownOptionText}>
-                        {etablissement.nom} - {etablissement.localisation}
+                        {etablissement?.nom || 'Nom non défini'} - {etablissement?.localisation || 'Localisation non définie'}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -258,21 +274,26 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
 
             {/* Moderator Selection */}
             <View style={styles.formField}>
-              <Text style={styles.fieldLabel}>Modérateur (Optionnel)</Text>
+              <Text style={styles.fieldLabel}>
+                Modérateur (Optionnel) {isLoadingData && '(Chargement...)'}
+              </Text>
               <TouchableOpacity
                 style={styles.dropdownButton}
                 onPress={() => setShowModeratorDropdown(!showModeratorDropdown)}
+                disabled={isLoadingData}
               >
                 <Text style={styles.dropdownText}>
-                  {selectedModerator ? `${selectedModerator.prenom} ${selectedModerator.nom}` : "Aucun modérateur (Optionnel)"}
+                  {selectedModerator ? `${selectedModerator?.prenom || ''} ${selectedModerator?.nom || 'Nom non défini'}` : "Aucun modérateur (Optionnel)"}
                 </Text>
                 <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
               </TouchableOpacity>
               {showModeratorDropdown && (
                 <View style={styles.dropdownOptions}>
                   <TouchableOpacity
+                    key="no-moderator"
                     style={styles.dropdownOption}
                     onPress={() => {
+                      console.log('Selected moderator: None');
                       setSelectedModerator(null);
                       setShowModeratorDropdown(false);
                     }}
@@ -281,15 +302,16 @@ const CreateClassModal = ({ visible, onClose, onCreateClass }) => {
                   </TouchableOpacity>
                   {professors.map((professor) => (
                     <TouchableOpacity
-                      key={professor.id}
+                      key={professor?.id || professor?.nom || 'unknown'}
                       style={styles.dropdownOption}
                       onPress={() => {
+                        console.log('Selected moderator:', professor);
                         setSelectedModerator(professor);
                         setShowModeratorDropdown(false);
                       }}
                     >
                       <Text style={styles.dropdownOptionText}>
-                        {professor.prenom} {professor.nom}
+                        {professor?.prenom || ''} {professor?.nom || 'Nom non défini'}
                       </Text>
                     </TouchableOpacity>
                   ))}
