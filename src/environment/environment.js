@@ -1,3 +1,3 @@
 export const environment = {
-  baseUrl: "http://172.16.200.67:8486/scholchat",
+  baseUrl: "http://10.237.18.152:8486/scholchat",
 };

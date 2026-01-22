@@ -222,7 +222,7 @@ const ComposeMessageModal = ({ onClose, onSend }) => {
           contenu: formattedMessage,
           objet: subject,
           expediteur: { type: user.type || "professeur", id: user.userId },
-          destinataires: allRecipients.map(recipient => ({ type: recipient.type, id: recipient.id }))
+          destinataires: allRecipients.map(recipient => ({ type: recipient.type || "utilisateur", id: recipient.id }))
         });
       }
       
