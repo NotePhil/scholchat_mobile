@@ -11,11 +11,15 @@ import {
   Alert,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import AttachmentModal from "./AttachmentModal";
+import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import AttachmentModal, { AttachmentType } from "./AttachmentModal";
+import PromptSheet from "../../../../components/common/PromptSheet";
 import { classService } from "../../../../services/classService";
 import { messageService } from "../../../../services/messageService";
+import { mediaService } from "../../../../services/api";
 import { useUser } from "../../../../context/UserContext";
-import { ClassEntity, ClassUser } from "../../../../types";
+import { ClassEntity, ClassUser, MessageAttachment } from "../../../../types";
 
 interface RecipientSuggestion {
   id: string;
@@ -44,6 +48,9 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
   const [message, setMessage] = useState("");
   const [isGroupMessage, setIsGroupMessage] = useState(false);
   const [showAttachmentModal, setShowAttachmentModal] = useState(false);
+  const [showLinkPrompt, setShowLinkPrompt] = useState(false);
+  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isBold, setIsBold] = useState(false);
   const [isItalic, setIsItalic] = useState(false);
@@ -160,6 +167,58 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
     setCcRecipients(prev => prev.filter(r => r.id !== userId));
   };
 
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleAttach = async (type: AttachmentType) => {
+    setShowAttachmentModal(false);
+
+    if (type === "link") {
+      setShowLinkPrompt(true);
+      return;
+    }
+
+    if (!user?.userId) {
+      Alert.alert("Erreur", "Utilisateur non identifié.");
+      return;
+    }
+
+    try {
+      if (type === "image") {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour joindre une image.");
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+        if (result.canceled || !result.assets?.length) return;
+        const asset = result.assets[0];
+        const name = asset.fileName ?? `image_${Date.now()}.jpg`;
+
+        setIsUploadingAttachment(true);
+        const url = await mediaService.uploadFile({ uri: asset.uri, mimeType: "image/jpeg", name }, user.userId, "IMAGE");
+        setAttachments((prev) => [...prev, { id: Date.now().toString(), name, uri: url, mimeType: "image/jpeg" }]);
+      } else {
+        const result = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true });
+        if (result.canceled || !result.assets?.length) return;
+        const asset = result.assets[0];
+
+        setIsUploadingAttachment(true);
+        const url = await mediaService.uploadFile(
+          { uri: asset.uri, mimeType: asset.mimeType ?? "application/octet-stream", name: asset.name },
+          user.userId,
+          "DOCUMENT"
+        );
+        setAttachments((prev) => [...prev, { id: Date.now().toString(), name: asset.name, uri: url, mimeType: asset.mimeType }]);
+      }
+    } catch (err) {
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du téléversement de la pièce jointe.");
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  };
+
   const getFilteredRecipients = () => {
     return recipientSuggestions.filter(u =>
       u.name.toLowerCase().includes(recipientSearch.toLowerCase()) ||
@@ -224,7 +283,8 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
           contenu: formattedMessage,
           objet: subject,
           expediteurId: user?.userId,
-          destinataireIds: allRecipientIds
+          destinataireIds: allRecipientIds,
+          pieceJointes: attachments,
         } as any);
       } else {
         // Send individual message
@@ -234,7 +294,8 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
           contenu: formattedMessage,
           objet: subject,
           expediteur: { type: user?.type || "professeur", id: user?.userId },
-          destinataires: allRecipients.map(recipient => ({ type: recipient.type || "utilisateur", id: recipient.id }))
+          destinataires: allRecipients.map(recipient => ({ type: recipient.type || "utilisateur", id: recipient.id })),
+          pieceJointes: attachments,
         } as any);
       }
 
@@ -414,10 +475,33 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
             <View style={styles.inputGroup}>
               <View style={styles.attachmentsHeader}>
                 <Text style={styles.inputLabel}>Message: *</Text>
-                <TouchableOpacity onPress={() => setShowAttachmentModal(true)}>
-                  <FontAwesome5 name="paperclip" size={20} color="#6B7280" />
+                <TouchableOpacity onPress={() => setShowAttachmentModal(true)} disabled={isUploadingAttachment}>
+                  {isUploadingAttachment ? (
+                    <FontAwesome5 name="spinner" size={20} color="#6B7280" />
+                  ) : (
+                    <FontAwesome5 name="paperclip" size={20} color="#6B7280" />
+                  )}
                 </TouchableOpacity>
               </View>
+
+              {attachments.length > 0 && (
+                <View style={styles.recipientsContainer}>
+                  {attachments.map((att) => (
+                    <View key={att.id} style={styles.recipientChip}>
+                      <FontAwesome5
+                        name={att.mimeType === 'text/uri-list' ? 'link' : att.mimeType?.startsWith('image') ? 'image' : 'file-alt'}
+                        size={12}
+                        color="#4F46E5"
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text style={styles.recipientChipText} numberOfLines={1}>{att.name}</Text>
+                      <TouchableOpacity onPress={() => removeAttachment(att.id as string)}>
+                        <FontAwesome5 name="times" size={12} color="#6B7280" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
 
               {/* Rich Text Editor Toolbar */}
               <View style={styles.editorToolbar}>
@@ -502,12 +586,23 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
       {showAttachmentModal && (
         <AttachmentModal
           onClose={() => setShowAttachmentModal(false)}
-          onAttach={(type) => {
-            Alert.alert("Attachment", `Adding ${type}...`);
-            setShowAttachmentModal(false);
-          }}
+          onAttach={handleAttach}
         />
       )}
+      <PromptSheet
+        visible={showLinkPrompt}
+        title="Ajouter un lien"
+        placeholder="https://..."
+        submitLabel="Ajouter"
+        onCancel={() => setShowLinkPrompt(false)}
+        onSubmit={(url) => {
+          setAttachments((prev) => [
+            ...prev,
+            { id: Date.now().toString(), name: url, uri: url, mimeType: "text/uri-list" },
+          ]);
+          setShowLinkPrompt(false);
+        }}
+      />
     </Modal>
   );
 };

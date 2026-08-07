@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,10 @@ import {
   Dimensions,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { useUser } from "../../../context/UserContext";
+import { notificationService } from "../../../services/api";
+import { useNotificationsStore } from "../../../store/useNotificationsStore";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -18,33 +22,47 @@ interface AdminHeaderProps {
 }
 
 const AdminHeader = ({ onLogout, onNavigateToProfile }: AdminHeaderProps) => {
+  const navigation = useNavigation<any>();
   const [showNotificationDropdown, setShowNotificationDropdown] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
   const notificationDropdownAnim = useRef(new Animated.Value(0)).current;
   const profileDropdownAnim = useRef(new Animated.Value(0)).current;
 
+  const { user } = useUser();
+  const { items: notifications, unreadCount, setItems, setUnreadCount, markReadLocally } = useNotificationsStore();
+
   const userData = {
-    name: "Admin User",
+    name: user?.username || `${user?.prenom ?? ""} ${user?.nom ?? ""}`.trim() || "Administrateur",
     role: "Administrateur",
-    connectionDate: "20/09/2025 14:30",
-    initial: "A",
+    connectionDate: user?.loginTime
+      ? new Date(user.loginTime).toLocaleString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "",
+    initial: (user?.username || "A").charAt(0).toUpperCase(),
   };
 
-  const notifications = [
-    {
-      id: 1,
-      title: "Nouvelle inscription",
-      message: "Un nouveau professeur s'est inscrit",
-      time: "5min",
-    },
-    {
-      id: 2,
-      title: "Rapport système",
-      message: "Rapport mensuel disponible",
-      time: "1h",
-    },
-  ];
+  const loadNotifications = useCallback(async () => {
+    try {
+      const [list, count] = await Promise.all([
+        notificationService.getAll(),
+        notificationService.getUnreadCount(),
+      ]);
+      setItems(list);
+      setUnreadCount(count);
+    } catch {
+      // best-effort
+    }
+  }, [setItems, setUnreadCount]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
 
   const toggleNotificationDropdown = () => {
     if (showNotificationDropdown) {
@@ -171,9 +189,11 @@ const AdminHeader = ({ onLogout, onNavigateToProfile }: AdminHeaderProps) => {
             onPress={toggleNotificationDropdown}
           >
             <FontAwesome5 name="bell" size={18} color="#6B7280" />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationText}>2</Text>
-            </View>
+            {unreadCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
@@ -218,25 +238,42 @@ const AdminHeader = ({ onLogout, onNavigateToProfile }: AdminHeaderProps) => {
             <View style={styles.dropdownDivider} />
 
             <View style={styles.notificationsList}>
-              {notifications.map((notification) => (
-                <TouchableOpacity
-                  key={notification.id}
-                  style={styles.notificationItem}
-                >
-                  <View style={styles.notificationContent}>
-                    <Text style={styles.notificationTitle}>
-                      {notification.title}
-                    </Text>
-                    <Text style={styles.notificationMessage}>
-                      {notification.message}
-                    </Text>
-                  </View>
-                  <Text style={styles.notificationTime}>
-                    {notification.time}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {notifications.length === 0 ? (
+                <View style={{ padding: 16 }}>
+                  <Text style={styles.notificationMessage}>Aucune notification</Text>
+                </View>
+              ) : (
+                notifications.map((notification) => (
+                  <TouchableOpacity
+                    key={notification.id}
+                    style={styles.notificationItem}
+                    onPress={() => {
+                      markReadLocally(notification.id);
+                      notificationService.markAsRead(notification.id).catch(() => {});
+                    }}
+                  >
+                    <View style={styles.notificationContent}>
+                      <Text style={styles.notificationTitle}>
+                        {notification.titre ?? "Notification"}
+                      </Text>
+                      <Text style={styles.notificationMessage}>
+                        {notification.message}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
+
+            <TouchableOpacity
+              style={styles.viewAllButton}
+              onPress={() => {
+                closeNotificationDropdown();
+                navigation.navigate("Notifications");
+              }}
+            >
+              <Text style={styles.viewAllButtonText}>Voir toutes les notifications</Text>
+            </TouchableOpacity>
           </Animated.View>
         )}
       </View>
@@ -440,6 +477,18 @@ const styles = StyleSheet.create({
   notificationTime: {
     fontSize: 12,
     color: "#9CA3AF",
+  },
+  viewAllButton: {
+    padding: 16,
+    paddingTop: 12,
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  viewAllButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#DC2626",
   },
 });
 

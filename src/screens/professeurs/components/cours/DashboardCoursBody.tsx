@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   ScrollView,
   View,
@@ -9,8 +9,16 @@ import {
   Modal,
   Animated,
   TouchableWithoutFeedback,
+  Alert,
+  Share,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { useUser } from "../../../../context/UserContext";
+import { coursService } from "../../../../services/api";
+import { LoadingSpinner } from "../../../../components/ui";
+import ScheduleCoursModal from "./ScheduleCoursModal";
+import ScheduledCoursListModal from "./ScheduledCoursListModal";
 
 export interface ChapitreImage {
   id: string;
@@ -51,72 +59,78 @@ export interface Cours {
 interface DashboardCoursBodyProps {
   onNavigateToCreate: () => void;
   onCreateCours?: (cours: Cours) => void;
+  onEditCours: (cours: Cours) => void;
 }
 
-const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCoursBodyProps) => {
+/** Backend Cours shape isn't guaranteed field-for-field, so map defensively. */
+const mapApiCoursToUiCours = (raw: Record<string, any>): Cours => ({
+  id: raw.id,
+  titre: raw.titre ?? raw.nom ?? "Sans titre",
+  description: raw.description ?? "",
+  dateCreation: raw.dateCreation ?? raw.createdAt ?? new Date().toISOString(),
+  etat: raw.etat ?? "BROUILLON",
+  references: raw.references ?? "",
+  restriction: raw.restriction ?? "PUBLIC",
+  chapitres: Array.isArray(raw.chapitres)
+    ? raw.chapitres.map((c: any) => (typeof c === "string" ? c : c?.titre ?? ""))
+    : [],
+  matieres: Array.isArray(raw.matieres)
+    ? raw.matieres
+    : raw.matiereId
+    ? [raw.matiereId]
+    : [],
+  redacteurId: raw.redacteurId ?? raw.professeurId ?? "",
+});
+
+const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours, onEditCours }: DashboardCoursBodyProps) => {
+  const { user } = useUser();
+  const navigation = useNavigation<any>();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("tous");
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedCours, setSelectedCours] = useState<Cours | null>(null);
   const [isFabOpen, setIsFabOpen] = useState(false);
-  const [cours, setCours] = useState<Cours[]>([
-    {
-      id: "1",
-      titre: "Introduction aux Mathématiques",
-      description:
-        "Cours de base sur les concepts fondamentaux des mathématiques pour débutants",
-      dateCreation: "2024-01-15",
-      etat: "PUBLIE",
-      references: "Manuel de mathématiques niveau 1",
-      restriction: "PUBLIC",
-      chapitres: ["Algèbre de base", "Géométrie", "Probabilités"],
-      matieres: ["Mathématiques"],
-      redacteurId: "prof_001",
-    },
-    {
-      id: "2",
-      titre: "Physique Quantique Avancée",
-      description:
-        "Exploration approfondie des principes de la mécanique quantique et de ses applications modernes",
-      dateCreation: "2024-02-10",
-      etat: "BROUILLON",
-      references: "Principes de physique quantique - Griffiths",
-      restriction: "PRIVE",
-      chapitres: [
-        "Équation de Schrödinger",
-        "Particules dans un potentiel",
-        "Moment angulaire",
-      ],
-      matieres: ["Physique"],
-      redacteurId: "prof_002",
-    },
-    {
-      id: "3",
-      titre: "Histoire Contemporaine",
-      description:
-        "Étude des événements historiques du 20ème siècle et leur impact sur le monde actuel",
-      dateCreation: "2024-03-05",
-      etat: "PUBLIE",
-      references: "Histoire du monde contemporain",
-      restriction: "PUBLIC",
-      chapitres: ["Guerres mondiales", "Guerre froide", "Mondialisation"],
-      matieres: ["Histoire"],
-      redacteurId: "prof_003",
-    },
-    {
-      id: "4",
-      titre: "Programmation Web",
-      description:
-        "Développement d'applications web modernes avec HTML, CSS et JavaScript",
-      dateCreation: "2024-03-20",
-      etat: "ARCHIVE",
-      references: "MDN Web Docs, JavaScript Guide",
-      restriction: "PUBLIC",
-      chapitres: ["HTML/CSS", "JavaScript", "Frameworks modernes"],
-      matieres: ["Informatique"],
-      redacteurId: "prof_004",
-    },
-  ]);
+  const [cours, setCours] = useState<Cours[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showScheduledList, setShowScheduledList] = useState(false);
+
+  const loadCours = useCallback(async () => {
+    if (!user?.userId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await coursService.getByProfessor(user.userId);
+      setCours(data.map(mapApiCoursToUiCours));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec du chargement des cours.");
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.userId]);
+
+  useEffect(() => {
+    loadCours();
+  }, [loadCours]);
+
+  const handleDeleteCours = (coursItem: Cours) => {
+    Alert.alert("Supprimer le cours", `Voulez-vous vraiment supprimer "${coursItem.titre}" ?`, [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await coursService.remove(coursItem.id);
+            setCours((prev) => prev.filter((c) => c.id !== coursItem.id));
+          } catch (err) {
+            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
+          }
+        },
+      },
+    ]);
+  };
 
   // Animation values
   const fabAnimation = useRef(new Animated.Value(0)).current;
@@ -216,9 +230,8 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
   };
 
   const handleProgramCours = () => {
-    console.log("Programming new cours...");
     closeFab();
-    // Add navigation logic here
+    setShowScheduleModal(true);
   };
 
   // Filter courses based on search and active filter only
@@ -267,10 +280,20 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
         <ScrollView style={coursStyles.content}>
           {/* Header Section */}
           <View style={coursStyles.pageHeader}>
-            <Text style={coursStyles.pageTitle}>Mes Cours</Text>
-            <Text style={coursStyles.pageSubtitle}>
-              Gérez vos cours et suivez vos programmes d'enseignement
-            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={coursStyles.pageTitle}>Mes Cours</Text>
+                <Text style={coursStyles.pageSubtitle}>
+                  Gérez vos cours et suivez vos programmes d'enseignement
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowScheduledList(true)}
+                style={{ padding: 8, backgroundColor: "#EEF2FF", borderRadius: 20 }}
+              >
+                <FontAwesome5 name="calendar-alt" size={18} color="#4F46E5" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Statistics Cards - Modified Layout */}
@@ -341,9 +364,14 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
             />
           </View>
 
+          {error ? (
+            <Text style={{ color: "#EF4444", marginBottom: 12 }}>{error}</Text>
+          ) : null}
+          {loading ? <LoadingSpinner label="Chargement des cours..." /> : null}
+
           {/* Cours List - Modified Layout */}
           <View style={coursStyles.coursList}>
-            {filteredCours.map((coursItem) => (
+            {!loading && filteredCours.map((coursItem) => (
               <View key={coursItem.id} style={coursStyles.coursCard}>
                 <View style={coursStyles.coursContent}>
                   <View style={coursStyles.coursHeader}>
@@ -381,6 +409,12 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                     </Text>
                     <View style={coursStyles.actionButtons}>
                       <TouchableOpacity
+                        style={[coursStyles.actionButton, { backgroundColor: "#ECFDF5" }]}
+                        onPress={() => navigation.navigate("LiveSession", { coursId: coursItem.id, isHost: true })}
+                      >
+                        <FontAwesome5 name="video" size={16} color="#10B981" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={[
                           coursStyles.actionButton,
                           coursStyles.viewButton,
@@ -402,6 +436,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                           coursStyles.actionButton,
                           coursStyles.deleteButton,
                         ]}
+                        onPress={() => handleDeleteCours(coursItem)}
                       >
                         <FontAwesome5 name="trash" size={16} color="#EF4444" />
                       </TouchableOpacity>
@@ -413,7 +448,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
           </View>
 
           {/* Empty State */}
-          {filteredCours.length === 0 && (
+          {!loading && filteredCours.length === 0 && (
             <View style={coursStyles.emptyState}>
               <FontAwesome5 name="book-open" size={48} color="#D1D5DB" />
               <Text style={coursStyles.emptyTitle}>Aucun cours trouvé</Text>
@@ -582,38 +617,6 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                       <View style={coursStyles.courseInfoDetails}>
                         <View style={coursStyles.detailItem}>
                           <FontAwesome5
-                            name="calendar"
-                            size={14}
-                            color="#10B981"
-                          />
-                          <View style={coursStyles.detailContent}>
-                            <Text style={coursStyles.detailLabel}>
-                              Date de début
-                            </Text>
-                            <Text style={coursStyles.detailValue}>
-                              Non défini
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={coursStyles.detailItem}>
-                          <FontAwesome5
-                            name="clock"
-                            size={14}
-                            color="#F59E0B"
-                          />
-                          <View style={coursStyles.detailContent}>
-                            <Text style={coursStyles.detailLabel}>
-                              Date de fin
-                            </Text>
-                            <Text style={coursStyles.detailValue}>
-                              Non défini
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={coursStyles.detailItem}>
-                          <FontAwesome5
                             name="calendar-plus"
                             size={14}
                             color="#8B5CF6"
@@ -625,22 +628,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                             <Text style={coursStyles.detailValue}>
                               {new Date(
                                 selectedCours.dateCreation
-                              ).toLocaleDateString("fr-FR")}{" "}
-                              09:00
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={coursStyles.detailItem}>
-                          <FontAwesome5
-                            name="map-marker-alt"
-                            size={14}
-                            color="#F59E0B"
-                          />
-                          <View style={coursStyles.detailContent}>
-                            <Text style={coursStyles.detailLabel}>Lieu</Text>
-                            <Text style={coursStyles.detailValue}>
-                              Non spécifié
+                              ).toLocaleDateString("fr-FR")}
                             </Text>
                           </View>
                         </View>
@@ -652,7 +640,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                               Professeur
                             </Text>
                             <Text style={coursStyles.detailValue}>
-                              Non spécifié
+                              {`${user?.prenom ?? ""} ${user?.nom ?? ""}`.trim() || user?.username || "Vous"}
                             </Text>
                           </View>
                         </View>
@@ -671,8 +659,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                       <Text style={coursStyles.sectionTitle}>Description</Text>
                     </View>
                     <Text style={coursStyles.descriptionText}>
-                      {selectedCours.description ||
-                        "Cours d'introduction aux concepts mathématiques de base"}
+                      {selectedCours.description || "Aucune description fournie."}
                     </Text>
                   </View>
 
@@ -689,11 +676,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
 
                   {/* Course ID */}
                   <View style={coursStyles.courseIdContainer}>
-                    <Text style={coursStyles.courseIdText}>
-                      ID:{" "}
-                      {selectedCours.id ||
-                        "660e8400-e29b-41d4-a716-446855441100"}
-                    </Text>
+                    <Text style={coursStyles.courseIdText}>ID: {selectedCours.id}</Text>
                   </View>
                 </ScrollView>
               )}
@@ -706,8 +689,8 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                     coursStyles.updateButton,
                   ]}
                   onPress={() => {
-                    console.log("Update course:", selectedCours);
                     setShowDetailsModal(false);
+                    if (selectedCours) onEditCours(selectedCours);
                   }}
                 >
                   <FontAwesome5 name="edit" size={16} color="#FFFFFF" />
@@ -720,7 +703,11 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
                     coursStyles.shareButton,
                   ]}
                   onPress={() => {
-                    console.log("Share course:", selectedCours);
+                    if (!selectedCours) return;
+                    Share.share({
+                      title: selectedCours.titre,
+                      message: `${selectedCours.titre}\n\n${selectedCours.description ?? ""}`,
+                    }).catch(() => {});
                   }}
                 >
                   <FontAwesome5 name="share-alt" size={16} color="#FFFFFF" />
@@ -740,6 +727,14 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours }: DashboardCour
             </View>
           </View>
         </Modal>
+
+        <ScheduleCoursModal
+          visible={showScheduleModal}
+          onClose={() => setShowScheduleModal(false)}
+          onScheduled={() => {}}
+          coursList={cours}
+        />
+        <ScheduledCoursListModal visible={showScheduledList} onClose={() => setShowScheduledList(false)} />
       </View>
     </TouchableWithoutFeedback>
   );

@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { storageService } from '../services/storageService';
+import React, { ReactNode } from 'react';
+import { useAuthStore } from '../store/useAuthStore';
 import { AuthUser, LoginResponse } from '../types';
 
 export interface UserContextValue {
@@ -10,65 +10,30 @@ export interface UserContextValue {
   isLoggedIn: boolean;
 }
 
-const UserContext = createContext<UserContextValue | undefined>(undefined);
-
+/**
+ * Back-compat shim: session state now lives in useAuthStore (Zustand), but
+ * every existing screen calls useUser() from this module, so it re-exports
+ * the same shape backed by the store instead of a separate React Context.
+ */
 export const useUser = (): UserContextValue => {
-  const context = useContext(UserContext);
-  if (!context) {
-    throw new Error('useUser must be used within a UserProvider');
-  }
-  return context;
-};
+  const user = useAuthStore((state) => state.user);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const login = useAuthStore((state) => state.login);
+  const logout = useAuthStore((state) => state.logout);
 
-export const UserProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    checkUserSession();
-  }, []);
-
-  const checkUserSession = async () => {
-    try {
-      const userData = await storageService.getUserData();
-      if (userData) {
-        setUser(userData);
-      }
-    } catch (error) {
-      console.error('Error checking user session:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const login = (userData: LoginResponse) => {
-    const userWithLoginTime: AuthUser = {
-      ...userData,
-      loginTime: new Date().toISOString()
-    };
-    setUser(userWithLoginTime);
-  };
-
-  const logout = async () => {
-    try {
-      await storageService.clearUserData();
-      setUser(null);
-    } catch (error) {
-      console.error('Error during logout:', error);
-    }
-  };
-
-  const value: UserContextValue = {
+  return {
     user,
     isLoading,
     login,
     logout,
-    isLoggedIn: !!user,
+    isLoggedIn: isAuthenticated,
   };
-
-  return (
-    <UserContext.Provider value={value}>
-      {children}
-    </UserContext.Provider>
-  );
 };
+
+/**
+ * Kept only so the `<UserProvider>` wrapper in App.tsx doesn't break call
+ * sites still importing it. Session restore (hydrate) now happens once in
+ * RootNavigator, not here, to avoid double-reading AsyncStorage on boot.
+ */
+export const UserProvider = ({ children }: { children: ReactNode }) => <>{children}</>;

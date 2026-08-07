@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,10 @@ import {
   Dimensions,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
 import { useUser } from "../../../context/UserContext";
+import { notificationService } from "../../../services/api";
+import { useNotificationsStore } from "../../../store/useNotificationsStore";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -19,6 +22,7 @@ interface DashboardHeaderProps {
 }
 
 const DashboardHeader = ({ onLogout, onNavigateToProfile }: DashboardHeaderProps) => {
+  const navigation = useNavigation<any>();
   const [showNotificationDropdown, setShowNotificationDropdown] =
     useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
@@ -69,27 +73,52 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }: DashboardHeaderProps
     initial: getUserInitial(user?.username),
   };
 
-  // Mock notifications data
-  const notifications = [
-    {
-      id: 1,
-      title: "Nouveau message",
-      message: "Vous avez reçu un nouveau message",
-      time: "5min",
-    },
-    {
-      id: 2,
-      title: "Cours programmé",
-      message: "Cours de mathématiques dans 1h",
-      time: "1h",
-    },
-    {
-      id: 3,
-      title: "Rappel",
-      message: "Réunion parents-professeurs demain",
-      time: "2h",
-    },
-  ];
+  const { items: notifications, unreadCount, setItems, setUnreadCount, markReadLocally } = useNotificationsStore();
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const [list, count] = await Promise.all([
+        notificationService.getAll(),
+        notificationService.getUnreadCount(),
+      ]);
+      setItems(list);
+      setUnreadCount(count);
+    } catch {
+      // Silently ignore — header shouldn't break the dashboard if notifications fail to load.
+    }
+  }, [setItems, setUnreadCount]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  const handleNotificationPress = async (id: string) => {
+    markReadLocally(id);
+    try {
+      await notificationService.markAsRead(id);
+    } catch {
+      // best-effort
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    notifications.forEach((n) => !n.lu && markReadLocally(n.id));
+    try {
+      await notificationService.markAllAsRead();
+    } catch {
+      // best-effort
+    }
+  };
+
+  const formatRelativeTime = (dateString?: string) => {
+    if (!dateString) return "";
+    const diffMs = Date.now() - new Date(dateString).getTime();
+    const minutes = Math.round(diffMs / 60000);
+    if (minutes < 60) return `${minutes}min`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    return `${Math.round(hours / 24)}j`;
+  };
 
   const toggleNotificationDropdown = () => {
     if (showNotificationDropdown) {
@@ -237,9 +266,11 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }: DashboardHeaderProps
             onPress={toggleNotificationDropdown}
           >
             <FontAwesome5 name="bell" size={18} color="#6B7280" />
-            <View style={headerStyles.notificationBadge}>
-              <Text style={headerStyles.notificationText}>3</Text>
-            </View>
+            {unreadCount > 0 && (
+              <View style={headerStyles.notificationBadge}>
+                <Text style={headerStyles.notificationText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -304,7 +335,7 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }: DashboardHeaderProps
           >
             <View style={headerStyles.dropdownHeader}>
               <Text style={headerStyles.dropdownTitle}>Notifications</Text>
-              <TouchableOpacity>
+              <TouchableOpacity onPress={handleMarkAllRead}>
                 <Text style={headerStyles.markAllReadText}>
                   Tout marquer lu
                 </Text>
@@ -314,30 +345,46 @@ const DashboardHeader = ({ onLogout, onNavigateToProfile }: DashboardHeaderProps
             <View style={headerStyles.dropdownDivider} />
 
             <View style={headerStyles.notificationsList}>
-              {notifications.map((notification) => (
-                <TouchableOpacity
-                  key={notification.id}
-                  style={headerStyles.notificationItem}
-                >
-                  <View style={headerStyles.notificationContent}>
-                    <Text style={headerStyles.notificationTitle}>
-                      {notification.title}
+              {notifications.length === 0 ? (
+                <View style={{ padding: 16 }}>
+                  <Text style={headerStyles.notificationMessage}>Aucune notification</Text>
+                </View>
+              ) : (
+                notifications.map((notification) => (
+                  <TouchableOpacity
+                    key={notification.id}
+                    style={headerStyles.notificationItem}
+                    onPress={() => handleNotificationPress(notification.id)}
+                  >
+                    <View style={headerStyles.notificationContent}>
+                      <Text
+                        style={[
+                          headerStyles.notificationTitle,
+                          !notification.lu && { fontWeight: "700" },
+                        ]}
+                      >
+                        {notification.titre ?? "Notification"}
+                      </Text>
+                      <Text style={headerStyles.notificationMessage}>
+                        {notification.message}
+                      </Text>
+                    </View>
+                    <Text style={headerStyles.notificationTime}>
+                      {formatRelativeTime(notification.dateCreation)}
                     </Text>
-                    <Text style={headerStyles.notificationMessage}>
-                      {notification.message}
-                    </Text>
-                  </View>
-                  <Text style={headerStyles.notificationTime}>
-                    {notification.time}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                  </TouchableOpacity>
+                ))
+              )}
             </View>
 
-            <TouchableOpacity style={headerStyles.viewAllButton}>
-              <Text style={headerStyles.viewAllButtonText}>
-                Voir toutes les notifications
-              </Text>
+            <TouchableOpacity
+              style={headerStyles.viewAllButton}
+              onPress={() => {
+                closeNotificationDropdown();
+                navigation.navigate("Notifications");
+              }}
+            >
+              <Text style={headerStyles.viewAllButtonText}>Voir toutes les notifications</Text>
             </TouchableOpacity>
           </Animated.View>
         )}

@@ -7,7 +7,7 @@ import DashboardMessagesBody from "./messages/DashboardMessagesBody";
 import DashboardStatsBody from "./DashboardStatsBody";
 import DashboardUsersBody from "./DashboardUsersBody";
 import DashboardActivitiesBody from "./DashboardActivitiesBody";
-import DashboardCoursBody from "./cours/DashboardCoursBody";
+import DashboardCoursBody, { Cours } from "./cours/DashboardCoursBody";
 import CreateCoursBody from "./cours/CreateCoursBody";
 import DashboardExercisesBody from "./exercise/DashboardExercisesBody";
 import DashboardClassesBody from "./classes/DashboardClassesBody";
@@ -22,25 +22,35 @@ const MainDashboard = ({ onLogout }: MainDashboardProps) => {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [coursViewMode, setCoursViewMode] = useState<"list" | "create">("list");
   const [coursData, setCoursData] = useState<unknown[]>([]);
+  const [editingCours, setEditingCours] = useState<Cours | null>(null);
   const [showMessages, setShowMessages] = useState(false);
 
   const handleTabPress = (tabId: string) => {
     setActiveTab(tabId);
     if (tabId !== "cours") {
       setCoursViewMode("list");
+      setEditingCours(null);
     }
   };
 
   const handleNavigateToCreateCours = () => {
+    setEditingCours(null);
+    setCoursViewMode("create");
+  };
+
+  const handleEditCours = (cours: Cours) => {
+    setEditingCours(cours);
     setCoursViewMode("create");
   };
 
   const handleBackToCourssList = () => {
+    setEditingCours(null);
     setCoursViewMode("list");
   };
 
   const handleCreateCours = (newCours: unknown) => {
     setCoursData((prev) => [newCours, ...prev]);
+    setEditingCours(null);
     setCoursViewMode("list");
   };
 
@@ -67,6 +77,7 @@ const MainDashboard = ({ onLogout }: MainDashboardProps) => {
             <CreateCoursBody
               onBack={handleBackToCourssList}
               onCreateCours={handleCreateCours}
+              editingCours={editingCours}
             />
           );
         } else {
@@ -74,6 +85,7 @@ const MainDashboard = ({ onLogout }: MainDashboardProps) => {
             <DashboardCoursBody
               onNavigateToCreate={handleNavigateToCreateCours}
               onCreateCours={handleCreateCours}
+              onEditCours={handleEditCours}
             />
           );
         }
@@ -87,14 +99,6 @@ const MainDashboard = ({ onLogout }: MainDashboardProps) => {
         return <DashboardStatsBody />;
       case "users":
         return <DashboardUsersBody />;
-      case "trophy":
-        return (
-          <View style={mainDashboardStyles.placeholderContainer}>
-            <Text style={mainDashboardStyles.placeholderText}>
-              Trophées et Récompenses - À venir
-            </Text>
-          </View>
-        );
       default:
         return <DashboardMainBody onOpenMessages={handleOpenMessages} />;
     }

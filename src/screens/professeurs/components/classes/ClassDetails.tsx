@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { classService } from "../../../../services/classService";
+import { publicationRightsService } from "../../../../services/api";
 import { Professor, ClassUser } from "../../../../types";
 import { UIClass, FormattedAccessRequest } from "./DashboardClassesBody";
 
@@ -53,6 +54,11 @@ const ClassDetails = ({
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showModeratorsModal, setShowModeratorsModal] = useState(false);
+  const [showRightsModal, setShowRightsModal] = useState(false);
+  const [rightsTargetUser, setRightsTargetUser] = useState<ProfileUser | null>(null);
+  const [canPublish, setCanPublish] = useState(false);
+  const [canModerate, setCanModerate] = useState(false);
+  const [isSavingRights, setIsSavingRights] = useState(false);
   const [moderators, setModerators] = useState<ClassUser[]>([]);
   const [isLoadingModerators, setIsLoadingModerators] = useState(false);
 
@@ -96,6 +102,37 @@ const ClassDetails = ({
     } catch (error) {
       console.error('Error removing user access:', error);
       Alert.alert("Erreur", "Impossible de retirer l'accès");
+    }
+  };
+
+  const handleOpenRights = (user: ProfileUser) => {
+    setRightsTargetUser(user);
+    setCanPublish(false);
+    setCanModerate(false);
+    setShowRightsModal(true);
+    publicationRightsService
+      .get(selectedClass.id, user.id)
+      .then((right) => {
+        setCanPublish(!!right?.peutPublier);
+        setCanModerate(!!right?.peutModerer);
+      })
+      .catch(() => {
+        // No existing right record — leave both switches off (defaults for a new grant).
+      });
+  };
+
+  const handleSaveRights = async () => {
+    if (!rightsTargetUser) return;
+    setIsSavingRights(true);
+    try {
+      await publicationRightsService.assign(rightsTargetUser.id, selectedClass.id, canPublish, canModerate);
+      Alert.alert('Succès', 'Droits de publication mis à jour.');
+      setShowRightsModal(false);
+      if (onRefresh) onRefresh();
+    } catch (error) {
+      Alert.alert('Erreur', "Impossible de mettre à jour les droits.");
+    } finally {
+      setIsSavingRights(false);
     }
   };
 
@@ -405,6 +442,12 @@ const ClassDetails = ({
                         <FontAwesome5 name="eye" size={12} color="#6B7280" />
                       </TouchableOpacity>
                       <TouchableOpacity
+                        style={styles.eyeButton}
+                        onPress={() => handleOpenRights(student)}
+                      >
+                        <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={styles.removeButton}
                         onPress={() => handleRemoveAccess(student)}
                       >
@@ -441,6 +484,12 @@ const ClassDetails = ({
                         onPress={() => handleViewProfile(parent)}
                       >
                         <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.eyeButton}
+                        onPress={() => handleOpenRights(parent)}
+                      >
+                        <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.removeButton}
@@ -872,9 +921,91 @@ const ClassDetails = ({
           </View>
         </View>
       </Modal>
+
+      {/* Publication Rights Modal */}
+      <Modal
+        visible={showRightsModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowRightsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.profileModal}>
+            <View style={styles.profileHeader}>
+              <Text style={styles.profileTitle}>Droits de publication</Text>
+              <TouchableOpacity onPress={() => setShowRightsModal(false)} style={styles.closeButton}>
+                <FontAwesome5 name="times" size={16} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+            {rightsTargetUser && (
+              <View style={styles.profileContent}>
+                <Text style={styles.profileName}>{rightsTargetUser.name}</Text>
+                <TouchableOpacity
+                  style={rightsStyles.rightRow}
+                  onPress={() => setCanPublish((v) => !v)}
+                >
+                  <FontAwesome5
+                    name={canPublish ? 'check-square' : 'square'}
+                    size={18}
+                    color={canPublish ? '#4F46E5' : '#9CA3AF'}
+                  />
+                  <Text style={rightsStyles.rightLabel}>Peut publier du contenu</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={rightsStyles.rightRow}
+                  onPress={() => setCanModerate((v) => !v)}
+                >
+                  <FontAwesome5
+                    name={canModerate ? 'check-square' : 'square'}
+                    size={18}
+                    color={canModerate ? '#4F46E5' : '#9CA3AF'}
+                  />
+                  <Text style={rightsStyles.rightLabel}>Peut modérer la classe</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[rightsStyles.saveButton, isSavingRights && { opacity: 0.7 }]}
+                  onPress={handleSaveRights}
+                  disabled={isSavingRights}
+                >
+                  <Text style={rightsStyles.saveButtonText}>
+                    {isSavingRights ? 'Enregistrement...' : 'Enregistrer'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
+
+const rightsStyles = StyleSheet.create({
+  rightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    width: '100%',
+  },
+  rightLabel: {
+    marginLeft: 12,
+    fontSize: 14,
+    color: '#111827',
+  },
+  saveButton: {
+    marginTop: 16,
+    backgroundColor: '#4F46E5',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    width: '100%',
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
 
 const styles = StyleSheet.create({
   container: {

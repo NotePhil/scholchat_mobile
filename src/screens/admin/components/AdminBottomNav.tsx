@@ -17,9 +17,9 @@ const AdminBottomNav = ({ activeTab = "dashboard", onTabPress }: AdminBottomNavP
     label: string;
   }> = [
     { id: "users", icon: "users", label: "Utilisateurs" },
-    { id: "schools", icon: "school", label: "Écoles" },
+    { id: "classes", icon: "chalkboard", label: "Classes" },
     { id: "dashboard", icon: "th-large", label: "Accueil" },
-    { id: "reports", icon: "chart-bar", label: "Rapports" },
+    { id: "schools", icon: "school", label: "Écoles" },
     { id: "settings", icon: "cog", label: "Paramètres" },
   ];
 

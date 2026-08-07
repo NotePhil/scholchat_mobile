@@ -70,4 +70,35 @@ export const storageService = {
       return false;
     }
   },
+
+  // Get the stored refresh token (lives inside the persisted user data blob)
+  getRefreshToken: async (): Promise<string | null> => {
+    try {
+      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+      if (!userData) return null;
+      const parsed = JSON.parse(userData) as AuthUser;
+      return parsed.refreshToken ?? null;
+    } catch (error) {
+      console.error('Error getting refresh token:', error);
+      return null;
+    }
+  },
+
+  // Persist a refreshed access token (and optionally a rotated refresh token)
+  updateTokens: async (accessToken: string, refreshToken?: string): Promise<void> => {
+    try {
+      const userData = await AsyncStorage.getItem(STORAGE_KEYS.USER_DATA);
+      const parsed: AuthUser | null = userData ? JSON.parse(userData) : null;
+      const updated: AuthUser = {
+        ...(parsed ?? ({} as AuthUser)),
+        accessToken,
+        refreshToken: refreshToken ?? parsed?.refreshToken,
+      };
+      await AsyncStorage.setItem(STORAGE_KEYS.USER_TOKEN, accessToken);
+      await AsyncStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(updated));
+    } catch (error) {
+      console.error('Error updating tokens:', error);
+      throw error;
+    }
+  },
 };

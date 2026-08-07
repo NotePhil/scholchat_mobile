@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   ScrollView,
   View,
@@ -6,66 +6,91 @@ import {
   TouchableOpacity,
   TextInput,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useUser } from "../../../context/UserContext";
+import { parentService, studentService } from "../../../services/api";
+import { LoadingSpinner } from "../../../components/ui";
 
 interface DemoUser {
-  id: number;
+  id: string;
   name: string;
-  role: string;
-  status: 'active' | 'inactive';
+  role: "Élève" | "Parent";
+  status: "active" | "inactive";
   email: string;
 }
 
 const DashboardUsersBody = () => {
+  const { user: currentUser } = useUser();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const [users, setUsers] = useState<DemoUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const users: DemoUser[] = [
-    {
-      id: 1,
-      name: "Marie Dupont",
-      role: "Professeur",
-      status: "active",
-      email: "marie.dupont@school.com",
-    },
-    {
-      id: 2,
-      name: "Jean Martin",
-      role: "Élève",
-      status: "active",
-      email: "jean.martin@student.com",
-    },
-    {
-      id: 3,
-      name: "Sophie Bernard",
-      role: "Parent",
-      status: "inactive",
-      email: "sophie.bernard@parent.com",
-    },
-    {
-      id: 4,
-      name: "Pierre Durand",
-      role: "Professeur",
-      status: "active",
-      email: "pierre.durand@school.com",
-    },
-    {
-      id: 5,
-      name: "Emma Leblanc",
-      role: "Élève",
-      status: "active",
-      email: "emma.leblanc@student.com",
-    },
-  ];
+  const loadUsers = useCallback(async () => {
+    if (!currentUser?.userId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const [students, parents] = await Promise.all([
+        studentService.getByProfessor(currentUser.userId).catch(() => []),
+        parentService.getByProfessor(currentUser.userId).catch(() => []),
+      ]);
+
+      const mapped: DemoUser[] = [
+        ...students.map((s) => ({
+          id: s.id,
+          name: `${s.prenom ?? ""} ${s.nom ?? ""}`.trim() || "Élève",
+          role: "Élève" as const,
+          status: (s.etat === "INACTIVE" ? "inactive" : "active") as "active" | "inactive",
+          email: s.email ?? "",
+        })),
+        ...parents.map((p) => ({
+          id: p.id,
+          name: `${p.prenom ?? ""} ${p.nom ?? ""}`.trim() || "Parent",
+          role: "Parent" as const,
+          status: (p.etat === "INACTIVE" ? "inactive" : "active") as "active" | "inactive",
+          email: p.email ?? "",
+        })),
+      ];
+      setUsers(mapped);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec du chargement des utilisateurs.");
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser?.userId]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const handleDeleteUser = (targetUser: DemoUser) => {
+    Alert.alert("Retirer l'utilisateur", `Retirer ${targetUser.name} de votre liste ?`, [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Retirer",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            if (targetUser.role === "Élève") {
+              await studentService.remove(targetUser.id);
+            } else {
+              await parentService.remove(targetUser.id);
+            }
+            setUsers((prev) => prev.filter((u) => u.id !== targetUser.id));
+          } catch (err) {
+            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
+          }
+        },
+      },
+    ]);
+  };
 
   const filters = [
     { id: "all", label: "Tous", count: users.length },
-    {
-      id: "professeur",
-      label: "Professeurs",
-      count: users.filter((u) => u.role === "Professeur").length,
-    },
     {
       id: "eleve",
       label: "Élèves",
@@ -77,6 +102,17 @@ const DashboardUsersBody = () => {
       count: users.filter((u) => u.role === "Parent").length,
     },
   ];
+
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch =
+      u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      u.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesFilter =
+      activeFilter === "all" ||
+      (activeFilter === "eleve" && u.role === "Élève") ||
+      (activeFilter === "parent" && u.role === "Parent");
+    return matchesSearch && matchesFilter;
+  });
 
   const getRoleIcon = (role: string): React.ComponentProps<typeof FontAwesome5>['name'] => {
     switch (role) {
@@ -155,9 +191,12 @@ const DashboardUsersBody = () => {
         ))}
       </View>
 
+      {error ? <Text style={{ color: "#EF4444", marginBottom: 12 }}>{error}</Text> : null}
+      {loading ? <LoadingSpinner label="Chargement..." /> : null}
+
       {/* Users List */}
       <View style={usersBodyStyles.usersList}>
-        {users.map((user) => (
+        {!loading && filteredUsers.map((user) => (
           <View key={user.id} style={usersBodyStyles.userCard}>
             <View style={usersBodyStyles.userInfo}>
               <View
@@ -207,10 +246,7 @@ const DashboardUsersBody = () => {
               </View>
             </View>
             <View style={usersBodyStyles.userActions}>
-              <TouchableOpacity style={usersBodyStyles.actionButton}>
-                <FontAwesome5 name="edit" size={16} color="#6B7280" />
-              </TouchableOpacity>
-              <TouchableOpacity style={usersBodyStyles.actionButton}>
+              <TouchableOpacity style={usersBodyStyles.actionButton} onPress={() => handleDeleteUser(user)}>
                 <FontAwesome5 name="trash" size={16} color="#EF4444" />
               </TouchableOpacity>
             </View>

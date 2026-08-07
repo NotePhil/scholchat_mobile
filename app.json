@@ -1,10 +1,11 @@
 {
   "expo": {
     "name": "schoolchat1",
-    "slug": "schoolchat1",
+    "slug": "zaq1q",
+    "scheme": "scholchat",
     "version": "1.0.0",
     "orientation": "portrait",
-   "icon": "./assets/logo.png",
+    "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
@@ -33,8 +34,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "8ca69133-8fac-4a2e-998d-193879b57ec6"
+        "projectId": "1efd04c4-cd4c-4e12-bfad-cd3cc447686c"
       }
-    }
+    },
+    "owner": "zaq1qs-team"
   }
 }

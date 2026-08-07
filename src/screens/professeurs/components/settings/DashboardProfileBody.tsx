@@ -6,10 +6,12 @@ import {
   StyleSheet,
   ScrollView,
   TextInput,
-  Image,
   Alert,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useUser } from "../../../../context/UserContext";
+import { userService } from "../../../../services/api";
+import { Avatar } from "../../../../components/ui";
 
 interface ProfileData {
   name: string;
@@ -25,27 +27,49 @@ interface DashboardProfileBodyProps {
 }
 
 const DashboardProfileBody = ({ onLogout }: DashboardProfileBodyProps) => {
-  // Mock user data
+  const { user: authUser } = useUser();
+
   const [userData, setUserData] = useState<ProfileData>({
-    name: "Pierre Martin",
-    email: "pierre.martin@schoolchat.com",
-    role: "Professeur de Mathématiques",
-    phone: "+237 699 999 999",
-    bio: "Enseignant passionné par les mathématiques et l'innovation pédagogique.",
-    avatar: "https://via.placeholder.com/150",
+    name: `${authUser?.prenom ?? ""} ${authUser?.nom ?? ""}`.trim() || authUser?.username || "Utilisateur",
+    email: authUser?.email ?? "",
+    role: "Professeur",
+    phone: authUser?.telephone ?? "",
+    bio: "",
+    avatar: "",
   });
 
   const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editedData, setEditedData] = useState<ProfileData>({ ...userData });
 
   const handleEditPress = () => {
+    setEditedData({ ...userData });
     setIsEditing(true);
   };
 
-  const handleSavePress = () => {
-    setUserData({ ...editedData });
-    setIsEditing(false);
-    Alert.alert("Succès", "Vos informations ont été mises à jour.");
+  const handleSavePress = async () => {
+    const userId = authUser?.userId ?? authUser?.id;
+    if (!userId) {
+      Alert.alert("Erreur", "Utilisateur non identifié.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const [prenom, ...rest] = editedData.name.split(" ");
+      await userService.updateUser(userId, {
+        prenom,
+        nom: rest.join(" ") || prenom,
+        email: editedData.email,
+        telephone: editedData.phone,
+      });
+      setUserData({ ...editedData });
+      setIsEditing(false);
+      Alert.alert("Succès", "Vos informations ont été mises à jour.");
+    } catch (err) {
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la mise à jour.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleCancelPress = () => {
@@ -87,11 +111,7 @@ const DashboardProfileBody = ({ onLogout }: DashboardProfileBodyProps) => {
 
       <View style={styles.profileCard}>
         <View style={styles.avatarContainer}>
-          <Image
-            source={{ uri: editedData.avatar }}
-            style={styles.avatar}
-            resizeMode="cover"
-          />
+          <Avatar name={userData.name} uri={editedData.avatar || undefined} size={100} />
           {isEditing && (
             <TouchableOpacity style={styles.editAvatarButton}>
               <FontAwesome5 name="camera" size={16} color="#FFFFFF" />
@@ -165,10 +185,11 @@ const DashboardProfileBody = ({ onLogout }: DashboardProfileBodyProps) => {
           {isEditing ? (
             <>
               <TouchableOpacity
-                style={[styles.actionButton, styles.saveButton]}
+                style={[styles.actionButton, styles.saveButton, saving && { opacity: 0.7 }]}
                 onPress={handleSavePress}
+                disabled={saving}
               >
-                <Text style={styles.saveButtonText}>Enregistrer</Text>
+                <Text style={styles.saveButtonText}>{saving ? "Enregistrement..." : "Enregistrer"}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionButton, styles.cancelButton]}

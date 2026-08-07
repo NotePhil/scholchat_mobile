@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   ScrollView,
   View,
@@ -6,71 +6,88 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
+  Alert,
+  Share,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import CreateActivityModal, { Activity } from "./CreateActivityModal";
+import { activityFeedService } from "../../../services/api";
+import { BottomSheet, Button, Input, LoadingSpinner } from "../../../components/ui";
+
+/**
+ * Maps the backend's `Evenement` model to this screen's display shape.
+ * `interactions` holds both likes and comments (distinguished by `type`),
+ * there's no `shares` concept on the backend, and media URLs come from
+ * `presignedUrl` (falling back to a constructed content URL by id).
+ */
+const mapApiActivity = (raw: Record<string, any>): Activity => {
+  const interactions: any[] = Array.isArray(raw.interactions) ? raw.interactions : [];
+  const likeCount = interactions.filter((i) => i.type === "LIKE").length;
+  const commentCount = interactions.filter((i) => i.type === "COMMENT").length;
+
+  return {
+    id: raw.id,
+    type: raw.heureDebut ? "event" : "publication",
+    creator: `${raw.createurPrenom ?? ""} ${raw.createurNom ?? ""}`.trim() || "Utilisateur",
+    role: raw.createurRole ?? "Membre",
+    date: raw.heureDebut ? new Date(raw.heureDebut).toLocaleDateString("fr-FR") : "",
+    rawDate: raw.heureDebut,
+    status: raw.etat === "PASSE" ? "Completed" : raw.etat === "A_VENIR" || raw.etat === "PLANIFIE" ? "Scheduled" : "Published",
+    title: raw.titre ?? "",
+    eventDate: raw.heureDebut ? new Date(raw.heureDebut).toLocaleString("fr-FR") : undefined,
+    location: raw.lieu,
+    participants: Array.isArray(raw.participantsIds) ? `${raw.participantsIds.length} participant(s)` : undefined,
+    description: raw.description ?? "",
+    likes: likeCount,
+    comments: commentCount,
+    medias: Array.isArray(raw.medias)
+      ? raw.medias.map((m: any, i: number) => ({
+          id: m.id ?? String(i),
+          uri: m.presignedUrl || m.filePath || "",
+          type: m.mediaType ?? "IMAGE",
+          name: m.fileName ?? "",
+        }))
+      : undefined,
+  };
+};
 
 const DashboardActivitiesBody = () => {
   const [activeFilter, setActiveFilter] = useState("tous");
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [activities, setActivities] = useState<Activity[]>([
-    {
-      id: 1,
-      type: "event",
-      creator: "Event Creator",
-      role: "Professeur",
-      date: "12/20/2024",
-      status: "Scheduled",
-      title: "Sortie pédagogique: Visite du musée national",
-      eventDate: "20/12/2024 09:00:00",
-      location: "Musée National",
-      participants: "9 participant(s)",
-      description: "Visite du musée national",
-      likes: 1,
-      shares: 15,
-    },
-    {
-      id: 2,
-      type: "publication",
-      creator: "Marie Dupont",
-      role: "Professeur",
-      date: "12/19/2024",
-      status: "Published",
-      title: "Nouveau cours de mathématiques disponible",
-      description:
-        "Un nouveau cours sur les équations du second degré est maintenant disponible dans la section cours.",
-      likes: 8,
-      shares: 3,
-    },
-    {
-      id: 3,
-      type: "event",
-      creator: "Pierre Martin",
-      role: "Directeur",
-      date: "12/18/2024",
-      status: "Completed",
-      title: "Réunion parents-professeurs",
-      eventDate: "18/12/2024 14:30:00",
-      location: "Salle de conférence",
-      participants: "25 participant(s)",
-      description: "Réunion trimestrielle avec les parents d'élèves",
-      likes: 12,
-      shares: 7,
-    },
-    {
-      id: 4,
-      type: "publication",
-      creator: "Sophie Bernard",
-      role: "Professeur",
-      date: "12/17/2024",
-      status: "Published",
-      title: "Résultats du concours de sciences",
-      description:
-        "Félicitations aux gagnants du concours de sciences naturelles. Les résultats sont affichés.",
-      likes: 15,
-      shares: 20,
-    },
-  ]);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [commentingActivity, setCommentingActivity] = useState<Activity | null>(null);
+  const [commentText, setCommentText] = useState("");
+  const [submittingComment, setSubmittingComment] = useState(false);
+
+  const loadActivities = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await activityFeedService.getAll();
+      setActivities(data.map(mapApiActivity));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec du chargement des activités.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadActivities();
+  }, [loadActivities]);
+
+  const handleLike = async (activity: Activity) => {
+    setActivities((prev) => prev.map((a) => (a.id === activity.id ? { ...a, likes: a.likes + 1 } : a)));
+    try {
+      await activityFeedService.like(String(activity.id));
+    } catch (err) {
+      // revert on failure
+      setActivities((prev) => prev.map((a) => (a.id === activity.id ? { ...a, likes: a.likes - 1 } : a)));
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du like.");
+    }
+  };
 
   const filters = [
     { id: "tous", label: "Tous" },
@@ -79,6 +96,25 @@ const DashboardActivitiesBody = () => {
     { id: "populaires", label: "Populaires" },
     { id: "recents", label: "Récents" },
   ];
+
+  const filteredActivities = (() => {
+    switch (activeFilter) {
+      case "evenements":
+        return activities.filter((a) => a.type === "event");
+      case "publications":
+        return activities.filter((a) => a.type === "publication");
+      case "populaires":
+        return [...activities].sort((a, b) => b.likes - a.likes);
+      case "recents":
+        return [...activities].sort((a, b) => {
+          const dateA = a.rawDate ? new Date(a.rawDate).getTime() : 0;
+          const dateB = b.rawDate ? new Date(b.rawDate).getTime() : 0;
+          return dateB - dateA;
+        });
+      default:
+        return activities;
+    }
+  })();
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -162,9 +198,12 @@ const DashboardActivitiesBody = () => {
           </ScrollView>
         </View>
 
+        {error ? <Text style={{ color: "#EF4444", marginBottom: 12 }}>{error}</Text> : null}
+        {loading ? <LoadingSpinner label="Chargement des activités..." /> : null}
+
         {/* Activities List */}
         <View style={activitiesStyles.activitiesList}>
-          {activities.map((activity) => (
+          {!loading && filteredActivities.map((activity) => (
             <View key={activity.id} style={activitiesStyles.activityCard}>
               {/* Creator Info */}
               <View style={activitiesStyles.creatorSection}>
@@ -284,6 +323,14 @@ const DashboardActivitiesBody = () => {
                     {activity.status.toLowerCase() === "scheduled" && (
                       <TouchableOpacity
                         style={activitiesStyles.participateButton}
+                        onPress={async () => {
+                          try {
+                            await activityFeedService.join(String(activity.id));
+                            Alert.alert("Inscrit", "Votre participation a été enregistrée.");
+                          } catch (err) {
+                            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'inscription.");
+                          }
+                        }}
                       >
                         <FontAwesome5
                           name="user-plus"
@@ -342,20 +389,33 @@ const DashboardActivitiesBody = () => {
                     </Text>
                   </View>
                   <View style={activitiesStyles.statItem}>
-                    <Text style={activitiesStyles.shareText}>
-                      {activity.shares} partages
-                    </Text>
+                    <FontAwesome5 name="comment" size={14} color="#6B7280" />
+                    <Text style={activitiesStyles.statText}>{activity.comments}</Text>
                   </View>
                 </View>
 
                 <View style={activitiesStyles.actionButtons}>
-                  <TouchableOpacity style={activitiesStyles.actionButton}>
+                  <TouchableOpacity style={activitiesStyles.actionButton} onPress={() => handleLike(activity)}>
                     <FontAwesome5 name="heart" size={16} color="#6B7280" />
                   </TouchableOpacity>
-                  <TouchableOpacity style={activitiesStyles.actionButton}>
+                  <TouchableOpacity
+                    style={activitiesStyles.actionButton}
+                    onPress={() => {
+                      setCommentText("");
+                      setCommentingActivity(activity);
+                    }}
+                  >
                     <FontAwesome5 name="comment" size={16} color="#6B7280" />
                   </TouchableOpacity>
-                  <TouchableOpacity style={activitiesStyles.actionButton}>
+                  <TouchableOpacity
+                    style={activitiesStyles.actionButton}
+                    onPress={() => {
+                      Share.share({
+                        title: activity.title,
+                        message: `${activity.title}\n\n${activity.description ?? ""}`,
+                      }).catch(() => {});
+                    }}
+                  >
                     <FontAwesome5 name="share" size={16} color="#6B7280" />
                   </TouchableOpacity>
                 </View>
@@ -383,6 +443,37 @@ const DashboardActivitiesBody = () => {
           onCreateActivity={handleCreateActivity}
         />
       )}
+
+      <BottomSheet visible={!!commentingActivity} onClose={() => setCommentingActivity(null)} title="Commenter">
+        <Input
+          value={commentText}
+          onChangeText={setCommentText}
+          placeholder="Votre commentaire"
+          multiline
+          numberOfLines={3}
+        />
+        <Button
+          label="Envoyer"
+          loading={submittingComment}
+          onPress={async () => {
+            if (!commentingActivity || !commentText.trim()) return;
+            setSubmittingComment(true);
+            try {
+              await activityFeedService.comment(String(commentingActivity.id), commentText.trim());
+              setActivities((prev) =>
+                prev.map((a) => (a.id === commentingActivity.id ? { ...a, comments: a.comments + 1 } : a))
+              );
+              setCommentingActivity(null);
+            } catch (err) {
+              Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du commentaire.");
+            } finally {
+              setSubmittingComment(false);
+            }
+          }}
+          fullWidth
+          style={{ marginTop: 12, marginBottom: 24 }}
+        />
+      </BottomSheet>
     </View>
   );
 };

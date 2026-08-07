@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   ScrollView,
   View,
@@ -8,11 +8,19 @@ import {
   Animated,
   TouchableWithoutFeedback,
   TextInput,
+  Alert,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useUser } from "../../../../context/UserContext";
+import { exerciseService } from "../../../../services/api";
+import { LoadingSpinner } from "../../../../components/ui";
+import CreateExerciseModal from "./CreateExerciseModal";
+import ScheduleExerciseModal from "./ScheduleExerciseModal";
+import CorrectionsModal from "./CorrectionsModal";
 
 interface Exercise {
-  id: number;
+  id: string;
+  titre: string;
   nom: string;
   description: string;
   dateCreation: string;
@@ -21,52 +29,67 @@ interface Exercise {
   niveau: string;
 }
 
+const mapApiExercise = (raw: Record<string, any>): Exercise => ({
+  id: raw.id,
+  titre: raw.titre ?? raw.nom ?? "Sans titre",
+  nom: raw.titre ?? raw.nom ?? "Sans titre",
+  description: raw.description ?? "",
+  dateCreation: raw.dateCreation
+    ? new Date(raw.dateCreation).toLocaleDateString("fr-FR")
+    : new Date().toLocaleDateString("fr-FR"),
+  etat: raw.etat ?? "BROUILLON",
+  restriction: raw.restriction ?? "Aucune",
+  niveau: raw.niveau ?? "-",
+});
+
 const DashboardExercisesBody = () => {
+  const { user } = useUser();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("tous");
   const [isFabOpen, setIsFabOpen] = useState(false);
-  const [exercises, setExercises] = useState<Exercise[]>([
-    {
-      id: 1,
-      nom: "Équations du second degré",
-      description:
-        "Résolution d'équations quadratiques avec méthode discriminant",
-      dateCreation: "15/12/2024",
-      etat: "Actif",
-      restriction: "Niveau 3ème uniquement",
-      niveau: "3ème",
-    },
-    {
-      id: 2,
-      nom: "Analyse grammaticale",
-      description:
-        "Identification des fonctions grammaticales dans une phrase complexe",
-      dateCreation: "12/12/2024",
-      etat: "Programmé",
-      restriction: "Classes A et B",
-      niveau: "2nde",
-    },
-    {
-      id: 3,
-      nom: "Réactions chimiques",
-      description:
-        "Équilibrage d'équations chimiques et calculs stœchiométriques",
-      dateCreation: "10/12/2024",
-      etat: "Terminé",
-      restriction: "Aucune",
-      niveau: "1ère S",
-    },
-    {
-      id: 4,
-      nom: "Théorème de Pythagore",
-      description:
-        "Application du théorème dans des situations géométriques variées",
-      dateCreation: "08/12/2024",
-      etat: "Brouillon",
-      restriction: "Groupes de soutien",
-      niveau: "4ème",
-    },
-  ]);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showCorrectionsModal, setShowCorrectionsModal] = useState(false);
+
+  const loadExercises = useCallback(async () => {
+    if (!user?.userId) return;
+    setLoading(true);
+    setError("");
+    try {
+      const data = await exerciseService.getByProfessor(user.userId);
+      setExercises(data.map(mapApiExercise));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec du chargement des exercices.");
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.userId]);
+
+  useEffect(() => {
+    loadExercises();
+  }, [loadExercises]);
+
+  const handleDeleteExercise = (exercise: Exercise) => {
+    Alert.alert("Supprimer l'exercice", `Voulez-vous vraiment supprimer "${exercise.nom}" ?`, [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await exerciseService.remove(exercise.id);
+            setExercises((prev) => prev.filter((e) => e.id !== exercise.id));
+          } catch (err) {
+            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
+          }
+        },
+      },
+    ]);
+  };
 
   // Animation values
   const fabAnimation = useRef(new Animated.Value(0)).current;
@@ -147,15 +170,13 @@ const DashboardExercisesBody = () => {
   };
 
   const handleCreateExercise = () => {
-    console.log("Creating new exercise...");
     closeFab();
-    // Add navigation logic here
+    setShowCreateModal(true);
   };
 
   const handleProgramExercise = () => {
-    console.log("Programming new exercise...");
     closeFab();
-    // Add navigation logic here
+    setShowScheduleModal(true);
   };
 
   // Animation styles
@@ -186,14 +207,13 @@ const DashboardExercisesBody = () => {
       item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
       item.niveau.toLowerCase().includes(searchTerm.toLowerCase());
 
+    const etat = item.etat.toLowerCase();
     const matchesFilter =
       activeFilter === "tous" ||
-      (activeFilter === "actifs" && item.etat.toLowerCase() === "actif") ||
-      (activeFilter === "programmes" &&
-        item.etat.toLowerCase() === "programmé") ||
-      (activeFilter === "brouillons" &&
-        item.etat.toLowerCase() === "brouillon") ||
-      (activeFilter === "termines" && item.etat.toLowerCase() === "terminé");
+      (activeFilter === "actifs" && etat === "actif") ||
+      (activeFilter === "programmes" && etat.startsWith("programm")) ||
+      (activeFilter === "brouillons" && etat === "brouillon") ||
+      (activeFilter === "termines" && etat.startsWith("termin"));
 
     return matchesSearch && matchesFilter;
   });
@@ -204,10 +224,20 @@ const DashboardExercisesBody = () => {
         <ScrollView style={exercisesStyles.content}>
           {/* Header Section */}
           <View style={exercisesStyles.pageHeader}>
-            <Text style={exercisesStyles.pageTitle}>Exercices</Text>
-            <Text style={exercisesStyles.pageSubtitle}>
-              Gérez vos exercices et devoirs
-            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={exercisesStyles.pageTitle}>Exercices</Text>
+                <Text style={exercisesStyles.pageSubtitle}>
+                  Gérez vos exercices et devoirs
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowCorrectionsModal(true)}
+                style={{ padding: 8, backgroundColor: "#EEF2FF", borderRadius: 20 }}
+              >
+                <FontAwesome5 name="clipboard-check" size={18} color="#4F46E5" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Filter Tabs */}
@@ -254,9 +284,12 @@ const DashboardExercisesBody = () => {
             />
           </View>
 
+          {error ? <Text style={{ color: "#EF4444", marginBottom: 12 }}>{error}</Text> : null}
+          {loading ? <LoadingSpinner label="Chargement des exercices..." /> : null}
+
           {/* Exercises List */}
           <View style={exercisesStyles.exercisesList}>
-            {filteredExercises.map((exercise) => (
+            {!loading && filteredExercises.map((exercise) => (
               <View key={exercise.id} style={exercisesStyles.exerciseCard}>
                 {/* Exercise Header */}
                 <View style={exercisesStyles.exerciseHeader}>
@@ -319,19 +352,28 @@ const DashboardExercisesBody = () => {
 
                 {/* Exercise Actions */}
                 <View style={exercisesStyles.exerciseActions}>
-                  <TouchableOpacity style={exercisesStyles.actionButton}>
+                  <TouchableOpacity
+                    style={exercisesStyles.actionButton}
+                    onPress={() => setEditingExercise(exercise)}
+                  >
                     <FontAwesome5 name="edit" size={16} color="#4F46E5" />
                     <Text style={exercisesStyles.actionButtonText}>
                       Modifier
                     </Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={exercisesStyles.actionButton}>
+                  <TouchableOpacity
+                    style={exercisesStyles.actionButton}
+                    onPress={() => setEditingExercise(exercise)}
+                  >
                     <FontAwesome5 name="eye" size={16} color="#10B981" />
                     <Text style={exercisesStyles.actionButtonText}>Voir</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={exercisesStyles.actionButton}>
+                  <TouchableOpacity
+                    style={exercisesStyles.actionButton}
+                    onPress={() => handleDeleteExercise(exercise)}
+                  >
                     <FontAwesome5 name="trash" size={16} color="#EF4444" />
                     <Text style={exercisesStyles.actionButtonText}>
                       Supprimer
@@ -343,7 +385,7 @@ const DashboardExercisesBody = () => {
           </View>
 
           {/* Empty State */}
-          {filteredExercises.length === 0 && (
+          {!loading && filteredExercises.length === 0 && (
             <View style={exercisesStyles.emptyState}>
               <FontAwesome5 name="clipboard-list" size={48} color="#D1D5DB" />
               <Text style={exercisesStyles.emptyTitle}>
@@ -429,6 +471,25 @@ const DashboardExercisesBody = () => {
             </TouchableOpacity>
           </Animated.View>
         </View>
+
+        <CreateExerciseModal
+          visible={showCreateModal || !!editingExercise}
+          onClose={() => {
+            setShowCreateModal(false);
+            setEditingExercise(null);
+          }}
+          onCreated={loadExercises}
+          editingExercise={editingExercise}
+        />
+
+        <ScheduleExerciseModal
+          visible={showScheduleModal}
+          onClose={() => setShowScheduleModal(false)}
+          onScheduled={loadExercises}
+          exercises={exercises}
+        />
+
+        <CorrectionsModal visible={showCorrectionsModal} onClose={() => setShowCorrectionsModal(false)} />
       </View>
     </TouchableWithoutFeedback>
   );
