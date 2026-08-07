@@ -11,6 +11,9 @@ import {
   Animated,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { useUser } from "../../../context/UserContext";
+import { activityFeedService, mediaService } from "../../../services/api";
 
 export interface ActivityMedia {
   id: string;
@@ -28,20 +31,24 @@ export interface Activity {
   status: string;
   title: string;
   eventDate?: string;
+  /** Raw ISO heureDebut, kept separately from the display-formatted `date`/`eventDate` so lists can sort chronologically. */
+  rawDate?: string;
   location?: string;
   participants?: string;
   description: string;
   likes: number;
-  shares: number;
+  comments: number;
   medias?: ActivityMedia[];
 }
 
-type EtatValue = "PLANIFIE" | "EN_COURS" | "TERMINE" | "ANNULE";
+// Matches the backend's EtatEvenement enum exactly.
+type EtatValue = "PLANIFIE" | "A_VENIR" | "EN_COURS" | "ANNULE" | "PASSE" | "EN_ATTENTE_CONFIRMATION" | "COMPLET";
 
 const etatOptions: Array<{ value: EtatValue; label: string; color: string }> = [
   { value: "PLANIFIE", label: "Planifié", color: "#3B82F6" },
+  { value: "A_VENIR", label: "À venir", color: "#8B5CF6" },
   { value: "EN_COURS", label: "En cours", color: "#F59E0B" },
-  { value: "TERMINE", label: "Terminé", color: "#10B981" },
+  { value: "PASSE", label: "Passé", color: "#10B981" },
   { value: "ANNULE", label: "Annulé", color: "#EF4444" },
 ];
 
@@ -59,6 +66,7 @@ interface DragEvent {
 }
 
 const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalProps) => {
+  const { user } = useUser();
   const [formData, setFormData] = useState({
     titre: "",
     description: "",
@@ -66,11 +74,12 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
     etat: "PLANIFIE" as EtatValue,
     heureDebut: "",
     heureFin: "",
-    createurId: "current_user_id",
+    createurId: user?.userId ?? "",
   });
   const [selectedImages, setSelectedImages] = useState<ActivityMedia[]>([]);
   const [participantsInput, setParticipantsInput] = useState("");
   const [translateY] = useState(new Animated.Value(0));
+  const [submitting, setSubmitting] = useState(false);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { translationY, velocityY } = event.nativeEvent;
@@ -106,14 +115,26 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
     setParticipantsInput("");
   };
 
-  const handleImagePicker = () => {
-    const mockImage: ActivityMedia = {
+  const handleImagePicker = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour ajouter une image.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.length) return;
+
+    const asset = result.assets[0];
+    const picked: ActivityMedia = {
       id: Date.now().toString(),
-      uri: `https://picsum.photos/300/200?random=${Date.now()}`,
+      uri: asset.uri,
       type: "image",
-      name: `image_${Date.now()}.jpg`,
+      name: asset.fileName ?? `image_${Date.now()}.jpg`,
     };
-    setSelectedImages([...selectedImages, mockImage]);
+    setSelectedImages((prev) => [...prev, picked]);
   };
 
   const removeImage = (imageId: string) => {
@@ -148,43 +169,79 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
     return true;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validateForm()) return;
+    if (!user?.userId) {
+      Alert.alert("Erreur", "Utilisateur non identifié.");
+      return;
+    }
 
     const participantsIds = participantsInput
       .split(",")
       .map((id) => id.trim())
       .filter((id) => id.length > 0);
 
-    const newActivity: Activity = {
-      id: Date.now().toString(),
-      title: formData.titre,
-      description: formData.description,
-      location: formData.lieu,
-      status:
-        formData.etat === "PLANIFIE"
-          ? "Scheduled"
-          : formData.etat === "EN_COURS"
-            ? "In Progress"
-            : formData.etat === "TERMINE"
-              ? "Completed"
-              : "Cancelled",
-      eventDate: formData.heureDebut,
-      medias: selectedImages,
-      creator: "Vous",
-      role: "Professeur",
-      date: new Date().toLocaleDateString("fr-FR"),
-      likes: 0,
-      shares: 0,
-      type: "event",
-      participants: `${participantsIds.length} participant(s)`,
-    };
+    setSubmitting(true);
+    try {
+      // Upload any locally-picked images to MinIO before creating the activity.
+      const uploadedMedias = await Promise.all(
+        selectedImages
+          .filter((img) => img.uri.startsWith("file:") || img.uri.startsWith("content:"))
+          .map(async (img) => {
+            const filePath = await mediaService.uploadFile(
+              { uri: img.uri, mimeType: "image/jpeg", name: img.name },
+              user.userId as string,
+              "IMAGE"
+            );
+            return { filePath, mediaType: "IMAGE", fileName: img.name, presignedUrl: filePath };
+          })
+      );
 
-    onCreateActivity(newActivity);
-    resetForm();
-    Alert.alert("Succès", "Activité créée avec succès!", [
-      { text: "OK", onPress: onClose },
-    ]);
+      const created = await activityFeedService.create({
+        titre: formData.titre,
+        description: formData.description,
+        createurId: user.userId,
+        lieu: formData.lieu,
+        etat: formData.etat,
+        heureDebut: formData.heureDebut,
+        heureFin: formData.heureFin,
+        participantsIds,
+        medias: uploadedMedias,
+      });
+
+      const newActivity: Activity = {
+        id: created.id ?? Date.now().toString(),
+        title: formData.titre,
+        description: formData.description,
+        location: formData.lieu,
+        status:
+          formData.etat === "PLANIFIE" || formData.etat === "A_VENIR"
+            ? "Scheduled"
+            : formData.etat === "EN_COURS"
+              ? "In Progress"
+              : formData.etat === "PASSE"
+                ? "Completed"
+                : "Cancelled",
+        eventDate: formData.heureDebut,
+        rawDate: formData.heureDebut,
+        medias: selectedImages,
+        creator: user.username || user.nom || "Vous",
+        role: "Professeur",
+        date: new Date().toLocaleDateString("fr-FR"),
+        likes: 0,
+        comments: 0,
+        type: "event",
+        participants: `${participantsIds.length} participant(s)`,
+      };
+
+      onCreateActivity(newActivity);
+      resetForm();
+      Alert.alert("Succès", "Activité créée avec succès!", [{ text: "OK", onPress: onClose }]);
+    } catch (err) {
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la création de l'activité.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -399,16 +456,19 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
       {/* Create Button */}
       <View style={modalStyles.bottomContainer}>
         <TouchableOpacity
-          style={modalStyles.createButton}
+          style={[modalStyles.createButton, submitting && { opacity: 0.7 }]}
           onPress={handleSubmit}
+          disabled={submitting}
         >
           <FontAwesome5
-            name="plus"
+            name={submitting ? "spinner" : "plus"}
             size={16}
             color="#FFFFFF"
             style={modalStyles.buttonIcon}
           />
-          <Text style={modalStyles.createButtonText}>Créer l'activité</Text>
+          <Text style={modalStyles.createButtonText}>
+            {submitting ? "Création..." : "Créer l'activité"}
+          </Text>
         </TouchableOpacity>
       </View>
     </Animated.View>

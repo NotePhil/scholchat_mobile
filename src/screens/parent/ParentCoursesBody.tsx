@@ -1,0 +1,127 @@
+import React, { useCallback, useEffect, useState } from "react";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FontAwesome5 } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { Badge, Button, EmptyState, LoadingSpinner } from "../../components/ui";
+import { colors, spacing, typography } from "../../styles/theme";
+import { parentService } from "../../services/api";
+import { CoursProgramme, StudentProfile } from "../../types";
+import { useUser } from "../../context/UserContext";
+
+const ParentCoursesBody = () => {
+  const { user } = useUser();
+  const navigation = useNavigation<any>();
+  const [children, setChildren] = useState<StudentProfile[]>([]);
+  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
+  const [courses, setCourses] = useState<CoursProgramme[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadChildren = useCallback(async () => {
+    if (!user?.userId) return;
+    try {
+      const data = await parentService.getChildren(user.userId);
+      setChildren(data);
+      if (data.length > 0) setSelectedChildId(data[0].id);
+      else setLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec du chargement.");
+      setLoading(false);
+    }
+  }, [user?.userId]);
+
+  useEffect(() => {
+    loadChildren();
+  }, [loadChildren]);
+
+  useEffect(() => {
+    const loadCourses = async () => {
+      if (!selectedChildId) return;
+      setLoading(true);
+      setError("");
+      try {
+        const data = await parentService.getChildScheduledCourses(selectedChildId);
+        setCourses(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Échec du chargement des cours.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCourses();
+  }, [selectedChildId]);
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Cours programmés</Text>
+      </View>
+
+      {children.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.childRow}>
+          {children.map((child) => (
+            <TouchableOpacity
+              key={child.id}
+              style={[styles.childChip, selectedChildId === child.id && styles.childChipActive]}
+              onPress={() => setSelectedChildId(child.id)}
+            >
+              <Text style={[styles.childChipText, selectedChildId === child.id && styles.childChipTextActive]}>
+                {child.prenom} {child.nom}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      <ScrollView style={styles.list}>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {children.length === 0 ? (
+          <EmptyState icon="child" title="Aucun enfant" message="Ajoutez un enfant depuis l'onglet 'Mes enfants'." />
+        ) : loading ? (
+          <LoadingSpinner label="Chargement des cours..." />
+        ) : courses.length === 0 ? (
+          <EmptyState icon="calendar" title="Aucun cours programmé" />
+        ) : (
+          courses.map((course) => (
+            <View key={course.id} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <FontAwesome5 name="calendar-alt" size={16} color={colors.primary} />
+                <Text style={styles.cardTitle}>
+                  {course.dateCoursPrevue ? new Date(course.dateCoursPrevue).toLocaleString("fr-FR") : "Cours"}
+                </Text>
+              </View>
+              {course.etatCoursProgramme ? <Badge label={course.etatCoursProgramme} tone="info" /> : null}
+              {course.coursId ? (
+                <Button
+                  label="Rejoindre la session"
+                  variant="secondary"
+                  onPress={() => navigation.navigate("LiveSession", { coursId: course.coursId, isHost: false })}
+                  style={{ marginTop: spacing.sm }}
+                />
+              ) : null}
+            </View>
+          ))
+        )}
+        <View style={{ height: 100 }} />
+      </ScrollView>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: { paddingHorizontal: 16, marginTop: 20, marginBottom: spacing.md },
+  title: { ...typography.h1, color: colors.text },
+  childRow: { paddingHorizontal: 16, marginBottom: spacing.md, flexGrow: 0 },
+  childChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 20, backgroundColor: colors.grayLight, marginRight: spacing.sm },
+  childChipActive: { backgroundColor: colors.primary },
+  childChipText: { ...typography.caption, color: colors.text, fontWeight: "600" },
+  childChipTextActive: { color: colors.white },
+  list: { flex: 1, paddingHorizontal: 16 },
+  error: { color: colors.danger, marginBottom: spacing.md },
+  card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md, gap: spacing.xs },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
+  cardTitle: { ...typography.bodyBold, color: colors.text },
+});
+
+export default ParentCoursesBody;

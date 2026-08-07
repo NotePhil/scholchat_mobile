@@ -1,8 +1,6 @@
-import { environment } from '../../environment/environment';
+import { apiClient, extractErrorMessage } from '../api/client';
 import { storageService } from '../storageService';
 import { LoginResponse } from '../../types';
-
-const API_BASE_URL = environment.baseUrl;
 
 export interface ProfessorSignupData {
   lastName: string;
@@ -33,78 +31,43 @@ export interface ProfessorDocumentUrls {
 export const authService = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
     try {
-      console.log('Login attempt to:', `${API_BASE_URL}/auth/login`);
-      const response = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.text();
-        throw new Error(errorData || 'Email ou mot de passe incorrect');
-      }
-
-      const loginData: LoginResponse = await response.json();
-
-      // Save user data to local storage
-      await storageService.saveUserData(loginData);
-
-      return loginData;
+      const { data } = await apiClient.post<LoginResponse>('/auth/login', { email, password });
+      await storageService.saveUserData(data);
+      return data;
     } catch (error) {
-      console.error('Login error:', error);
-      throw error;
+      throw new Error(extractErrorMessage(error, 'Email ou mot de passe incorrect'));
     }
   },
 
   logout: async (): Promise<void> => {
+    await storageService.clearUserData();
+  },
+
+  /** For multi-role accounts (e.g. a user who is both professeur and parent). */
+  switchRole: async (role: string): Promise<LoginResponse> => {
     try {
-      await storageService.clearUserData();
+      const { data } = await apiClient.post<LoginResponse>('/auth/switch-role', { role });
+      await storageService.saveUserData(data);
+      return data;
     } catch (error) {
-      console.error('Logout error:', error);
-      throw error;
+      throw new Error(extractErrorMessage(error, 'Échec du changement de rôle.'));
     }
   },
 
   createProfessor: async (userData: ProfessorSignupData): Promise<Record<string, unknown>> => {
     try {
-      const requestBody = {
-        type: "professeur",
+      const { data } = await apiClient.post('/utilisateurs', {
+        type: 'professeur',
         nom: userData.lastName,
         prenom: userData.firstName,
         email: userData.email,
         telephone: userData.phone,
         adresse: userData.address,
-        matriculeProfesseur: userData.teacherMatricule || ""
-      };
-
-      console.log('Creating professor at:', `${API_BASE_URL}/utilisateurs`);
-      console.log('Request body:', requestBody);
-
-      const response = await fetch(`${API_BASE_URL}/utilisateurs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
+        matriculeProfesseur: userData.teacherMatricule || '',
       });
-
-      console.log('Professor creation response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Professor creation failed. Response:', errorText);
-        throw new Error(`Professor creation failed: ${response.status} ${errorText}`);
-      }
-
-      const result = await response.json();
-      console.log('Professor creation successful:', result);
-      return result;
+      return data;
     } catch (error) {
-      console.error('Professor creation error:', error);
-      throw error;
+      throw new Error(extractErrorMessage(error, 'La création du compte professeur a échoué.'));
     }
   },
 
@@ -115,34 +78,24 @@ export const authService = {
     documentType: string
   ): Promise<PresignedUrlResponse> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/media/presigned-url`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileName,
-          contentType,
-          mediaType: "DOCUMENT",
-          ownerId,
-          documentType
-        }),
+      const { data } = await apiClient.post<PresignedUrlResponse>('/media/presigned-url', {
+        fileName,
+        contentType,
+        mediaType: 'DOCUMENT',
+        ownerId,
+        documentType,
       });
-
-      if (!response.ok) {
-        throw new Error('Presigned URL generation failed');
-      }
-
-      return await response.json();
+      return data;
     } catch (error) {
-      throw error;
+      throw new Error(extractErrorMessage(error, "Échec de la génération de l'URL de téléversement."));
     }
   },
 
+  // Direct PUT to a presigned MinIO URL, not our backend — kept on raw fetch
+  // since it's an unauthenticated binary upload to a third-party host, not a
+  // ScholChat API call that should go through apiClient's interceptors.
   uploadFile: async (presignedUrl: string, file: UploadableFile): Promise<boolean> => {
     try {
-      console.log('Uploading to MinIO URL:', presignedUrl);
-
       const response = await fetch(presignedUrl, {
         method: 'PUT',
         headers: {
@@ -155,12 +108,9 @@ export const authService = {
         } as unknown as BodyInit,
       });
 
-      console.log('MinIO upload response status:', response.status);
-
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('MinIO upload failed:', errorText);
-        throw new Error(`File upload failed: ${response.status}`);
+        throw new Error(`File upload failed: ${response.status} ${errorText}`);
       }
 
       return true;
@@ -170,31 +120,43 @@ export const authService = {
     }
   },
 
+  /** POST /auth/activate?activationToken= — following the emailed activation link. */
+  activateAccount: async (activationToken: string): Promise<{ email?: string; [key: string]: unknown }> => {
+    try {
+      const { data } = await apiClient.post('/auth/activate', undefined, { params: { activationToken } });
+      return data ?? {};
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, "L'activation a échoué. Veuillez réessayer."));
+    }
+  },
+
+  /** POST /auth/registerPassword — sets the initial password right after activation. */
+  registerPassword: async (email: string, password: string, activationToken: string): Promise<void> => {
+    try {
+      await apiClient.post(
+        '/auth/registerPassword',
+        { email, passeAccess: password, type: 'utilisateur' },
+        { headers: { Authorization: `Bearer ${activationToken}` } }
+      );
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec de la définition du mot de passe.'));
+    }
+  },
+
   updateProfessorUrls: async (
     professorId: string,
     urls: ProfessorDocumentUrls
   ): Promise<Record<string, unknown>> => {
     try {
-      const response = await fetch(`${API_BASE_URL}/utilisateurs/${professorId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: "professeur",
-          cniUrlRecto: urls.cniRecto,
-          cniUrlVerso: urls.cniVerso,
-          selfieUrl: urls.selfie
-        }),
+      const { data } = await apiClient.patch(`/utilisateurs/${professorId}`, {
+        type: 'professeur',
+        cniUrlRecto: urls.cniRecto,
+        cniUrlVerso: urls.cniVerso,
+        selfieUrl: urls.selfie,
       });
-
-      if (!response.ok) {
-        throw new Error('Professor update failed');
-      }
-
-      return await response.json();
+      return data;
     } catch (error) {
-      throw error;
+      throw new Error(extractErrorMessage(error, 'La mise à jour du professeur a échoué.'));
     }
-  }
+  },
 };

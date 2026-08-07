@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ScrollView,
   View,
@@ -10,7 +10,13 @@ import {
   Image,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Chapitre, Cours } from "./DashboardCoursBody";
+import * as ImagePicker from "expo-image-picker";
+import { Chapitre, ChapitreImage, Cours } from "./DashboardCoursBody";
+import { useUser } from "../../../../context/UserContext";
+import { coursService, matiereService, mediaService } from "../../../../services/api";
+import { LoadingSpinner } from "../../../../components/ui";
+import PromptSheet from "../../../../components/common/PromptSheet";
+import { Matiere } from "../../../../types";
 
 type EtatValue = "BROUILLON" | "PUBLIE" | "ARCHIVE";
 type RestrictionValue = "PUBLIC" | "PRIVE" | "LIMITE";
@@ -27,36 +33,37 @@ const restrictionOptions: Array<{ value: RestrictionValue; label: string; color:
   { value: "LIMITE", label: "Limité", color: "#F59E0B" },
 ];
 
-const matiereOptions = [
-  "Mathématiques",
-  "Physique",
-  "Chimie",
-  "Histoire",
-  "Géographie",
-  "Français",
-  "Anglais",
-  "Informatique",
-  "Biologie",
-  "Philosophie",
-];
-
 interface CreateCoursBodyProps {
   onBack: () => void;
   onCreateCours: (cours: Cours) => void;
+  editingCours?: Cours | null;
 }
 
-const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
+const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBodyProps) => {
+  const { user } = useUser();
+  const isEditing = !!editingCours;
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(false);
+  const [linkPromptChapitreId, setLinkPromptChapitreId] = useState<number | string | null>(null);
   const [formData, setFormData] = useState({
     titre: "",
     description: "",
     etat: "BROUILLON" as EtatValue,
     references: "",
     restriction: "PUBLIC" as RestrictionValue,
-    redacteurId: "current_user_id",
+    redacteurId: user?.userId ?? "",
   });
 
-  const [selectedMatieres, setSelectedMatieres] = useState<string[]>([]);
+  const [matiereOptions, setMatiereOptions] = useState<Matiere[]>([]);
+  const [selectedMatieres, setSelectedMatieres] = useState<Matiere[]>([]);
   const [showMatieresDropdown, setShowMatieresDropdown] = useState(false);
+
+  useEffect(() => {
+    matiereService
+      .getAll()
+      .then(setMatiereOptions)
+      .catch(() => setMatiereOptions([]));
+  }, []);
   const [chapitres, setChapitres] = useState<Chapitre[]>([
     {
       id: Date.now(),
@@ -69,6 +76,52 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
     },
   ]);
 
+  useEffect(() => {
+    if (!editingCours) return;
+    setFormData({
+      titre: editingCours.titre ?? "",
+      description: editingCours.description ?? "",
+      etat: (editingCours.etat as EtatValue) ?? "BROUILLON",
+      references: editingCours.references ?? "",
+      restriction: (editingCours.restriction as RestrictionValue) ?? "PUBLIC",
+      redacteurId: editingCours.redacteurId ?? user?.userId ?? "",
+    });
+    setLoadingExisting(true);
+    coursService
+      .getWithChapitres(editingCours.id)
+      .then((full) => {
+        const apiChapitres = full.chapitres ?? [];
+        setChapitres(
+          apiChapitres.length > 0
+            ? apiChapitres.map((ch, index) => ({
+                id: ch.id ?? Date.now() + index,
+                title: ch.titre ?? "",
+                description: (ch.description as string) ?? "",
+                content: ch.contenu ?? "",
+                images: ch.imageUrl
+                  ? [{ id: (ch.id as string) ?? String(index), uri: ch.imageUrl as string, name: "image.jpg" }]
+                  : [],
+                links: [],
+                isExpanded: index === 0,
+              }))
+            : [
+                {
+                  id: Date.now(),
+                  title: "",
+                  description: "",
+                  content: "",
+                  images: [],
+                  links: [],
+                  isExpanded: true,
+                },
+              ]
+        );
+        setSelectedMatieres(full.matieres ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingExisting(false));
+  }, [editingCours]);
+
   const resetForm = () => {
     setFormData({
       titre: "",
@@ -76,7 +129,7 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
       etat: "BROUILLON",
       references: "",
       restriction: "PUBLIC",
-      redacteurId: "current_user_id",
+      redacteurId: user?.userId ?? "",
     });
     setSelectedMatieres([]);
     setShowMatieresDropdown(false);
@@ -134,17 +187,27 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
     );
   };
 
-  const addImageToChapitre = (chapitreId: number | string) => {
-    const mockImage = {
+  const addImageToChapitre = async (chapitreId: number | string) => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour ajouter une image.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.length) return;
+
+    const asset = result.assets[0];
+    // The backend's Chapitre model only stores a single imageUrl, so a newly
+    // picked image replaces any previous one instead of accumulating.
+    const picked: ChapitreImage = {
       id: Date.now().toString(),
-      uri: `https://picsum.photos/400/300?random=${Date.now()}`,
-      name: `image_${Date.now()}.jpg`,
+      uri: asset.uri,
+      name: asset.fileName ?? `image_${Date.now()}.jpg`,
     };
-
-    const chapitre = chapitres.find((ch) => ch.id === chapitreId);
-    if (!chapitre) return;
-
-    updateChapitre(chapitreId, "images", [...chapitre.images, mockImage]);
+    updateChapitre(chapitreId, "images", [picked]);
   };
 
   const removeImageFromChapitre = (chapitreId: number | string, imageId: string) => {
@@ -158,29 +221,17 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
   };
 
   const addLinkToChapitre = (chapitreId: number | string) => {
-    Alert.prompt(
-      "Ajouter un lien",
-      "Entrez l'URL du lien:",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Ajouter",
-          onPress: (url?: string) => {
-            if (url && url.trim()) {
-              const newLink = {
-                id: Date.now().toString(),
-                url: url.trim(),
-                title: url.trim(),
-              };
-              const chapitre = chapitres.find((ch) => ch.id === chapitreId);
-              if (!chapitre) return;
-              updateChapitre(chapitreId, "links", [...chapitre.links, newLink]);
-            }
-          },
-        },
-      ],
-      "plain-text"
-    );
+    setLinkPromptChapitreId(chapitreId);
+  };
+
+  const handleConfirmAddLink = (url: string) => {
+    if (!linkPromptChapitreId) return;
+    const newLink = { id: Date.now().toString(), url, title: url };
+    const chapitre = chapitres.find((ch) => ch.id === linkPromptChapitreId);
+    if (chapitre) {
+      updateChapitre(linkPromptChapitreId, "links", [...chapitre.links, newLink]);
+    }
+    setLinkPromptChapitreId(null);
   };
 
   const removeLinkFromChapitre = (chapitreId: number | string, linkId: string) => {
@@ -219,9 +270,9 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
     updateChapitre(chapitreId, "content", formattedText);
   };
 
-  const toggleMatiere = (matiere: string) => {
-    if (selectedMatieres.includes(matiere)) {
-      setSelectedMatieres(selectedMatieres.filter((m) => m !== matiere));
+  const toggleMatiere = (matiere: Matiere) => {
+    if (selectedMatieres.some((m) => m.id === matiere.id)) {
+      setSelectedMatieres(selectedMatieres.filter((m) => m.id !== matiere.id));
     } else {
       setSelectedMatieres([...selectedMatieres, matiere]);
     }
@@ -253,35 +304,94 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
     return true;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validateForm()) return;
+    if (!user?.userId) {
+      Alert.alert("Erreur", "Utilisateur non identifié. Veuillez vous reconnecter.");
+      return;
+    }
 
     const validChapitres = chapitres.filter((ch) => ch.title.trim().length > 0);
 
-    const newCours: Cours = {
-      id: Date.now().toString(),
-      titre: formData.titre,
-      description: formData.description,
-      dateCreation: new Date().toISOString().split("T")[0],
-      etat: formData.etat,
-      references: formData.references || "Aucune référence spécifiée",
-      restriction: formData.restriction,
-      chapitres: validChapitres.map((ch) => ch.title), // For backward compatibility
-      chapitresDetailles: validChapitres, // Full chapter data
-      matieres: selectedMatieres,
-      redacteurId: formData.redacteurId,
-    };
+    setSubmitting(true);
+    try {
+      const chapitresPayload = await Promise.all(
+        validChapitres.map(async (ch, index) => {
+          const image = ch.images[0];
+          let imageUrl: string | undefined;
+          if (image) {
+            const isLocal = image.uri.startsWith("file:") || image.uri.startsWith("content:");
+            imageUrl = isLocal
+              ? await mediaService.uploadFile(
+                  { uri: image.uri, mimeType: "image/jpeg", name: image.name },
+                  user.userId as string,
+                  "IMAGE"
+                )
+              : image.uri;
+          }
+          // The backend's Chapitre model has no dedicated `links` field, so
+          // links are folded into `contenu` as markdown to actually persist
+          // instead of being silently dropped on save.
+          const linksMarkdown = ch.links.map((link) => `\n[${link.title}](${link.url})`).join("");
+          const payload: Record<string, unknown> = {
+            titre: ch.title,
+            contenu: ch.content + linksMarkdown,
+            description: ch.description,
+            ordre: index,
+            imageUrl,
+          };
+          if (typeof ch.id === "string") payload.id = ch.id;
+          return payload;
+        })
+      );
 
-    onCreateCours(newCours);
-    resetForm();
-    Alert.alert("Succès", "Cours créé avec succès!", [
-      { text: "OK", onPress: onBack },
-    ]);
+      const coursPayload = {
+        titre: formData.titre,
+        description: formData.description,
+        etat: formData.etat,
+        references: formData.references || "Aucune référence spécifiée",
+        restriction: formData.restriction,
+        redacteurId: formData.redacteurId || user.userId,
+        matieres: selectedMatieres,
+        chapitres: chapitresPayload,
+      };
+
+      const created = isEditing
+        ? await coursService.update(editingCours!.id, coursPayload)
+        : await coursService.create(coursPayload);
+
+      const newCours: Cours = {
+        id: created.id ?? editingCours?.id ?? Date.now().toString(),
+        titre: created.titre ?? formData.titre,
+        description: created.description ?? formData.description,
+        dateCreation: created.dateCreation ?? editingCours?.dateCreation ?? new Date().toISOString().split("T")[0],
+        etat: created.etat ?? formData.etat,
+        references: formData.references || "Aucune référence spécifiée",
+        restriction: formData.restriction,
+        chapitres: validChapitres.map((ch) => ch.title),
+        chapitresDetailles: validChapitres,
+        matieres: selectedMatieres.map((m) => m.nom ?? ""),
+        redacteurId: user.userId,
+      };
+
+      onCreateCours(newCours);
+      resetForm();
+      Alert.alert("Succès", isEditing ? "Cours mis à jour avec succès!" : "Cours créé avec succès!", [
+        { text: "OK", onPress: onBack },
+      ]);
+    } catch (err) {
+      Alert.alert(
+        "Erreur",
+        err instanceof Error ? err.message : "Échec de l'enregistrement du cours."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
     Alert.alert(
-      "Annuler la création",
+      "Annuler",
       "Êtes-vous sûr de vouloir annuler? Toutes les données saisies seront perdues.",
       [
         { text: "Continuer", style: "cancel" },
@@ -304,7 +414,7 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
         <TouchableOpacity onPress={onBack} style={createStyles.backButton}>
           <FontAwesome5 name="arrow-left" size={20} color="#111827" />
         </TouchableOpacity>
-        <Text style={createStyles.headerTitle}>Créer un cours</Text>
+        <Text style={createStyles.headerTitle}>{isEditing ? "Modifier le cours" : "Créer un cours"}</Text>
         <TouchableOpacity
           onPress={handleCancel}
           style={createStyles.cancelButton}
@@ -313,6 +423,10 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
         </TouchableOpacity>
       </View>
 
+      {loadingExisting ? (
+        <LoadingSpinner label="Chargement du cours..." />
+      ) : (
+      <>
       {/* Content */}
       <ScrollView
         style={createStyles.content}
@@ -443,39 +557,38 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
 
           {showMatieresDropdown && (
             <View style={createStyles.dropdownContainer}>
-              {matiereOptions.map((matiere) => (
-                <TouchableOpacity
-                  key={matiere}
-                  style={[
-                    createStyles.dropdownItem,
-                    selectedMatieres.includes(matiere) &&
-                      createStyles.dropdownItemSelected,
-                  ]}
-                  onPress={() => toggleMatiere(matiere)}
-                >
-                  <Text
-                    style={[
-                      createStyles.dropdownItemText,
-                      selectedMatieres.includes(matiere) &&
-                        createStyles.dropdownItemTextSelected,
-                    ]}
-                  >
-                    {matiere}
-                  </Text>
-                  {selectedMatieres.includes(matiere) && (
-                    <FontAwesome5 name="check" size={14} color="#4F46E5" />
-                  )}
-                </TouchableOpacity>
-              ))}
+              {matiereOptions.length === 0 ? (
+                <View style={createStyles.dropdownItem}>
+                  <Text style={createStyles.dropdownItemText}>Aucune matière disponible</Text>
+                </View>
+              ) : (
+                matiereOptions.map((matiere) => {
+                  const isSelected = selectedMatieres.some((m) => m.id === matiere.id);
+                  return (
+                    <TouchableOpacity
+                      key={matiere.id}
+                      style={[createStyles.dropdownItem, isSelected && createStyles.dropdownItemSelected]}
+                      onPress={() => toggleMatiere(matiere)}
+                    >
+                      <Text
+                        style={[createStyles.dropdownItemText, isSelected && createStyles.dropdownItemTextSelected]}
+                      >
+                        {matiere.nom}
+                      </Text>
+                      {isSelected && <FontAwesome5 name="check" size={14} color="#4F46E5" />}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
             </View>
           )}
 
           {selectedMatieres.length > 0 && (
             <View style={createStyles.selectedMatieresContainer}>
               {selectedMatieres.map((matiere) => (
-                <View key={matiere} style={createStyles.selectedMatiereTag}>
+                <View key={matiere.id} style={createStyles.selectedMatiereTag}>
                   <Text style={createStyles.selectedMatiereText}>
-                    {matiere}
+                    {matiere.nom}
                   </Text>
                   <TouchableOpacity
                     onPress={() => toggleMatiere(matiere)}
@@ -749,18 +862,32 @@ const CreateCoursBody = ({ onBack, onCreateCours }: CreateCoursBodyProps) => {
       {/* Bottom Action Bar */}
       <View style={createStyles.bottomContainer}>
         <TouchableOpacity
-          style={createStyles.createButton}
+          style={[createStyles.createButton, submitting && { opacity: 0.7 }]}
           onPress={handleSubmit}
+          disabled={submitting}
         >
           <FontAwesome5
-            name="book"
+            name={submitting ? "spinner" : "book"}
             size={16}
             color="#FFFFFF"
             style={createStyles.buttonIcon}
           />
-          <Text style={createStyles.createButtonText}>Créer le cours</Text>
+          <Text style={createStyles.createButtonText}>
+            {submitting ? "Enregistrement..." : isEditing ? "Enregistrer les modifications" : "Créer le cours"}
+          </Text>
         </TouchableOpacity>
       </View>
+      </>
+      )}
+
+      <PromptSheet
+        visible={!!linkPromptChapitreId}
+        title="Ajouter un lien"
+        placeholder="https://..."
+        submitLabel="Ajouter"
+        onCancel={() => setLinkPromptChapitreId(null)}
+        onSubmit={handleConfirmAddLink}
+      />
     </View>
   );
 };

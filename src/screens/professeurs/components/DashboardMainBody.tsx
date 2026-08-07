@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ScrollView,
   View,
@@ -8,14 +8,127 @@ import {
   Animated,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useUser } from "../../../context/UserContext";
+import {
+  activityFeedService,
+  coursProgrammerService,
+  coursService,
+  exerciseService,
+  matiereService,
+  participationService,
+} from "../../../services/api";
+import { classService } from "../../../services/classService";
+import { ActivityEvent } from "../../../types";
 
 interface DashboardMainBodyProps {
   onOpenMessages: () => void;
 }
 
+interface Stats {
+  classesCount: number;
+  studentsCount: number;
+  coursCount: number;
+  coursProgrammesCount: number;
+  exercisesCount: number;
+  aCorrigerCount: number;
+  matieresCount: number;
+}
+
+const emptyStats: Stats = {
+  classesCount: 0,
+  studentsCount: 0,
+  coursCount: 0,
+  coursProgrammesCount: 0,
+  exercisesCount: 0,
+  aCorrigerCount: 0,
+  matieresCount: 0,
+};
+
+const ACTIVITY_ICONS: Record<string, React.ComponentProps<typeof FontAwesome5>["name"]> = {
+  COMMENT: "comment",
+  LIKE: "heart",
+  JOIN: "user-plus",
+  UNJOIN: "user-minus",
+  LEAVE: "sign-out-alt",
+};
+
+const timeAgo = (dateString?: string) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "À l'instant";
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Il y a ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `Il y a ${days} j`;
+};
+
 const DashboardMainBody = ({ onOpenMessages }: DashboardMainBodyProps) => {
+  const { user } = useUser();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [stats, setStats] = useState<Stats>(emptyStats);
+  const [recentActivities, setRecentActivities] = useState<ActivityEvent[]>([]);
+  const [loading, setLoading] = useState(true);
   const rotationAnim = useRef(new Animated.Value(0)).current;
+
+  const load = useCallback(async () => {
+    if (!user?.userId) return;
+    setLoading(true);
+    try {
+      const [classes, cours, coursProgrammes, exercises, aCorriger, activities] = await Promise.all([
+        classService.getClasses(user.userId).catch(() => []),
+        coursService.getByProfessor(user.userId).catch(() => []),
+        coursProgrammerService.getByProfessor(user.userId).catch(() => []),
+        exerciseService.getByProfessor(user.userId).catch(() => []),
+        participationService.getToCorrectByProfessor(user.userId).catch(() => []),
+        activityFeedService.getByProfessor(user.userId).catch(() => []),
+      ]);
+
+      const classUsersLists = await Promise.all(
+        classes.map((c) => classService.getClassUsers(c.id).catch(() => []))
+      );
+      const studentIds = new Set<string>();
+      classUsersLists.forEach((list) => {
+        list.filter((u) => u.type === "eleve").forEach((u) => studentIds.add(u.id));
+      });
+
+      const matiereIds = new Set<string>();
+      [...cours, ...exercises].forEach((item) => {
+        (item.matieres ?? []).forEach((m) => {
+          if (m?.id) matiereIds.add(m.id);
+        });
+      });
+      if (matiereIds.size === 0) {
+        const allMatieres = await matiereService.getAll().catch(() => []);
+        allMatieres.forEach((m) => matiereIds.add(m.id));
+      }
+
+      setStats({
+        classesCount: classes.length,
+        studentsCount: studentIds.size,
+        coursCount: cours.length,
+        coursProgrammesCount: coursProgrammes.length,
+        exercisesCount: exercises.length,
+        aCorrigerCount: aCorriger.length,
+        matieresCount: matiereIds.size,
+      });
+
+      const sortedActivities = [...activities].sort((a, b) => {
+        const dateA = a.heureDebut ? new Date(a.heureDebut).getTime() : 0;
+        const dateB = b.heureDebut ? new Date(b.heureDebut).getTime() : 0;
+        return dateB - dateA;
+      });
+      setRecentActivities(sortedActivities.slice(0, 4));
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.userId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -27,11 +140,10 @@ const DashboardMainBody = ({ onOpenMessages }: DashboardMainBodyProps) => {
       })
     );
     rotateAnimation.start();
-    setTimeout(() => {
-      setIsRefreshing(false);
-      rotateAnimation.stop();
-      rotationAnim.setValue(0);
-    }, 2000);
+    await load();
+    rotateAnimation.stop();
+    rotationAnim.setValue(0);
+    setIsRefreshing(false);
   };
 
   const spin = rotationAnim.interpolate({
@@ -39,53 +151,13 @@ const DashboardMainBody = ({ onOpenMessages }: DashboardMainBodyProps) => {
     outputRange: ["0deg", "360deg"],
   });
 
-  const recentActivities: Array<{
-    id: number;
-    type: string;
-    title: string;
-    time: string;
-    icon: React.ComponentProps<typeof FontAwesome5>['name'];
-    color: string;
-  }> = [
-    {
-      id: 1,
-      type: "course",
-      title: "Nouveau cours de Mathématiques ajouté",
-      time: "Il y a 2h",
-      icon: "book-open",
-      color: "#4F46E5",
-    },
-    {
-      id: 2,
-      type: "exercise",
-      title: "Exercice de Physique soumis par Marie",
-      time: "Il y a 4h",
-      icon: "clipboard-list",
-      color: "#10B981",
-    },
-    {
-      id: 3,
-      type: "student",
-      title: "3 nouveaux élèves inscrits",
-      time: "Il y a 6h",
-      icon: "user-plus",
-      color: "#8B5CF6",
-    },
-    {
-      id: 4,
-      type: "scheduled",
-      title: "Cours de Français programmé pour demain",
-      time: "Il y a 1 jour",
-      icon: "calendar-plus",
-      color: "#F97316",
-    },
-  ];
+  const displayName = user?.prenom || user?.username || user?.nom || "Professeur";
 
   return (
     <View style={mainBodyStyles.container}>
       <ScrollView style={mainBodyStyles.content}>
         <View style={mainBodyStyles.welcomeSection}>
-          <Text style={mainBodyStyles.welcomeText}>Bienvenue Mr Simo</Text>
+          <Text style={mainBodyStyles.welcomeText}>Bienvenue {displayName}</Text>
           <TouchableOpacity
             style={mainBodyStyles.refreshButton}
             onPress={handleRefresh}
@@ -103,121 +175,60 @@ const DashboardMainBody = ({ onOpenMessages }: DashboardMainBodyProps) => {
           <View style={[mainBodyStyles.statCard, mainBodyStyles.classesCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="door-open" size={20} color="#4F46E5" />
-              <Text style={mainBodyStyles.statNumber}>12</Text>
+              <Text style={mainBodyStyles.statNumber}>{loading ? "-" : stats.classesCount}</Text>
             </View>
             <Text style={mainBodyStyles.statTitle}>Classes</Text>
-            <Text style={mainBodyStyles.statSubtitle}>248 élèves</Text>
+            <Text style={mainBodyStyles.statSubtitle}>{stats.studentsCount} élèves</Text>
           </View>
           <View style={[mainBodyStyles.statCard, mainBodyStyles.coursCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="book-open" size={20} color="#10B981" />
-              <Text style={mainBodyStyles.statNumber}>34</Text>
+              <Text style={mainBodyStyles.statNumber}>{loading ? "-" : stats.coursCount}</Text>
             </View>
             <Text style={mainBodyStyles.statTitle}>Cours</Text>
-            <Text style={mainBodyStyles.statSubtitle}>15 programmés</Text>
+            <Text style={mainBodyStyles.statSubtitle}>{stats.coursProgrammesCount} programmés</Text>
           </View>
           <View style={[mainBodyStyles.statCard, mainBodyStyles.exercisesCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="clipboard-list" size={20} color="#8B5CF6" />
-              <Text style={mainBodyStyles.statNumber}>87</Text>
+              <Text style={mainBodyStyles.statNumber}>{loading ? "-" : stats.exercisesCount}</Text>
             </View>
             <Text style={mainBodyStyles.statTitle}>Exercices</Text>
-            <Text style={mainBodyStyles.statSubtitle}>23 en attente</Text>
+            <Text style={mainBodyStyles.statSubtitle}>{stats.aCorrigerCount} à corriger</Text>
           </View>
           <View style={[mainBodyStyles.statCard, mainBodyStyles.subjectsCard]}>
             <View style={mainBodyStyles.statHeader}>
               <FontAwesome5 name="graduation-cap" size={20} color="#F97316" />
-              <Text style={mainBodyStyles.statNumber}>8</Text>
+              <Text style={mainBodyStyles.statNumber}>{loading ? "-" : stats.matieresCount}</Text>
             </View>
             <Text style={mainBodyStyles.statTitle}>Matières</Text>
-            <Text style={mainBodyStyles.statSubtitle}>6 actives</Text>
-          </View>
-        </View>
-        <View style={mainBodyStyles.progressSection}>
-          <Text style={mainBodyStyles.sectionTitle}>Progrès des Élèves</Text>
-          <View style={mainBodyStyles.progressContainer}>
-            <View style={mainBodyStyles.progressItem}>
-              <Text style={mainBodyStyles.progressLabel}>Mathématiques</Text>
-              <View style={mainBodyStyles.progressBarContainer}>
-                <View
-                  style={[
-                    mainBodyStyles.progressBar,
-                    { width: "78%", backgroundColor: "#4F46E5" },
-                  ]}
-                />
-              </View>
-              <Text style={mainBodyStyles.progressPercentage}>78%</Text>
-            </View>
-            <View style={mainBodyStyles.progressItem}>
-              <Text style={mainBodyStyles.progressLabel}>Français</Text>
-              <View style={mainBodyStyles.progressBarContainer}>
-                <View
-                  style={[
-                    mainBodyStyles.progressBar,
-                    { width: "65%", backgroundColor: "#10B981" },
-                  ]}
-                />
-              </View>
-              <Text style={mainBodyStyles.progressPercentage}>65%</Text>
-            </View>
-            <View style={mainBodyStyles.progressItem}>
-              <Text style={mainBodyStyles.progressLabel}>Sciences</Text>
-              <View style={mainBodyStyles.progressBarContainer}>
-                <View
-                  style={[
-                    mainBodyStyles.progressBar,
-                    { width: "82%", backgroundColor: "#8B5CF6" },
-                  ]}
-                />
-              </View>
-              <Text style={mainBodyStyles.progressPercentage}>82%</Text>
-            </View>
-            <View style={mainBodyStyles.progressItem}>
-              <Text style={mainBodyStyles.progressLabel}>Histoire</Text>
-              <View style={mainBodyStyles.progressBarContainer}>
-                <View
-                  style={[
-                    mainBodyStyles.progressBar,
-                    { width: "71%", backgroundColor: "#F97316" },
-                  ]}
-                />
-              </View>
-              <Text style={mainBodyStyles.progressPercentage}>71%</Text>
-            </View>
+            <Text style={mainBodyStyles.statSubtitle}>liées à vos cours</Text>
           </View>
         </View>
         <View style={mainBodyStyles.activitiesSection}>
           <View style={mainBodyStyles.sectionHeader}>
             <Text style={mainBodyStyles.sectionTitle}>Activités Récentes</Text>
-            <TouchableOpacity>
-              <Text style={mainBodyStyles.seeAllText}>Voir tout</Text>
-            </TouchableOpacity>
           </View>
           <View style={mainBodyStyles.activitiesContainer}>
-            {recentActivities.map((activity) => (
-              <View key={activity.id} style={mainBodyStyles.activityItem}>
-                <View
-                  style={[
-                    mainBodyStyles.activityIcon,
-                    { backgroundColor: activity.color },
-                  ]}
-                >
-                  <FontAwesome5
-                    name={activity.icon}
-                    size={14}
-                    color="#FFFFFF"
-                  />
-                </View>
-                <View style={mainBodyStyles.activityContent}>
-                  <Text style={mainBodyStyles.activityTitle}>
-                    {activity.title}
-                  </Text>
-                  <Text style={mainBodyStyles.activityTime}>
-                    {activity.time}
-                  </Text>
-                </View>
-              </View>
-            ))}
+            {!loading && recentActivities.length === 0 ? (
+              <Text style={mainBodyStyles.emptyText}>Aucune activité récente.</Text>
+            ) : (
+              recentActivities.map((activity) => {
+                const lastInteraction = (activity.interactions ?? [])[activity.interactions?.length ? activity.interactions.length - 1 : 0];
+                const icon = ACTIVITY_ICONS[lastInteraction?.type ?? ""] ?? "calendar-plus";
+                return (
+                  <View key={activity.id} style={mainBodyStyles.activityItem}>
+                    <View style={[mainBodyStyles.activityIcon, { backgroundColor: "#4F46E5" }]}>
+                      <FontAwesome5 name={icon} size={14} color="#FFFFFF" />
+                    </View>
+                    <View style={mainBodyStyles.activityContent}>
+                      <Text style={mainBodyStyles.activityTitle}>{activity.titre}</Text>
+                      <Text style={mainBodyStyles.activityTime}>{timeAgo(activity.heureDebut)}</Text>
+                    </View>
+                  </View>
+                );
+              })
+            )}
           </View>
         </View>
         <View style={{ height: 150 }} />
@@ -324,11 +335,11 @@ const mainBodyStyles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: "#F97316",
   },
-  progressSection: {
+  activitiesSection: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
-    marginBottom: 24,
+    marginBottom: 150,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -341,62 +352,18 @@ const mainBodyStyles = StyleSheet.create({
     color: "#111827",
     marginBottom: 16,
   },
-  progressContainer: {
-    gap: 12,
-  },
-  progressItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  progressLabel: {
-    fontSize: 14,
-    color: "#374151",
-    width: 80,
-    fontWeight: "500",
-  },
-  progressBarContainer: {
-    flex: 1,
-    height: 8,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  progressBar: {
-    height: "100%",
-    borderRadius: 4,
-  },
-  progressPercentage: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontWeight: "600",
-    width: 35,
-    textAlign: "right",
-  },
-  activitiesSection: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 150,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
   },
-  seeAllText: {
-    fontSize: 14,
-    color: "#4F46E5",
-    fontWeight: "500",
-  },
   activitiesContainer: {
     gap: 12,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: "#9CA3AF",
   },
   activityItem: {
     flexDirection: "row",

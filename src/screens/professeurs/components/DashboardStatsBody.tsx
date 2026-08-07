@@ -1,95 +1,161 @@
-import React from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { ScrollView, View, Text, StyleSheet } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useUser } from "../../../context/UserContext";
+import {
+  activityFeedService,
+  exerciseService,
+  participationService,
+} from "../../../services/api";
+import { classService } from "../../../services/classService";
+import { LoadingSpinner } from "../../../components/ui";
+import { ActivityEvent } from "../../../types";
+
+const timeAgo = (dateString?: string) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.floor(diffMs / 60000);
+  if (minutes < 1) return "À l'instant";
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Il y a ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `Il y a ${days} j`;
+};
 
 const DashboardStatsBody = () => {
+  const { user } = useUser();
+  const [loading, setLoading] = useState(true);
+  const [classesCount, setClassesCount] = useState(0);
+  const [studentsCount, setStudentsCount] = useState(0);
+  const [exercisesCount, setExercisesCount] = useState(0);
+  const [correctedCount, setCorrectedCount] = useState(0);
+  const [toCorrectCount, setToCorrectCount] = useState(0);
+  const [timeline, setTimeline] = useState<ActivityEvent[]>([]);
+
+  const load = useCallback(async () => {
+    if (!user?.userId) return;
+    setLoading(true);
+    try {
+      const [classes, exercises, toCorrect, activities] = await Promise.all([
+        classService.getClasses(user.userId).catch(() => []),
+        exerciseService.getByProfessor(user.userId).catch(() => []),
+        participationService.getToCorrectByProfessor(user.userId).catch(() => []),
+        activityFeedService.getByProfessor(user.userId).catch(() => []),
+      ]);
+
+      const classUsersLists = await Promise.all(
+        classes.map((c) => classService.getClassUsers(c.id).catch(() => []))
+      );
+      const studentIds = new Set<string>();
+      classUsersLists.forEach((list) => {
+        list.filter((u) => u.type === "eleve").forEach((u) => studentIds.add(u.id));
+      });
+
+      setClassesCount(classes.length);
+      setStudentsCount(studentIds.size);
+      setExercisesCount(exercises.length);
+      setToCorrectCount(toCorrect.length);
+      setCorrectedCount(
+        exercises.filter((e) => (e.etat ?? "").toUpperCase() === "CORRIGE" || (e.etat ?? "").toUpperCase() === "ACTIF").length
+      );
+
+      const sorted = [...activities].sort((a, b) => {
+        const dateA = a.heureDebut ? new Date(a.heureDebut).getTime() : 0;
+        const dateB = b.heureDebut ? new Date(b.heureDebut).getTime() : 0;
+        return dateB - dateA;
+      });
+      setTimeline(sorted.slice(0, 6));
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.userId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const correctionRate =
+    exercisesCount + toCorrectCount > 0
+      ? Math.round((correctedCount / (correctedCount + toCorrectCount || 1)) * 100)
+      : 0;
+
   return (
     <ScrollView style={statsBodyStyles.content}>
       <View style={statsBodyStyles.pageHeader}>
         <Text style={statsBodyStyles.pageTitle}>Statistiques Détaillées</Text>
         <Text style={statsBodyStyles.pageSubtitle}>
-          Analyse complète des performances
+          Analyse complète de votre activité
         </Text>
       </View>
 
-      {/* Performance Metrics */}
-      <View style={statsBodyStyles.metricsSection}>
-        <Text style={statsBodyStyles.sectionTitle}>
-          Métriques de Performance
-        </Text>
-
-        <View style={statsBodyStyles.metricCard}>
-          <View style={statsBodyStyles.metricHeader}>
-            <FontAwesome5 name="chart-line" size={24} color="#10B981" />
-            <Text style={statsBodyStyles.metricValue}>+24%</Text>
-          </View>
-          <Text style={statsBodyStyles.metricTitle}>Croissance Mensuelle</Text>
-          <Text style={statsBodyStyles.metricDescription}>
-            Augmentation du nombre d'utilisateurs actifs ce mois
-          </Text>
-        </View>
-
-        <View style={statsBodyStyles.metricCard}>
-          <View style={statsBodyStyles.metricHeader}>
-            <FontAwesome5 name="clock" size={24} color="#3B82F6" />
-            <Text style={statsBodyStyles.metricValue}>2.5h</Text>
-          </View>
-          <Text style={statsBodyStyles.metricTitle}>
-            Temps Moyen de Session
-          </Text>
-          <Text style={statsBodyStyles.metricDescription}>
-            Durée moyenne d'utilisation par session utilisateur
-          </Text>
-        </View>
-
-        <View style={statsBodyStyles.metricCard}>
-          <View style={statsBodyStyles.metricHeader}>
-            <FontAwesome5 name="star" size={24} color="#F59E0B" />
-            <Text style={statsBodyStyles.metricValue}>4.8/5</Text>
-          </View>
-          <Text style={statsBodyStyles.metricTitle}>
-            Satisfaction Utilisateur
-          </Text>
-          <Text style={statsBodyStyles.metricDescription}>
-            Note moyenne basée sur les retours des utilisateurs
-          </Text>
-        </View>
-      </View>
-
-      {/* Activity Timeline */}
-      <View style={statsBodyStyles.timelineSection}>
-        <Text style={statsBodyStyles.sectionTitle}>Activité Récente</Text>
-
-        <View style={statsBodyStyles.timelineItem}>
-          <View style={statsBodyStyles.timelineDot} />
-          <View style={statsBodyStyles.timelineContent}>
-            <Text style={statsBodyStyles.timelineTitle}>
-              Nouveau professeur inscrit
+      {loading ? (
+        <LoadingSpinner label="Chargement des statistiques..." />
+      ) : (
+        <>
+          {/* Performance Metrics */}
+          <View style={statsBodyStyles.metricsSection}>
+            <Text style={statsBodyStyles.sectionTitle}>
+              Métriques de Performance
             </Text>
-            <Text style={statsBodyStyles.timelineTime}>Il y a 2 heures</Text>
-          </View>
-        </View>
 
-        <View style={statsBodyStyles.timelineItem}>
-          <View style={statsBodyStyles.timelineDot} />
-          <View style={statsBodyStyles.timelineContent}>
-            <Text style={statsBodyStyles.timelineTitle}>
-              5 nouveaux élèves rejoints
-            </Text>
-            <Text style={statsBodyStyles.timelineTime}>Il y a 4 heures</Text>
-          </View>
-        </View>
+            <View style={statsBodyStyles.metricCard}>
+              <View style={statsBodyStyles.metricHeader}>
+                <FontAwesome5 name="chalkboard-teacher" size={24} color="#10B981" />
+                <Text style={statsBodyStyles.metricValue}>{classesCount}</Text>
+              </View>
+              <Text style={statsBodyStyles.metricTitle}>Classes Gérées</Text>
+              <Text style={statsBodyStyles.metricDescription}>
+                Nombre de classes sous votre responsabilité
+              </Text>
+            </View>
 
-        <View style={statsBodyStyles.timelineItem}>
-          <View style={statsBodyStyles.timelineDot} />
-          <View style={statsBodyStyles.timelineContent}>
-            <Text style={statsBodyStyles.timelineTitle}>
-              Mise à jour système effectuée
-            </Text>
-            <Text style={statsBodyStyles.timelineTime}>Il y a 1 jour</Text>
+            <View style={statsBodyStyles.metricCard}>
+              <View style={statsBodyStyles.metricHeader}>
+                <FontAwesome5 name="user-graduate" size={24} color="#3B82F6" />
+                <Text style={statsBodyStyles.metricValue}>{studentsCount}</Text>
+              </View>
+              <Text style={statsBodyStyles.metricTitle}>Élèves Suivis</Text>
+              <Text style={statsBodyStyles.metricDescription}>
+                Nombre total d'élèves dans vos classes
+              </Text>
+            </View>
+
+            <View style={statsBodyStyles.metricCard}>
+              <View style={statsBodyStyles.metricHeader}>
+                <FontAwesome5 name="check-double" size={24} color="#F59E0B" />
+                <Text style={statsBodyStyles.metricValue}>{correctionRate}%</Text>
+              </View>
+              <Text style={statsBodyStyles.metricTitle}>
+                Taux de Correction
+              </Text>
+              <Text style={statsBodyStyles.metricDescription}>
+                {toCorrectCount} copie(s) en attente de correction
+              </Text>
+            </View>
           </View>
-        </View>
-      </View>
+
+          {/* Activity Timeline */}
+          <View style={statsBodyStyles.timelineSection}>
+            <Text style={statsBodyStyles.sectionTitle}>Activité Récente</Text>
+
+            {timeline.length === 0 ? (
+              <Text style={statsBodyStyles.emptyText}>Aucune activité récente.</Text>
+            ) : (
+              timeline.map((activity) => (
+                <View key={activity.id} style={statsBodyStyles.timelineItem}>
+                  <View style={statsBodyStyles.timelineDot} />
+                  <View style={statsBodyStyles.timelineContent}>
+                    <Text style={statsBodyStyles.timelineTitle}>{activity.titre}</Text>
+                    <Text style={statsBodyStyles.timelineTime}>{timeAgo(activity.heureDebut)}</Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        </>
+      )}
 
       {/* Extra space for bottom navigation */}
       <View style={{ height: 80 }} />
@@ -160,6 +226,10 @@ const statsBodyStyles = StyleSheet.create({
   },
   timelineSection: {
     marginBottom: 24,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#9CA3AF",
   },
   timelineItem: {
     flexDirection: "row",

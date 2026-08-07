@@ -40,52 +40,7 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
   const [searchText, setSearchText] = useState("");
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
-  const [demoMessages] = useState<DisplayMessage[]>([
-    {
-      id: 1,
-      sender: "Marie Dupont",
-      subject: "Réunion parents-professeurs",
-      preview:
-        "Bonjour, je souhaiterais programmer une réunion pour discuter...",
-      time: "10:30",
-      date: "2024-09-22",
-      isRead: false,
-      isStarred: true,
-      avatar: "MD",
-      fullMessage:
-        "Bonjour Mr Simo,\n\nJe souhaiterais programmer une réunion pour discuter des progrès de mon fils en mathématiques. Serait-il possible de nous rencontrer cette semaine ?\n\nCordialement,\nMarie Dupont",
-      type: "received",
-    },
-    {
-      id: 2,
-      sender: "Pierre Martin",
-      subject: "Nouveau programme de sciences",
-      preview:
-        "Le nouveau programme de sciences naturelles sera mis en place...",
-      time: "09:15",
-      date: "2024-09-22",
-      isRead: true,
-      isStarred: false,
-      avatar: "PM",
-      fullMessage:
-        "Cher collègue,\n\nLe nouveau programme de sciences naturelles sera mis en place dès la semaine prochaine. Merci de préparer vos cours en conséquence.\n\nBien à vous,\nPierre Martin",
-      type: "received",
-    },
-    {
-      id: 3,
-      sender: "Sophie Bernard",
-      subject: "Re: Documents de cours",
-      preview: "Merci pour les documents partagés. J'ai quelques questions...",
-      time: "hier",
-      date: "2024-09-21",
-      isRead: true,
-      isStarred: false,
-      avatar: "SB",
-      fullMessage:
-        "Bonjour,\n\nMerci pour les documents partagés. J'ai quelques questions sur le chapitre 3. Pouvons-nous en discuter demain ?\n\nCordialement,\nSophie Bernard",
-      type: "received",
-    },
-  ]);
+  const [loadError, setLoadError] = useState("");
 
   const tabs: Array<{ id: string; label: string; icon: React.ComponentProps<typeof FontAwesome5>['name'] }> = [
     { id: "inbox", label: "Reçus", icon: "inbox" },
@@ -121,22 +76,28 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
   };
 
   const handleMessagePress = (message: DisplayMessage) => {
-    if (!message.isRead && message.type === "received") {
+    if (!message.isRead && message.type === "received" && user?.userId) {
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === message.id ? { ...msg, isRead: true } : msg
         )
       );
+      messageService.setRead(String(message.id), user.userId, true).catch(() => {});
     }
     setSelectedMessage(message);
   };
 
   const handleStarToggle = (messageId: number | string) => {
+    const target = messages.find((m) => m.id === messageId);
+    const nextStarred = !target?.isStarred;
     setMessages((prev) =>
       prev.map((msg) =>
-        msg.id === messageId ? { ...msg, isStarred: !msg.isStarred } : msg
+        msg.id === messageId ? { ...msg, isStarred: nextStarred } : msg
       )
     );
+    if (user?.userId) {
+      messageService.setFavorite(String(messageId), user.userId, nextStarred).catch(() => {});
+    }
   };
 
   // Load messages on component mount
@@ -148,6 +109,7 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
 
   const loadMessages = async () => {
     setIsLoadingMessages(true);
+    setLoadError("");
     try {
       const userMessages = await messageService.getUserMessages(user?.userId as string);
 
@@ -184,8 +146,8 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
       setMessages(formattedMessages);
     } catch (error) {
       console.error('Error loading messages:', error);
-      // Fallback to demo messages
-      setMessages(demoMessages);
+      setLoadError(error instanceof Error ? error.message : 'Échec du chargement des messages.');
+      setMessages([]);
     } finally {
       setIsLoadingMessages(false);
     }
@@ -271,7 +233,15 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
 
       {/* Messages List */}
       <ScrollView style={messagesStyles.messagesList}>
-        {isLoadingMessages ? (
+        {loadError ? (
+          <View style={messagesStyles.emptyState}>
+            <FontAwesome5 name="exclamation-circle" size={40} color="#EF4444" />
+            <Text style={[messagesStyles.emptyStateText, { color: "#EF4444" }]}>{loadError}</Text>
+            <TouchableOpacity onPress={loadMessages} style={{ marginTop: 12 }}>
+              <Text style={{ color: "#4F46E5", fontWeight: "600" }}>Réessayer</Text>
+            </TouchableOpacity>
+          </View>
+        ) : isLoadingMessages ? (
           <View style={messagesStyles.loadingContainer}>
             <FontAwesome5 name="spinner" size={32} color="#4F46E5" />
             <Text style={messagesStyles.loadingText}>Chargement des messages...</Text>
