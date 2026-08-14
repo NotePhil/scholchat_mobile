@@ -81,6 +81,28 @@ export const classService = {
     }
   },
 
+  /**
+   * POST /classes/nouvelle — the richer creation flow (ClasseCreationDto),
+   * taking a flat `etablissementId` instead of a nested establishment object.
+   * Matches web's CreateClassContent.jsx.
+   */
+  createNewClass: async (payload: {
+    nom: string;
+    niveau?: string;
+    etablissementId?: string;
+    codeUnique?: string;
+    moderatorId?: string;
+    creatorId: string;
+    accesMajeur?: boolean;
+  }): Promise<{ classe: ClassEntity; token?: string; etat?: string; paymentRequired: boolean; message?: string }> => {
+    try {
+      const { data } = await apiClient.post('/classes/nouvelle', payload);
+      return data;
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec de la création de la classe.'));
+    }
+  },
+
   grantPublicationRights: async (
     userId: string,
     classId: string,

@@ -21,6 +21,8 @@ interface AuthState {
   login: (loginResponse: LoginResponse) => void;
   /** Clears AsyncStorage and resets in-memory state. */
   logout: () => Promise<void>;
+  /** Merges a partial profile update (e.g. after editing Settings) into the in-memory user. */
+  updateUser: (patch: Partial<AuthUser>) => void;
 }
 
 const deriveAuthState = (loginResponse: LoginResponse) => {
@@ -36,7 +38,7 @@ const deriveAuthState = (loginResponse: LoginResponse) => {
   return { user, role, roles };
 };
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   token: null,
   role: 'unknown',
@@ -98,5 +100,15 @@ export const useAuthStore = create<AuthState>((set) => ({
         isLoading: false,
       });
     }
+  },
+
+  updateUser: (patch: Partial<AuthUser>) => {
+    const current = get().user;
+    if (!current) return;
+    const updated = { ...current, ...patch };
+    set({ user: updated });
+    storageService.saveUserData(updated as LoginResponse).catch(() => {
+      // Non-fatal — the in-memory state is already updated; next hydrate will re-sync from server data.
+    });
   },
 }));

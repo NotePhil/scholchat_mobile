@@ -10,10 +10,40 @@ import { LiveSessionInfo } from "../../types";
 import { useUser } from "../../context/UserContext";
 
 /**
+ * Builds the same Jitsi meeting URL web's JitsiRoom.jsx configures via the
+ * JS External API, but as a plain URL for WebView to load directly (RN has
+ * no DOM to run that script against). The backend never returns a ready
+ * "roomUrl" — only roomName/jitsiJwt/jitsiDomain (SessionResponseDTO) — so
+ * this reconstructs it: jwt as a query param (Jitsi's documented
+ * direct-navigation auth method) and the same config overrides JitsiRoom.jsx
+ * sets, passed via the URL hash fragment (parsed client-side by Jitsi's own
+ * web app, same as the JS API would apply them).
+ */
+const buildJitsiUrl = (session: LiveSessionInfo, isModerator: boolean): string | null => {
+  if (!session.roomName || !session.jitsiDomain) return null;
+  const startWithAudioMuted = !isModerator;
+  const startWithVideoMuted = session.mode !== 'VIDEO' || !isModerator;
+  const params = new URLSearchParams();
+  if (session.jitsiJwt) params.set('jwt', session.jitsiJwt);
+  const hash = [
+    `config.startWithAudioMuted=${startWithAudioMuted}`,
+    `config.startWithVideoMuted=${startWithVideoMuted}`,
+    'config.prejoinPageEnabled=false',
+    'config.disableDeepLinking=true',
+    'interfaceConfig.SHOW_JITSI_WATERMARK=false',
+    'interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false',
+    // Jitsi's web app shows a big "open in app" promo/redirect on mobile
+    // user-agents by default, which breaks WebView playback if left on.
+    'interfaceConfig.MOBILE_APP_PROMO=false',
+  ].join('&');
+  const query = params.toString();
+  return `https://${session.jitsiDomain}/${session.roomName}${query ? `?${query}` : ''}#${hash}`;
+};
+
+/**
  * Live video classroom — mirrors scholchat_front's Jitsi-based session
- * (LiveSession/JitsiRoom.jsx): embeds the room URL the backend hands back
- * from startSession/joinSession in a WebView, since React Native has no
- * native Jitsi Meet iframe equivalent.
+ * (LiveSession/JitsiRoom.jsx): loads the same Jitsi room + config in a
+ * WebView, since React Native has no native Jitsi Meet iframe equivalent.
  */
 const LiveSessionScreen = () => {
   const navigation = useNavigation();
@@ -27,13 +57,23 @@ const LiveSessionScreen = () => {
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
 
+  // getActiveSession() only confirms a session exists and hands back its id —
+  // its response isn't directly connectable. Every client (host included,
+  // once a session is already running) must call joinSession() to get a
+  // jitsiJwt actually scoped to them; web's LiveSession.jsx never skips this
+  // step, so neither do we.
   const checkActive = useCallback(async () => {
     if (!coursId) return;
     setLoading(true);
     setError("");
     try {
       const active = await liveSessionService.getActiveSession(coursId);
-      setSession(active ?? null);
+      if (!active) {
+        setSession(null);
+        return;
+      }
+      const joined = await liveSessionService.joinSession(coursId, active.sessionId);
+      setSession(joined);
     } catch {
       setSession(null);
     } finally {
@@ -49,6 +89,8 @@ const LiveSessionScreen = () => {
     if (!coursId) return;
     setStarting(true);
     try {
+      // The host calling startSession already gets back a JWT scoped to
+      // them as moderator — no separate join step needed here.
       const started = await liveSessionService.startSession(coursId);
       setSession(started);
     } catch (err) {
@@ -58,24 +100,11 @@ const LiveSessionScreen = () => {
     }
   };
 
-  const handleJoin = async () => {
-    if (!coursId || !session) return;
-    setStarting(true);
-    try {
-      const joined = await liveSessionService.joinSession(coursId, session.id);
-      setSession(joined);
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la connexion à la session.");
-    } finally {
-      setStarting(false);
-    }
-  };
-
   const handleEnd = async () => {
     if (!coursId || !session) return;
     try {
-      if (isHost) await liveSessionService.endSession(coursId, session.id);
-      else await liveSessionService.leaveSession(coursId, session.id);
+      if (isHost) await liveSessionService.endSession(coursId, session.sessionId);
+      else await liveSessionService.leaveSession(coursId, session.sessionId);
     } catch {
       // best-effort
     } finally {
@@ -111,14 +140,23 @@ const LiveSessionScreen = () => {
         <LoadingSpinner fullScreen label="Vérification de la session..." />
       ) : error ? (
         <EmptyState icon="exclamation-triangle" title="Erreur" message={error} />
-      ) : session?.roomUrl ? (
+      ) : session && session.mode === "CONTENT_ONLY" ? (
+        <View style={styles.contentOnlyWrap}>
+          <View style={styles.contentOnlyIcon}>
+            <FontAwesome5 name="book-open" size={26} color="#FFFFFF" />
+          </View>
+          <Text style={styles.contentOnlyTitle}>Mode Contenu Seul</Text>
+          <Text style={styles.contentOnlySubtitle}>Cette session n'utilise pas la caméra ni le micro.</Text>
+        </View>
+      ) : session && jitsiUrl ? (
         <WebView
-          source={{ uri: session.roomUrl }}
+          source={{ uri: jitsiUrl }}
           style={styles.webview}
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
           javaScriptEnabled
           domStorageEnabled
+          originWhitelist={["*"]}
         />
       ) : (
         <View style={styles.emptyWrap}>

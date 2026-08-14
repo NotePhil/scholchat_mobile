@@ -2,10 +2,17 @@ import { create } from 'zustand';
 
 export interface NotificationItem {
   id: string;
-  titre?: string;
+  /** Matches the real backend field names (Notification.java) — not "titre"/"lu"/"dateCreation", which never existed on the actual API response. */
+  title?: string;
   message?: string;
-  lu?: boolean;
-  dateCreation?: string;
+  isRead?: boolean;
+  createdAt?: string;
+  /** e.g. "MESSAGE_SENT", "CLASS_VALIDATED", "ACCESS_REQUEST" — lets a tap route somewhere useful instead of just marking read. */
+  type?: string;
+  relatedEntityId?: string | null;
+  relatedEntityType?: string;
+  actorId?: string;
+  actorName?: string;
   [key: string]: unknown;
 }
 
@@ -34,7 +41,7 @@ export const useNotificationsStore = create<NotificationsState>((set) => ({
   setLoading: (isLoading) => set({ isLoading }),
   markReadLocally: (id) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === id ? { ...item, lu: true } : item)),
+      items: state.items.map((item) => (item.id === id ? { ...item, isRead: true } : item)),
       unreadCount: Math.max(0, state.unreadCount - 1),
     })),
   reset: () => set({ items: [], unreadCount: 0, isLoading: false }),

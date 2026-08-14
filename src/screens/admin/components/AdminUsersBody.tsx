@@ -1,16 +1,18 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Button, EmptyState, Input, LoadingSpinner, ListItem } from "../../../components/ui";
+import { Badge, EmptyState, Input, LoadingSpinner } from "../../../components/ui";
 import PromptSheet from "../../../components/common/PromptSheet";
 import { colors, spacing, typography } from "../../../styles/theme";
 import {
+  accederService,
   gestionnaireService,
   parentService,
   professorService,
   studentService,
   userService,
 } from "../../../services/api";
+import { ClassEntity } from "../../../types";
 
 type RoleTab = "admins" | "professeurs" | "parents" | "eleves" | "gestionnaires" | "pending";
 
@@ -23,18 +25,41 @@ const TABS: { id: RoleTab; label: string }[] = [
   { id: "pending", label: "En attente" },
 ];
 
+const STATUS_LABELS: Record<string, string> = {
+  ACTIVE: "Actif",
+  ACTIF: "Actif",
+  INACTIVE: "Inactif",
+  INACTIF: "Inactif",
+  PENDING: "En attente",
+  AWAITING_VALIDATION: "En attente",
+};
+
 interface Row {
   id: string;
   name: string;
   email: string;
-  extra?: string;
+  telephone?: string;
+  adresse?: string;
+  etat?: string;
+  classes?: ClassEntity[];
 }
+
+const getInitials = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 
 const toRow = (raw: Record<string, any>): Row => ({
   id: raw.id,
   name: `${raw.prenom ?? ""} ${raw.nom ?? ""}`.trim() || raw.username || "Sans nom",
   email: raw.email ?? "",
-  extra: raw.etat,
+  telephone: raw.telephone,
+  adresse: raw.adresse,
+  etat: raw.etat,
 });
 
 const AdminUsersBody = () => {
@@ -59,7 +84,27 @@ const AdminUsersBody = () => {
         const result = await userService.getPendingProfessors();
         data = Array.isArray(result) ? result : (result as any)?.content ?? [];
       }
-      setRows(data.map(toRow));
+      const baseRows = data.map(toRow);
+      setRows(baseRows);
+
+      // Classes are fetched separately (and non-blocking) so the list still
+      // renders immediately even if this secondary lookup is slow/fails.
+      // Shown for every role tab (Admins/Gestionnaires will usually come back
+      // empty, which is real data, not a bug — they aren't normally tied to a class).
+      if (activeTab !== "pending") {
+        Promise.all(
+          baseRows.map(async (row) => {
+            try {
+              return { id: row.id, classes: await accederService.getAccessibleClasses(row.id) };
+            } catch {
+              return { id: row.id, classes: [] as ClassEntity[] };
+            }
+          })
+        ).then((results) => {
+          const byId = new Map(results.map((r) => [r.id, r.classes]));
+          setRows((prev) => prev.map((r) => ({ ...r, classes: byId.get(r.id) ?? [] })));
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Échec du chargement.");
     } finally {
@@ -122,6 +167,8 @@ const AdminUsersBody = () => {
     ]);
   };
 
+  const showClasses = activeTab !== "pending";
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -152,28 +199,76 @@ const AdminUsersBody = () => {
           <EmptyState icon="users" title="Aucun résultat" message="Aucun utilisateur dans cette catégorie." />
         ) : (
           filteredRows.map((row) => (
-            <ListItem
-              key={row.id}
-              title={row.name}
-              subtitle={row.email}
-              showChevron={false}
-              trailing={
-                activeTab === "pending" ? (
-                  <View style={styles.pendingActions}>
-                    <TouchableOpacity onPress={() => handleValidate(row)} style={styles.iconButton}>
-                      <FontAwesome5 name="check" size={16} color={colors.success} />
+            <View key={row.id} style={styles.card}>
+              <View style={styles.cardTop}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{getInitials(row.name)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.name}>{row.name}</Text>
+                  {row.etat ? (
+                    <Badge
+                      label={STATUS_LABELS[row.etat.toUpperCase()] ?? row.etat}
+                      tone={row.etat.toUpperCase().includes("ACTI") ? "success" : "warning"}
+                    />
+                  ) : null}
+                </View>
+                <View style={styles.cardActionsInline}>
+                  {activeTab === "pending" ? (
+                    <>
+                      <TouchableOpacity onPress={() => handleValidate(row)} style={styles.iconButton}>
+                        <FontAwesome5 name="check" size={16} color={colors.success} />
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleReject(row)} style={styles.iconButton}>
+                        <FontAwesome5 name="times" size={16} color={colors.danger} />
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <TouchableOpacity onPress={() => handleDelete(row)} style={styles.iconButton}>
+                      <FontAwesome5 name="trash" size={16} color={colors.danger} />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleReject(row)} style={styles.iconButton}>
-                      <FontAwesome5 name="times" size={16} color={colors.danger} />
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity onPress={() => handleDelete(row)} style={styles.iconButton}>
-                    <FontAwesome5 name="trash" size={16} color={colors.danger} />
-                  </TouchableOpacity>
-                )
-              }
-            />
+                  )}
+                </View>
+              </View>
+
+              {row.email ? (
+                <View style={styles.infoRow}>
+                  <FontAwesome5 name="envelope" size={12} color={colors.textMuted} />
+                  <Text style={styles.infoText}>{row.email}</Text>
+                </View>
+              ) : null}
+              {row.telephone ? (
+                <View style={styles.infoRow}>
+                  <FontAwesome5 name="phone" size={12} color={colors.textMuted} />
+                  <Text style={styles.infoText}>{row.telephone}</Text>
+                </View>
+              ) : null}
+              {row.adresse ? (
+                <View style={styles.infoRow}>
+                  <FontAwesome5 name="map-marker-alt" size={12} color={colors.textMuted} />
+                  <Text style={styles.infoText}>{row.adresse}</Text>
+                </View>
+              ) : null}
+
+              {showClasses && (
+                <View style={styles.classesSection}>
+                  <Text style={styles.classesLabel}>Classes</Text>
+                  {row.classes === undefined ? (
+                    <Text style={styles.classesValue}>Chargement...</Text>
+                  ) : row.classes.length === 0 ? (
+                    <Text style={styles.classesValue}>Aucune</Text>
+                  ) : (
+                    <View style={styles.classChipsRow}>
+                      {row.classes.map((cls) => (
+                        <View key={cls.id} style={styles.classChip}>
+                          <Text style={styles.classChipText}>{cls.nom}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
           ))
         )}
         <View style={{ height: 100 }} />
@@ -210,8 +305,21 @@ const styles = StyleSheet.create({
   searchWrap: { paddingHorizontal: 16 },
   list: { flex: 1, paddingHorizontal: 16 },
   error: { color: colors.danger, marginBottom: spacing.md },
-  pendingActions: { flexDirection: "row", gap: spacing.sm },
+  card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.md, marginTop: spacing.md },
+  cardTop: { flexDirection: "row", alignItems: "center", marginBottom: spacing.sm, gap: spacing.sm },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: colors.white, fontWeight: "700", fontSize: 13 },
+  name: { ...typography.bodyBold, color: colors.text, marginBottom: 4 },
+  cardActionsInline: { flexDirection: "row", gap: spacing.xs },
   iconButton: { padding: spacing.sm },
+  infoRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: 4 },
+  infoText: { ...typography.caption, color: colors.textMuted },
+  classesSection: { marginTop: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  classesLabel: { ...typography.caption, color: colors.textMuted, fontWeight: "700", textTransform: "uppercase", marginBottom: 4 },
+  classesValue: { ...typography.caption, color: colors.textMuted, fontStyle: "italic" },
+  classChipsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  classChip: { backgroundColor: colors.grayLight, borderRadius: 12, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  classChipText: { ...typography.caption, color: colors.text, fontWeight: "600" },
 });
 
 export default AdminUsersBody;

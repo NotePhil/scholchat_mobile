@@ -50,7 +50,8 @@ const DashboardStatsBody = () => {
       );
       const studentIds = new Set<string>();
       classUsersLists.forEach((list) => {
-        list.filter((u) => u.type === "eleve").forEach((u) => studentIds.add(u.id));
+        // typeUtilisateur (uppercase) is the real discriminator on this endpoint — `type` doesn't exist.
+        list.filter((u) => u.typeUtilisateur === "ELEVE").forEach((u) => studentIds.add(u.id));
       });
 
       setClassesCount(classes.length);

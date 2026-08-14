@@ -17,9 +17,19 @@ import { activityFeedService, mediaService } from "../../../services/api";
 
 export interface ActivityMedia {
   id: string;
+  /** The persisted Media entity's id — needed to lazily resolve a real loadable URL via mediaService.getDownloadUrl. Absent for freshly-picked, not-yet-uploaded local images. */
+  mediaId?: string;
   uri: string;
   type: string;
   name: string;
+}
+
+export interface ActivityComment {
+  id: string;
+  content: string;
+  createdById?: string;
+  creationDate?: string;
+  isCurrentUser: boolean;
 }
 
 export interface Activity {
@@ -35,9 +45,13 @@ export interface Activity {
   rawDate?: string;
   location?: string;
   participants?: string;
+  participantsCount?: number;
+  isParticipating?: boolean;
+  isLiked?: boolean;
   description: string;
   likes: number;
   comments: number;
+  commentsList?: ActivityComment[];
   medias?: ActivityMedia[];
 }
 
@@ -232,6 +246,9 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
         comments: 0,
         type: "event",
         participants: `${participantsIds.length} participant(s)`,
+        participantsCount: participantsIds.length,
+        isParticipating: false,
+        isLiked: false,
       };
 
       onCreateActivity(newActivity);

@@ -24,6 +24,8 @@ import { ClassEntity, ClassUser, MessageAttachment } from "../../../../types";
 interface RecipientSuggestion {
   id: string;
   name: string;
+  nom: string;
+  prenom: string;
   email: string;
   type?: string;
 }
@@ -106,6 +108,8 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
       ).map(u => ({
         id: u.id,
         name: `${u.prenom || ''} ${u.nom || ''}`.trim(),
+        nom: u.nom || '',
+        prenom: u.prenom || '',
         email: u.email || u.telephone || 'Non spécifié',
         type: u.type
       }));
@@ -135,6 +139,8 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
       ).map(mod => ({
         id: mod.id,
         name: `${mod.prenom || ''} ${mod.nom || ''}`.trim(),
+        nom: mod.nom || '',
+        prenom: mod.prenom || '',
         email: mod.email || 'Non spécifié',
         type: mod.type
       }));
@@ -233,14 +239,20 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
     );
   };
 
+  /**
+   * Message bodies render as plain RN <Text> (no HTML/webview renderer anywhere
+   * downstream), so wrapping in an HTML <div style="..."> — as this used to do —
+   * made the literal tags show up as garbled text in the recipient's inbox.
+   * Attachments have no field on the backend Messages/GroupMessageDto models, so
+   * they're folded into the plain-text body instead of being silently dropped.
+   */
   const formatMessage = () => {
-    let style = '';
-    if (isBold) style += 'font-weight: bold; ';
-    if (isItalic) style += 'font-style: italic; ';
-    if (isUnderline) style += 'text-decoration: underline; ';
-    style += `text-align: ${textAlign}; `;
-
-    return `<div style="${style}">${message.replace(/\n/g, '<br>')}</div>`;
+    let body = message.trim();
+    if (attachments.length > 0) {
+      const links = attachments.map((a) => `- ${a.name}: ${a.uri}`).join('\n');
+      body = `${body}\n\nPièces jointes:\n${links}`;
+    }
+    return body;
   };
 
   const handleClose = () => {
@@ -269,33 +281,42 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
       const formattedMessage = formatMessage();
 
       if (isGroupMessage) {
-        // Send group message to all class members
-        const allClassUsers: ClassUser[] = [];
-        for (const classItem of selectedClasses) {
-          const users = await classService.getClassUsers(classItem.id);
-          allClassUsers.push(...users);
-        }
-
-        const uniqueUserIds = [...new Set(allClassUsers.map(u => u.id))];
-        const allRecipientIds = [...uniqueUserIds, ...ccRecipients.map(cc => cc.id)];
-
+        // POST /messages/group — GroupMessageDto field names exactly: content (not contenu),
+        // senderId (not expediteurId), classIds, copieRecipientIds (not ccRecipients). No
+        // attachment field exists on this DTO server-side.
         await messageService.sendGroupMessage({
-          contenu: formattedMessage,
           objet: subject,
-          expediteurId: user?.userId,
-          destinataireIds: allRecipientIds,
-          pieceJointes: attachments,
+          content: formattedMessage,
+          senderId: user?.userId,
+          classIds: selectedClasses.map((c) => c.id),
+          copieRecipientIds: ccRecipients.map((cc) => cc.id),
         } as any);
       } else {
-        // Send individual message
+        // POST /messages — the Messages model requires expediteur/destinataires as full
+        // Utilisateurs objects (Jackson polymorphic "type" discriminator + @NonNull nom/prenom),
+        // not bare id strings. "utilisateur" is always a valid type (the base class).
         const allRecipients = [...recipients, ...ccRecipients];
 
         await messageService.sendIndividualMessage({
           contenu: formattedMessage,
           objet: subject,
-          expediteur: { type: user?.type || "professeur", id: user?.userId },
-          destinataires: allRecipients.map(recipient => ({ type: recipient.type || "utilisateur", id: recipient.id })),
-          pieceJointes: attachments,
+          dateCreation: new Date().toISOString(),
+          etat: "envoyé",
+          expediteur: {
+            type: "utilisateur",
+            id: user?.userId,
+            nom: user?.nom || "",
+            prenom: user?.prenom || "",
+            email: user?.email || "",
+            telephone: user?.telephone || "",
+          },
+          destinataires: allRecipients.map((recipient) => ({
+            type: "utilisateur",
+            id: recipient.id,
+            nom: recipient.nom || "",
+            prenom: recipient.prenom || "",
+            email: recipient.email || "",
+          })),
         } as any);
       }
 

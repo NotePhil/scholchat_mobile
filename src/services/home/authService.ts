@@ -143,6 +143,15 @@ export const authService = {
     }
   },
 
+  /** POST /auth/change-password — resolves the target user from the JWT, so no id needed. */
+  changePassword: async (currentPassword: string, newPassword: string): Promise<void> => {
+    try {
+      await apiClient.post('/auth/change-password', { currentPassword, newPassword });
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec de la modification du mot de passe.'));
+    }
+  },
+
   updateProfessorUrls: async (
     professorId: string,
     urls: ProfessorDocumentUrls

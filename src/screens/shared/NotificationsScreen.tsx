@@ -5,7 +5,8 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { EmptyState, LoadingSpinner } from '../../components/ui';
 import { colors, spacing, typography } from '../../styles/theme';
 import { notificationService } from '../../services/api';
-import { useNotificationsStore } from '../../store/useNotificationsStore';
+import { useNotificationsStore, NotificationItem } from '../../store/useNotificationsStore';
+import { useUiStore } from '../../store/useUiStore';
 
 const NotificationsScreen = () => {
   const navigation = useNavigation();
@@ -34,12 +35,18 @@ const NotificationsScreen = () => {
     load();
   }, [load]);
 
-  const handlePress = async (id: string) => {
-    markReadLocally(id);
+  const handlePress = async (notification: NotificationItem) => {
+    markReadLocally(notification.id);
     try {
-      await notificationService.markAsRead(id);
+      await notificationService.markAsRead(notification.id);
     } catch {
       // best-effort
+    }
+    if (notification.type === 'MESSAGE_SENT' || notification.relatedEntityType === 'MESSAGE') {
+      // The role Dashboard underneath is still mounted (this screen is stack-pushed on top of
+      // it, not a replacement) — request the tab switch, then reveal it by going back.
+      useUiStore.getState().requestTab('messages');
+      navigation.goBack();
     }
   };
 
@@ -125,13 +132,13 @@ const NotificationsScreen = () => {
           items.map((n) => (
             <TouchableOpacity
               key={n.id}
-              style={[styles.card, !n.lu && styles.cardUnread]}
-              onPress={() => handlePress(n.id)}
+              style={[styles.card, !n.isRead && styles.cardUnread]}
+              onPress={() => handlePress(n)}
             >
               <View style={styles.cardBody}>
-                <Text style={[styles.cardTitle, !n.lu && styles.cardTitleUnread]}>{n.titre ?? 'Notification'}</Text>
+                <Text style={[styles.cardTitle, !n.isRead && styles.cardTitleUnread]}>{n.title ?? 'Notification'}</Text>
                 {n.message ? <Text style={styles.cardMessage}>{String(n.message)}</Text> : null}
-                <Text style={styles.cardDate}>{formatDate(n.dateCreation)}</Text>
+                <Text style={styles.cardDate}>{formatDate(n.createdAt)}</Text>
               </View>
               <TouchableOpacity onPress={() => handleDelete(n.id)} style={styles.deleteButton}>
                 <FontAwesome5 name="times" size={14} color={colors.textMuted} />

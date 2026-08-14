@@ -1,4 +1,5 @@
 import axios, { AxiosError } from 'axios';
+import { Alert } from 'react-native';
 import { environment } from '../../environment/environment';
 import { storageService } from '../storageService';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -28,59 +29,31 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Separate, interceptor-free instance for the refresh call itself, so a
-// failed refresh can't recursively trigger another refresh attempt.
-const refreshClient = axios.create({
-  baseURL: environment.baseUrl,
-  headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-});
-
-let refreshPromise: Promise<string | null> | null = null;
-
-const attemptTokenRefresh = (): Promise<string | null> => {
-  if (!refreshPromise) {
-    refreshPromise = (async () => {
-      try {
-        const refreshToken = await storageService.getRefreshToken();
-        if (!refreshToken) return null;
-        const { data } = await refreshClient.post<{ accessToken?: string; refreshToken?: string }>(
-          '/auth/refresh-token',
-          { refreshToken }
-        );
-        if (!data?.accessToken) return null;
-        await storageService.updateTokens(data.accessToken, data.refreshToken);
-        return data.accessToken;
-      } catch {
-        return null;
-      } finally {
-        refreshPromise = null;
-      }
-    })();
-  }
-  return refreshPromise;
-};
-
+/**
+ * The backend (AuthApi.java) has no `/auth/refresh-token` endpoint at all —
+ * a JWT that expires cannot be silently renewed, only re-issued via a fresh
+ * login. So instead of chasing a refresh call that would always 404, a
+ * 401/403 is treated as a real session expiry: clear the session and tell
+ * the user why (a bare kick-back-to-login with no explanation reads as a
+ * crash on mobile), then RootNavigator's `isAuthenticated` switch handles
+ * the actual navigation back to the login screen — no `window.location`
+ * hard-redirect hack like web's axiosConfig.js uses.
+ */
 let isHandlingSessionExpiry = false;
 
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const status = error.response?.status;
-    const originalRequest = error.config as (typeof error.config & { _retried?: boolean }) | undefined;
-
-    if ((status === 401 || status === 403) && originalRequest && !originalRequest._retried) {
-      originalRequest._retried = true;
-      const newAccessToken = await attemptTokenRefresh();
-      if (newAccessToken) {
-        (originalRequest.headers as Record<string, string>).Authorization = `Bearer ${newAccessToken}`;
-        return apiClient(originalRequest);
-      }
-    }
 
     if ((status === 401 || status === 403) && !isHandlingSessionExpiry) {
       isHandlingSessionExpiry = true;
       try {
+        const wasAuthenticated = useAuthStore.getState().isAuthenticated;
         await useAuthStore.getState().logout();
+        if (wasAuthenticated) {
+          Alert.alert('Session expirée', 'Votre session a expiré. Veuillez vous reconnecter.');
+        }
       } finally {
         isHandlingSessionExpiry = false;
       }

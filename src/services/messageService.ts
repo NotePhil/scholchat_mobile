@@ -38,22 +38,6 @@ export const messageService = {
     }
   },
 
-  getUserMessages: async (userId: string): Promise<MessageItem[]> => {
-    const [sentMessages, receivedMessages] = await Promise.all([
-      messageService.getSentMessages(userId),
-      messageService.getReceivedMessages(userId),
-    ]);
-
-    const allMessages: MessageItem[] = [
-      ...sentMessages.map((msg) => ({ ...msg, type: 'sent' as const })),
-      ...receivedMessages.map((msg) => ({ ...msg, type: 'received' as const })),
-    ];
-
-    return allMessages.sort(
-      (a, b) => new Date(b.dateCreation ?? 0).getTime() - new Date(a.dateCreation ?? 0).getTime()
-    );
-  },
-
   // --- Remaining endpoints from scholchat_front's MessageService.js ---
 
   getAll: async (page = 0, limit = 20): Promise<Record<string, unknown>> => {
@@ -101,12 +85,32 @@ export const messageService = {
     }
   },
 
+  /** Soft-delete — moves the message to trash (MessagesEntity.deleted=true), not a hard delete. */
   remove: async (id: string): Promise<ApiSuccess> => {
     try {
       await apiClient.delete(`/messages/${id}`);
       return { success: true };
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la suppression du message.'));
+    }
+  },
+
+  /** GET /messages/utilisateur/{id}/trash — only messages the user themself sent and then deleted. */
+  getTrash: async (userId: string): Promise<MessageItem[]> => {
+    try {
+      const { data } = await apiClient.get<MessageItem[]>(`/messages/utilisateur/${userId}/trash`);
+      return data;
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec du chargement de la corbeille.'));
+    }
+  },
+
+  restore: async (id: string): Promise<ApiSuccess> => {
+    try {
+      await apiClient.post(`/messages/${id}/restore`);
+      return { success: true };
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec de la restauration du message.'));
     }
   },
 

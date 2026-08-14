@@ -20,18 +20,23 @@ export const matiereService = {
     }
   },
 
-  create: async (nom: string): Promise<Matiere> => {
+  create: async (nom: string, description?: string): Promise<Matiere> => {
     try {
-      const { data } = await apiClient.post<Matiere>('/matieres', { nom });
+      const { data } = await apiClient.post<Matiere>('/matieres', {
+        nom,
+        description,
+        dateCreation: new Date().toISOString(),
+        etat: 'ACTIF',
+      });
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la création de la matière.'));
     }
   },
 
-  update: async (id: string, nom: string): Promise<Matiere> => {
+  update: async (id: string, nom: string, description?: string): Promise<Matiere> => {
     try {
-      const { data } = await apiClient.put<Matiere>(`/matieres/${id}`, { nom });
+      const { data } = await apiClient.put<Matiere>(`/matieres/${id}`, { nom, description });
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la mise à jour de la matière.'));

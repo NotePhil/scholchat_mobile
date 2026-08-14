@@ -143,11 +143,7 @@ const DashboardUsersBody = () => {
   return (
     <ScrollView style={usersBodyStyles.content}>
       <View style={usersBodyStyles.pageHeader}>
-        <Text style={usersBodyStyles.pageTitle}>Gestion des Utilisateurs</Text>
-        <TouchableOpacity style={usersBodyStyles.addButton}>
-          <FontAwesome5 name="plus" size={16} color="#FFFFFF" />
-          <Text style={usersBodyStyles.addButtonText}>Ajouter</Text>
-        </TouchableOpacity>
+        <Text style={usersBodyStyles.pageTitle}>Mes élèves & parents</Text>
       </View>
 
       {/* Search Bar */}

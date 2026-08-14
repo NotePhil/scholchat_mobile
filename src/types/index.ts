@@ -68,6 +68,13 @@ export interface Etablissement {
   id: string;
   nom?: string;
   localisation?: string;
+  pays?: string;
+  email?: string;
+  telephone?: string;
+  codeUnique?: string;
+  optionEnvoiMailNewClasse?: boolean;
+  optionTokenGeneral?: boolean;
+  dateCreation?: string;
   [key: string]: any;
 }
 
@@ -78,11 +85,20 @@ export interface AccessRequest {
   [key: string]: any;
 }
 
+/**
+ * Matches GET /acceder/classes/{id}/utilisateurs — a flat UtilisateurSimpleDto,
+ * NOT the polymorphic Utilisateurs model. The discriminator field is
+ * `typeUtilisateur` (uppercase values: PROFESSEUR/ELEVE/PARENT/REPETITEUR/
+ * UTILISATEUR), not `type`/`admin` — those two fields don't exist on this
+ * endpoint's response at all, so any code branching on them silently matches
+ * nothing (or, for a `!= x` check, matches everything).
+ */
 export interface ClassUser {
   id: string;
   nom?: string;
   prenom?: string;
   email?: string;
+  typeUtilisateur?: 'PROFESSEUR' | 'ELEVE' | 'PARENT' | 'REPETITEUR' | 'UTILISATEUR' | string;
   role?: string;
   peutPublier?: boolean;
   peutModerer?: boolean;
@@ -99,13 +115,29 @@ export interface MessageAttachment {
   [key: string]: any;
 }
 
+export interface MessageParty {
+  id: string;
+  nom?: string;
+  prenom?: string;
+  email?: string;
+  typeUtilisateur?: string;
+  [key: string]: any;
+}
+
+/** Matches the real MessageDto.java returned by /sent, /received, /trash — not a guess. */
 export interface MessageItem {
   id: string;
   objet?: string;
   contenu?: string;
   dateCreation?: string;
-  expediteurId?: string;
-  destinataireId?: string;
+  dateModification?: string;
+  etat?: string;
+  expediteur?: MessageParty;
+  destinataires?: MessageParty[];
+  /** Per-recipient read status (MessageStatutEntity) — NOT derived from `etat`. */
+  lu?: boolean;
+  favori?: boolean;
+  dateLecture?: string;
   type?: MessageDirection;
   pieceJointes?: MessageAttachment[];
   [key: string]: any;
@@ -174,6 +206,11 @@ export interface Gestionnaire {
 export interface Matiere {
   id: string;
   nom: string;
+  description?: string;
+  etat?: 'ACTIF' | 'INACTIF' | 'EN_ATTENTE_VALIDATION';
+  dateCreation?: string;
+  professeurs?: Professor[];
+  classes?: ClasseInfo[];
   [key: string]: any;
 }
 
@@ -235,12 +272,21 @@ export interface CoursProgramme {
   [key: string]: any;
 }
 
+/** Matches the backend's real SessionResponseDTO exactly — there is no `roomUrl`; the client builds the Jitsi URL itself from roomName/jitsiJwt/jitsiDomain. */
 export interface LiveSessionInfo {
-  id: string;
+  sessionId: string;
+  roomName?: string;
+  jitsiJwt?: string;
+  jitsiDomain?: string;
+  mode?: 'VIDEO' | 'AUDIO' | 'CONTENT_ONLY' | string;
+  status?: string;
   coursId?: string;
-  roomUrl?: string;
-  etat?: string;
-  chapitreActuelId?: string;
+  coursTitle?: string;
+  currentChapitreId?: string;
+  chapitres?: { id: string; titre?: string; ordre?: number; contenu?: string; fileUrl?: string }[];
+  participants?: { userId: string; userName?: string }[];
+  startedAt?: string;
+  endedAt?: string;
   [key: string]: any;
 }
 
@@ -367,8 +413,21 @@ export interface Contrat {
   classeId?: string;
   etablissementId?: string;
   offreId?: string;
+  offreNom?: string;
+  statut?: 'ACTIF' | 'EXPIRE' | 'EN_ATTENTE_PAIEMENT' | 'RESILIE' | string;
+  periodicite?: 'MENSUEL' | 'ANNUEL' | string;
+  prixPaye?: number;
+  prixMensuel?: number;
+  prixAnnuel?: number;
   dateDebut?: string;
   dateFin?: string;
+  classesMax?: number;
+  classesUtilisees?: number;
+  elevesMax?: number;
+  stockageMax?: number;
+  messagerie?: boolean;
+  suppressionImminente?: boolean;
+  dateSuppressionPrevue?: string;
   [key: string]: any;
 }
 
@@ -380,6 +439,7 @@ export interface RejectionMotif {
   id: string;
   code?: string;
   descriptif?: string;
+  dateCreation?: string;
   [key: string]: any;
 }
 

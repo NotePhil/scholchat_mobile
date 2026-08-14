@@ -97,6 +97,22 @@ export const mediaService = {
     }
   },
 
+  /**
+   * GET /media/{mediaId}/download-url — resolves a real, loadable presigned
+   * S3 URL for a stored media item. Mirrors scholchat_front's LazyMedia:
+   * `filePath`/`presignedUrl` embedded on a list response are NOT reliably
+   * loadable image URIs (filePath is just the raw storage key), so this
+   * must be called to get something an <Image> can actually render.
+   */
+  getDownloadUrl: async (mediaId: string): Promise<string> => {
+    try {
+      const { data } = await apiClient.get<{ url?: string }>(`/media/${mediaId}/download-url`);
+      return data?.url ?? '';
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec du chargement du média.'));
+    }
+  },
+
   getDownloadUrlByPath: async (filePath: string): Promise<string> => {
     try {
       const { data } = await apiClient.get<{ url?: string } | string>('/media/download-by-path', {

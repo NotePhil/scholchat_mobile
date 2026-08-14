@@ -1,596 +1,622 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
-  View,
-  Text,
-  TouchableOpacity,
   StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { messageService } from "../../../../services/messageService";
+import { useMessagesStore } from "../../../../store/useMessagesStore";
 import { useUser } from "../../../../context/UserContext";
+import { MessageItem, MessageParty } from "../../../../types";
 import ComposeMessageModal from "./ComposeMessageModal";
 
-interface DisplayMessage {
-  id: number | string;
-  sender?: string;
-  recipient?: string;
-  subject: string;
-  preview: string;
-  time: string;
-  date: string;
-  isRead: boolean;
-  isStarred: boolean;
-  avatar: string;
-  fullMessage: string;
-  type: 'sent' | 'received';
+type FilterType = "all" | "trash";
+
+interface ConversationThread {
+  key: string;
+  partner: MessageParty | null;
+  partnerLabel: string;
+  messages: MessageItem[];
+  latest: MessageItem;
+  isConversation: boolean;
+  hasUnread: boolean;
 }
+
+const getInitials = (party: MessageParty | null | undefined) => {
+  const nom = party?.nom ?? "";
+  const prenom = party?.prenom ?? "";
+  const initials = `${prenom.charAt(0)}${nom.charAt(0)}`.toUpperCase();
+  return initials || "?";
+};
+
+const getDisplayName = (party: MessageParty | null | undefined) => {
+  if (party?.prenom || party?.nom) return `${party?.prenom ?? ""} ${party?.nom ?? ""}`.trim();
+  return party?.email || "Utilisateur";
+};
+
+const stripQuoted = (contenu?: string) => (contenu ?? "").split("--- Message original ---")[0].trim();
+
+const formatListDate = (dateString?: string) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  const diffHours = (Date.now() - date.getTime()) / 3_600_000;
+  if (diffHours < 24) return date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  if (diffHours < 168) return date.toLocaleDateString("fr-FR", { weekday: "short" });
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+};
+
+const formatBubbleTime = (dateString?: string) => {
+  if (!dateString) return "";
+  return new Date(dateString).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+};
+
+/**
+ * Groups messages by conversation PARTNER (the other person), not by
+ * subject, so every message exchanged with the same person merges into one
+ * thread — mirrors web's real mobile design (MobileMessagingInterface's
+ * groupMessagesByConversation in scholchat_front/.../Messsages/
+ * MessagingInterface.jsx), which is the actual spec for this screen, not a
+ * mobile-invented layout.
+ */
+const groupByPartner = (messages: MessageItem[], userId?: string): ConversationThread[] => {
+  const buckets = new Map<string, { partner: MessageParty | null; messages: MessageItem[] }>();
+
+  messages.forEach((msg) => {
+    const isSender = msg.expediteur?.id === userId;
+    const destinataires = msg.destinataires ?? [];
+    let key: string;
+    let partner: MessageParty | null;
+    if (isSender && destinataires.length === 1) {
+      partner = destinataires[0];
+      key = partner.id;
+    } else if (!isSender) {
+      partner = msg.expediteur ?? null;
+      key = partner?.id ?? "unknown";
+    } else {
+      partner = msg.expediteur ?? null;
+      key = `broadcast:${destinataires.map((d) => d.id).sort().join(",")}`;
+    }
+    if (!buckets.has(key)) buckets.set(key, { partner, messages: [] });
+    buckets.get(key)!.messages.push(msg);
+  });
+
+  const threads: ConversationThread[] = [];
+  buckets.forEach(({ partner, messages: msgs }, key) => {
+    const sorted = [...msgs].sort(
+      (a, b) => new Date(a.dateCreation ?? 0).getTime() - new Date(b.dateCreation ?? 0).getTime()
+    );
+    const latest = sorted[sorted.length - 1];
+    threads.push({
+      key,
+      partner,
+      partnerLabel: getDisplayName(partner),
+      messages: sorted,
+      latest,
+      isConversation: sorted.length > 1,
+      hasUnread: sorted.some((m) => !m.lu && m.expediteur?.id !== userId),
+    });
+  });
+
+  return threads.sort(
+    (a, b) => new Date(b.latest.dateCreation ?? 0).getTime() - new Date(a.latest.dateCreation ?? 0).getTime()
+  );
+};
 
 interface DashboardMessagesBodyProps {
   onBack?: () => void;
 }
 
-// Main Messages Body Component
 const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
   const { user } = useUser();
-  const [activeTab, setActiveTab] = useState("inbox");
+  const userId = user?.userId as string | undefined;
+  const insets = useSafeAreaInsets();
+
+  const [sent, setSent] = useState<MessageItem[]>([]);
+  const [received, setReceived] = useState<MessageItem[]>([]);
+  const [trash, setTrash] = useState<MessageItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [filterType, setFilterType] = useState<FilterType>("all");
+  const [searchTerm, setSearchTerm] = useState("");
   const [showCompose, setShowCompose] = useState(false);
-  const [selectedMessage, setSelectedMessage] = useState<DisplayMessage | null>(null);
-  const [searchText, setSearchText] = useState("");
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
-  const [loadError, setLoadError] = useState("");
+  const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [sendingReply, setSendingReply] = useState(false);
 
-  const tabs: Array<{ id: string; label: string; icon: React.ComponentProps<typeof FontAwesome5>['name'] }> = [
-    { id: "inbox", label: "Reçus", icon: "inbox" },
-    { id: "sent", label: "Envoyés", icon: "paper-plane" },
-    { id: "starred", label: "Favoris", icon: "star" },
-  ];
-
-  const getMessagesToShow = () => {
-    let messagesToShow: DisplayMessage[] = [];
-
-    switch (activeTab) {
-      case "inbox":
-        messagesToShow = messages.filter(msg => msg.type === 'received');
-        break;
-      case "sent":
-        messagesToShow = messages.filter(msg => msg.type === 'sent');
-        break;
-      case "starred":
-        messagesToShow = messages.filter((msg) => msg.isStarred);
-        break;
-    }
-
-    if (searchText) {
-      messagesToShow = messagesToShow.filter(
-        (msg) =>
-          msg.subject.toLowerCase().includes(searchText.toLowerCase()) ||
-          msg.sender?.toLowerCase().includes(searchText.toLowerCase()) ||
-          msg.recipient?.toLowerCase().includes(searchText.toLowerCase())
-      );
-    }
-
-    return messagesToShow;
-  };
-
-  const handleMessagePress = (message: DisplayMessage) => {
-    if (!message.isRead && message.type === "received" && user?.userId) {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === message.id ? { ...msg, isRead: true } : msg
-        )
-      );
-      messageService.setRead(String(message.id), user.userId, true).catch(() => {});
-    }
-    setSelectedMessage(message);
-  };
-
-  const handleStarToggle = (messageId: number | string) => {
-    const target = messages.find((m) => m.id === messageId);
-    const nextStarred = !target?.isStarred;
-    setMessages((prev) =>
-      prev.map((msg) =>
-        msg.id === messageId ? { ...msg, isStarred: nextStarred } : msg
-      )
-    );
-    if (user?.userId) {
-      messageService.setFavorite(String(messageId), user.userId, nextStarred).catch(() => {});
-    }
-  };
-
-  // Load messages on component mount
-  React.useEffect(() => {
-    if (user?.userId) {
-      loadMessages();
-    }
-  }, [user?.userId]);
-
-  const loadMessages = async () => {
-    setIsLoadingMessages(true);
-    setLoadError("");
+  const load = useCallback(async () => {
+    if (!userId) return;
+    setLoading(true);
+    setError("");
     try {
-      const userMessages = await messageService.getUserMessages(user?.userId as string);
-
-      // Format messages for display
-      const formattedMessages: DisplayMessage[] = userMessages.map((msg: any) => {
-        const isReceived = msg.type === 'received';
-        const displayPerson = isReceived
-          ? (msg.expediteur ? `${msg.expediteur.prenom || ''} ${msg.expediteur.nom || ''}`.trim() : 'Expéditeur inconnu')
-          : (msg.destinataires && msg.destinataires.length > 0
-             ? msg.destinataires.map((d: any) => `${d.prenom || ''} ${d.nom || ''}`.trim()).join(', ')
-             : 'Destinataires inconnus');
-
-        return {
-          id: msg.id,
-          sender: displayPerson,
-          subject: msg.objet || 'Sans objet',
-          preview: msg.contenu ? msg.contenu.replace(/<[^>]*>/g, '').substring(0, 50) + '...' : '',
-          time: msg.dateCreation ? (() => {
-            try {
-              return new Date(msg.dateCreation).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-            } catch {
-              return 'N/A';
-            }
-          })() : 'N/A',
-          date: msg.dateCreation,
-          isRead: msg.etat === 'lu' || msg.etat === 'reçu',
-          isStarred: false,
-          avatar: displayPerson.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2) || 'UK',
-          fullMessage: msg.contenu || '',
-          type: msg.type,
-        };
-      });
-
-      setMessages(formattedMessages);
-    } catch (error) {
-      console.error('Error loading messages:', error);
-      setLoadError(error instanceof Error ? error.message : 'Échec du chargement des messages.');
-      setMessages([]);
+      const [sentData, receivedData, trashData] = await Promise.all([
+        messageService.getSentMessages(userId),
+        messageService.getReceivedMessages(userId),
+        messageService.getTrash(userId).catch(() => []),
+      ]);
+      setSent(sentData);
+      setReceived(receivedData);
+      setTrash(trashData);
+      useMessagesStore.getState().refresh(userId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Échec du chargement des messages.");
     } finally {
-      setIsLoadingMessages(false);
+      setLoading(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // WhatsApp-style single inbox: every conversation is built from BOTH sides
+  // of the exchange, deduped by id — not from `received` alone. Previously
+  // "Inbox" only ever fed `received` into groupByPartner and "Envoyés" only
+  // fed `sent`, so opening a thread from Inbox never showed your own replies
+  // and the same conversation effectively lived in two disconnected places.
+  const allMessages = useMemo(() => {
+    const byId = new Map<string, MessageItem>();
+    [...received, ...sent].forEach((m) => byId.set(m.id, m));
+    return Array.from(byId.values());
+  }, [received, sent]);
+
+  const sourceMessages = filterType === "trash" ? trash : allMessages;
+
+  const filteredMessages = useMemo(() => {
+    if (!searchTerm.trim()) return sourceMessages;
+    const term = searchTerm.toLowerCase();
+    return sourceMessages.filter(
+      (m) =>
+        (m.objet ?? "").toLowerCase().includes(term) ||
+        (m.contenu ?? "").toLowerCase().includes(term) ||
+        getDisplayName(m.expediteur).toLowerCase().includes(term)
+    );
+  }, [sourceMessages, searchTerm]);
+
+  const threads = useMemo(
+    () => (filterType === "trash" ? [] : groupByPartner(filteredMessages, userId)),
+    [filteredMessages, filterType, userId]
+  );
+
+  const counts = useMemo(
+    () => ({
+      all: received.filter((m) => !m.lu).length,
+      trash: trash.length,
+    }),
+    [received, trash]
+  );
+
+  const selectedThread = threads.find((t) => t.key === selectedThreadKey) ?? null;
+
+  const openThread = (thread: ConversationThread) => {
+    setSelectedThreadKey(thread.key);
+    if (!userId) return;
+    const toMark = thread.messages.filter((m) => !m.lu && m.expediteur?.id !== userId);
+    if (toMark.length === 0) return;
+    // Only flip a message to "read" locally once the backend confirms it —
+    // an optimistic-always update here previously masked failed setRead
+    // calls, so the message would silently revert to unread on next load.
+    Promise.allSettled(toMark.map((m) => messageService.setRead(m.id, userId, true))).then((results) => {
+      const succeededIds = new Set(
+        toMark.filter((_, i) => results[i].status === "fulfilled").map((m) => m.id)
+      );
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          console.warn("Échec du marquage lu pour le message", toMark[i].id, r.reason);
+        }
+      });
+      if (succeededIds.size > 0) {
+        setReceived((prev) => prev.map((m) => (succeededIds.has(m.id) ? { ...m, lu: true } : m)));
+        useMessagesStore.getState().refresh(userId);
+      }
+    });
+  };
+
+  const handleSendReply = async () => {
+    if (!selectedThread || !replyText.trim() || !userId) return;
+    const recipients: MessageParty[] =
+      selectedThread.latest.expediteur?.id === userId
+        ? selectedThread.latest.destinataires ?? []
+        : selectedThread.latest.expediteur
+        ? [selectedThread.latest.expediteur]
+        : [];
+    if (recipients.length === 0) {
+      Alert.alert("Erreur", "Destinataire introuvable pour cette réponse.");
+      return;
+    }
+    const content = replyText.trim();
+    setSendingReply(true);
+    try {
+      const created = await messageService.sendIndividualMessage({
+        contenu: content,
+        objet: (selectedThread.latest.objet ?? "").toLowerCase().startsWith("re:")
+          ? selectedThread.latest.objet
+          : `Re: ${selectedThread.latest.objet ?? "Sans objet"}`,
+        dateCreation: new Date().toISOString(),
+        etat: "envoyé",
+        expediteur: {
+          type: "utilisateur",
+          id: userId,
+          nom: user?.nom || "",
+          prenom: user?.prenom || "",
+          email: user?.email || "",
+        },
+        destinataires: recipients.map((r) => ({
+          type: "utilisateur",
+          id: r.id,
+          nom: r.nom || "",
+          prenom: r.prenom || "",
+          email: r.email || "",
+        })),
+      } as Partial<MessageItem>);
+      setSent((prev) => [...prev, { ...created, lu: true }]);
+      setReplyText("");
+    } catch (err) {
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'envoi de la réponse.");
+    } finally {
+      setSendingReply(false);
     }
   };
 
-  const handleSendMessage = () => {
-    setShowCompose(false);
-    loadMessages(); // Reload messages after sending
+  const handleRestore = (message: MessageItem) => {
+    Alert.alert("Restaurer", "Restaurer ce message depuis la corbeille ?", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Restaurer",
+        onPress: async () => {
+          try {
+            await messageService.restore(message.id);
+            setTrash((prev) => prev.filter((m) => m.id !== message.id));
+            load();
+          } catch (err) {
+            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la restauration.");
+          }
+        },
+      },
+    ]);
   };
 
-  if (selectedMessage) {
+  const handleDeleteFromThread = (thread: ConversationThread) => {
+    const mine = thread.messages.filter((m) => m.expediteur?.id === userId);
+    if (mine.length === 0) {
+      Alert.alert("Info", "Vous ne pouvez supprimer que les messages que vous avez envoyés.");
+      return;
+    }
+    Alert.alert("Supprimer", "Déplacer ces messages vers la corbeille ?", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: async () => {
+          await Promise.all(mine.map((m) => messageService.remove(m.id).catch(() => {})));
+          setSelectedThreadKey(null);
+          load();
+        },
+      },
+    ]);
+  };
+
+  // ── Thread (chat) view ────────────────────────────────────────────────
+  if (selectedThread) {
     return (
-      <MessageDetailView
-        message={selectedMessage}
-        onBack={() => setSelectedMessage(null)}
-        onReply={() => {
-          setSelectedMessage(null);
-          setShowCompose(true);
-        }}
-        onForward={() => {
-          setSelectedMessage(null);
-          setShowCompose(true);
-        }}
-      />
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.threadHeader}>
+          <TouchableOpacity onPress={() => setSelectedThreadKey(null)} style={styles.threadBackButton}>
+            <FontAwesome5 name="arrow-left" size={20} color="#374151" />
+          </TouchableOpacity>
+          <View style={styles.threadAvatar}>
+            <Text style={styles.threadAvatarText}>{getInitials(selectedThread.partner)}</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.threadName} numberOfLines={1}>
+              {selectedThread.partnerLabel}
+            </Text>
+            <Text style={styles.threadSubject} numberOfLines={1}>
+              {selectedThread.latest.objet}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={() => handleDeleteFromThread(selectedThread)} style={styles.threadBackButton}>
+            <FontAwesome5 name="trash" size={16} color="#9CA3AF" />
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          style={styles.bubbleList}
+          contentContainerStyle={{ padding: 16, paddingTop: 20 }}
+          data={selectedThread.messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => {
+            const isMine = item.expediteur?.id === userId;
+            const body = stripQuoted(item.contenu);
+            return (
+              <View style={[styles.bubbleRow, isMine && styles.bubbleRowMine]}>
+                <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
+                  <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{body}</Text>
+                  <Text style={[styles.bubbleTime, isMine && styles.bubbleTimeMine]}>
+                    {formatBubbleTime(item.dateCreation)}
+                  </Text>
+                </View>
+              </View>
+            );
+          }}
+        />
+
+        <View style={styles.replyBar}>
+          <TextInput
+            style={styles.replyInput}
+            value={replyText}
+            onChangeText={setReplyText}
+            placeholder="Écrire un message..."
+            placeholderTextColor="#9CA3AF"
+            onSubmitEditing={handleSendReply}
+          />
+          <TouchableOpacity
+            style={[styles.replySendButton, !replyText.trim() && styles.replySendButtonDisabled]}
+            onPress={handleSendReply}
+            disabled={!replyText.trim() || sendingReply}
+          >
+            {sendingReply ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <FontAwesome5 name="paper-plane" size={16} color="#FFFFFF" />
+            )}
+          </TouchableOpacity>
+        </View>
+        {/* Clears the fixed-position MobileFooterNav rendered as a sibling by the dashboard shell, which would otherwise cover the reply bar. */}
+        <View style={{ height: Math.max(insets.bottom, 12) + 70 }} />
+      </KeyboardAvoidingView>
     );
   }
 
+  // ── Inbox / list view ────────────────────────────────────────────────
+  const filterTabs: { id: FilterType; label: string; icon: React.ComponentProps<typeof FontAwesome5>["name"]; count: number }[] = [
+    { id: "all", label: "Inbox", icon: "inbox", count: counts.all },
+    { id: "trash", label: "Corbeille", icon: "trash-alt", count: counts.trash },
+  ];
+
   return (
-    <View style={messagesStyles.container}>
-      {/* Header */}
-      <View style={messagesStyles.header}>
+    <View style={styles.container}>
+      <View style={styles.header}>
         {onBack && (
-          <TouchableOpacity style={messagesStyles.backButton} onPress={onBack}>
-            <FontAwesome5 name="arrow-left" size={20} color="#4F46E5" />
+          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+            <FontAwesome5 name="arrow-left" size={18} color="#4F46E5" />
           </TouchableOpacity>
         )}
-        <Text style={messagesStyles.headerTitle}>Messages</Text>
+        <Text style={styles.headerTitle}>Messages</Text>
+        <TouchableOpacity onPress={load} disabled={loading} style={styles.refreshButton}>
+          <FontAwesome5 name="sync-alt" size={16} color="#6B7280" style={loading ? { opacity: 0.4 } : undefined} />
+        </TouchableOpacity>
       </View>
 
-      {/* Search Bar */}
-      <View style={messagesStyles.searchContainer}>
-        <FontAwesome5
-          name="search"
-          size={16}
-          color="#6B7280"
-          style={messagesStyles.searchIcon}
-        />
+      <View style={styles.searchContainer}>
+        <FontAwesome5 name="search" size={16} color="#6B7280" style={styles.searchIcon} />
         <TextInput
-          style={messagesStyles.searchInput}
-          placeholder="Rechercher dans les messages..."
-          value={searchText}
-          onChangeText={setSearchText}
+          style={styles.searchInput}
+          placeholder="Rechercher..."
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+          placeholderTextColor="#9CA3AF"
         />
       </View>
 
-      {/* Tabs */}
-      <View style={messagesStyles.tabsContainer}>
-        {tabs.map((tab) => (
-          <TouchableOpacity
-            key={tab.id}
-            style={[
-              messagesStyles.tab,
-              activeTab === tab.id && messagesStyles.activeTab,
-            ]}
-            onPress={() => setActiveTab(tab.id)}
-          >
-            <FontAwesome5
-              name={tab.icon}
-              size={16}
-              color={activeTab === tab.id ? "#4F46E5" : "#6B7280"}
-            />
-            <Text
-              style={[
-                messagesStyles.tabText,
-                activeTab === tab.id && messagesStyles.activeTabText,
-              ]}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
+        {filterTabs.map((tab) => {
+          const active = filterType === tab.id;
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              style={[styles.tab, active && styles.activeTab]}
+              onPress={() => setFilterType(tab.id)}
             >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+              <FontAwesome5 name={tab.icon} size={13} color={active ? "#FFFFFF" : "#6B7280"} />
+              <Text style={[styles.tabText, active && styles.activeTabText]}>{tab.label}</Text>
+              {tab.count > 0 && (
+                <View style={[styles.tabBadge, active && styles.tabBadgeActive]}>
+                  <Text style={[styles.tabBadgeText, active && styles.tabBadgeTextActive]}>{tab.count}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
-      {/* Messages List */}
-      <ScrollView style={messagesStyles.messagesList}>
-        {loadError ? (
-          <View style={messagesStyles.emptyState}>
+      <ScrollView style={styles.messagesList}>
+        {error ? (
+          <View style={styles.emptyState}>
             <FontAwesome5 name="exclamation-circle" size={40} color="#EF4444" />
-            <Text style={[messagesStyles.emptyStateText, { color: "#EF4444" }]}>{loadError}</Text>
-            <TouchableOpacity onPress={loadMessages} style={{ marginTop: 12 }}>
+            <Text style={[styles.emptyStateText, { color: "#EF4444" }]}>{error}</Text>
+            <TouchableOpacity onPress={load} style={{ marginTop: 12 }}>
               <Text style={{ color: "#4F46E5", fontWeight: "600" }}>Réessayer</Text>
             </TouchableOpacity>
           </View>
-        ) : isLoadingMessages ? (
-          <View style={messagesStyles.loadingContainer}>
-            <FontAwesome5 name="spinner" size={32} color="#4F46E5" />
-            <Text style={messagesStyles.loadingText}>Chargement des messages...</Text>
+        ) : loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#4F46E5" />
+            <Text style={styles.loadingText}>Chargement des messages...</Text>
           </View>
+        ) : filterType === "trash" ? (
+          filteredMessages.length === 0 ? (
+            <EmptyMessagesState searchTerm={searchTerm} />
+          ) : (
+            filteredMessages.map((m) => (
+              <View key={m.id} style={styles.trashItem}>
+                <View style={styles.trashAvatar}>
+                  <Text style={styles.trashAvatarText}>{getInitials(m.destinataires?.[0])}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trashSubject} numberOfLines={1}>{m.objet}</Text>
+                  <Text style={styles.trashPreview} numberOfLines={1}>{stripQuoted(m.contenu)}</Text>
+                </View>
+                <TouchableOpacity onPress={() => handleRestore(m)} style={styles.restoreButton}>
+                  <FontAwesome5 name="undo" size={14} color="#4F46E5" />
+                </TouchableOpacity>
+              </View>
+            ))
+          )
+        ) : threads.length === 0 ? (
+          <EmptyMessagesState searchTerm={searchTerm} />
         ) : (
-          <>
-            {getMessagesToShow().map((message) => (
-              <MessageItem
-                key={message.id}
-                message={message}
-                onPress={() => handleMessagePress(message)}
-                onStarToggle={() => handleStarToggle(message.id)}
-              />
-            ))}
-
-            {getMessagesToShow().length === 0 && (
-              <View style={messagesStyles.emptyState}>
-                <FontAwesome5 name="inbox" size={48} color="#D1D5DB" />
-                <Text style={messagesStyles.emptyStateText}>
-                  {searchText ? "Aucun message trouvé" : "Aucun message"}
+          threads.map((thread) => (
+            <TouchableOpacity key={thread.key} style={styles.conversationCard} onPress={() => openThread(thread)}>
+              <View style={styles.conversationAvatarWrap}>
+                <View style={styles.conversationAvatar}>
+                  <Text style={styles.conversationAvatarText}>{getInitials(thread.partner)}</Text>
+                </View>
+                {thread.hasUnread && <View style={styles.unreadDot} />}
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={styles.conversationTopRow}>
+                  <Text
+                    style={[styles.conversationName, thread.hasUnread && styles.conversationNameUnread]}
+                    numberOfLines={1}
+                  >
+                    {thread.partnerLabel}
+                  </Text>
+                  <Text style={styles.conversationTime}>{formatListDate(thread.latest.dateCreation)}</Text>
+                </View>
+                <Text style={styles.conversationSubject} numberOfLines={1}>
+                  {thread.latest.objet}
+                </Text>
+                <Text style={styles.conversationPreview} numberOfLines={1}>
+                  {stripQuoted(thread.latest.contenu)}
                 </Text>
               </View>
-            )}
-          </>
+              {thread.isConversation && (
+                <View style={styles.threadCountWrap}>
+                  <Text style={styles.threadCountText}>{thread.messages.length}</Text>
+                  <FontAwesome5 name="chevron-right" size={12} color="#D1D5DB" />
+                </View>
+              )}
+            </TouchableOpacity>
+          ))
         )}
-
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity
-        style={messagesStyles.floatingButton}
-        onPress={() => setShowCompose(true)}
-      >
+      <TouchableOpacity style={styles.floatingButton} onPress={() => setShowCompose(true)}>
         <FontAwesome5 name="edit" size={24} color="#FFFFFF" />
       </TouchableOpacity>
 
-      {/* Compose Modal */}
       {showCompose && (
         <ComposeMessageModal
           onClose={() => setShowCompose(false)}
-          onSend={handleSendMessage}
+          onSend={() => {
+            setShowCompose(false);
+            load();
+          }}
         />
       )}
     </View>
   );
 };
 
-// Message Item Component
-interface MessageItemProps {
-  message: DisplayMessage;
-  onPress: () => void;
-  onStarToggle: () => void;
-}
+const EmptyMessagesState = ({ searchTerm }: { searchTerm: string }) => (
+  <View style={styles.emptyState}>
+    <FontAwesome5 name="inbox" size={48} color="#D1D5DB" />
+    <Text style={styles.emptyStateText}>{searchTerm ? "Aucun résultat trouvé" : "Aucun message"}</Text>
+    {!searchTerm && <Text style={styles.emptyStateSubtext}>Vos conversations apparaîtront ici</Text>}
+  </View>
+);
 
-const MessageItem = ({ message, onPress, onStarToggle }: MessageItemProps) => {
-  return (
-    <TouchableOpacity style={messagesStyles.messageItem} onPress={onPress}>
-      <View style={messagesStyles.messageLeft}>
-        <View style={messagesStyles.messageAvatar}>
-          <Text style={messagesStyles.messageAvatarText}>{message.avatar}</Text>
-        </View>
-        <View style={messagesStyles.messageContent}>
-          <View style={messagesStyles.messageHeader}>
-            <Text
-              style={[
-                messagesStyles.messageSender,
-                !message.isRead && messagesStyles.unreadSender,
-              ]}
-            >
-              {message.sender || message.recipient}
-            </Text>
-            <Text style={messagesStyles.messageTime}>{message.time}</Text>
-          </View>
-          <Text
-            style={[
-              messagesStyles.messageSubject,
-              !message.isRead && messagesStyles.unreadSubject,
-            ]}
-            numberOfLines={1}
-          >
-            {message.subject}
-          </Text>
-          <Text style={messagesStyles.messagePreview} numberOfLines={1}>
-            {message.preview}
-          </Text>
-        </View>
-      </View>
-      <TouchableOpacity
-        style={messagesStyles.starButton}
-        onPress={onStarToggle}
-      >
-        <FontAwesome5
-          name={message.isStarred ? "star" : "star"}
-          size={16}
-          color={message.isStarred ? "#FCD34D" : "#D1D5DB"}
-          solid={message.isStarred}
-        />
-      </TouchableOpacity>
-      {!message.isRead && <View style={messagesStyles.unreadIndicator} />}
-    </TouchableOpacity>
-  );
-};
-
-// Message Detail View Component
-interface MessageDetailViewProps {
-  message: DisplayMessage;
-  onBack: () => void;
-  onReply: (message: DisplayMessage) => void;
-  onForward: (message: DisplayMessage) => void;
-}
-
-const MessageDetailView = ({ message, onBack, onReply, onForward }: MessageDetailViewProps) => {
-  return (
-    <View style={messagesStyles.container}>
-      {/* Header */}
-      <View style={messagesStyles.detailHeader}>
-        <TouchableOpacity style={messagesStyles.backButton} onPress={onBack}>
-          <FontAwesome5 name="arrow-left" size={20} color="#4F46E5" />
-        </TouchableOpacity>
-        <View style={messagesStyles.detailHeaderInfo}>
-          <Text style={messagesStyles.detailSubject} numberOfLines={1}>
-            {message.subject}
-          </Text>
-        </View>
-        <TouchableOpacity style={messagesStyles.moreButton}>
-          <FontAwesome5 name="ellipsis-v" size={16} color="#6B7280" />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={messagesStyles.detailContent}>
-        {/* Message Info */}
-        <View style={messagesStyles.messageInfo}>
-          <View style={messagesStyles.messageInfoHeader}>
-            <View style={messagesStyles.messageAvatar}>
-              <Text style={messagesStyles.messageAvatarText}>
-                {message.avatar}
-              </Text>
-            </View>
-            <View style={messagesStyles.messageInfoContent}>
-              <Text style={messagesStyles.messageInfoSender}>
-                {message.sender || message.recipient}
-              </Text>
-              <Text style={messagesStyles.messageInfoTime}>
-                {message.time} • {message.date}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Message Content */}
-        <View style={messagesStyles.messageBody}>
-          <Text style={messagesStyles.messageText}>
-            {message.fullMessage.replace(/<[^>]*>/g, '').replace(/&quot;/g, '"').replace(/&amp;/g, '&')}
-          </Text>
-        </View>
-
-        <View style={{ height: 120 }} />
-      </ScrollView>
-
-      {/* Action Buttons */}
-      <View style={messagesStyles.actionBar}>
-        <TouchableOpacity
-          style={messagesStyles.actionButton}
-          onPress={() => onReply(message)}
-        >
-          <FontAwesome5 name="reply" size={18} color="#4F46E5" />
-          <Text style={messagesStyles.actionButtonText}>Répondre</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={messagesStyles.actionButton}
-          onPress={() => onForward(message)}
-        >
-          <FontAwesome5 name="share" size={18} color="#4F46E5" />
-          <Text style={messagesStyles.actionButtonText}>Transférer</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-};
-
-
-
-const messagesStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F9FAFB",
-  },
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#F9FAFB" },
   header: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    paddingTop: 20,
+    paddingBottom: 12,
   },
-  backButton: {
-    marginRight: 16,
-    padding: 4,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: "#111827",
-  },
+  backButton: { marginRight: 12, padding: 4 },
+  headerTitle: { flex: 1, fontSize: 24, fontWeight: "800", color: "#111827" },
+  refreshButton: { padding: 8, backgroundColor: "#FFFFFF", borderRadius: 10 },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
     marginHorizontal: 16,
-    marginVertical: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#F3F4F6",
   },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: "#111827",
-  },
-  tabsContainer: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 8,
-    padding: 4,
-  },
+  searchIcon: { marginRight: 10 },
+  searchInput: { flex: 1, fontSize: 14, color: "#111827" },
+  tabsContainer: { flexGrow: 0, marginBottom: 12 },
   tab: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
+    gap: 6,
     paddingHorizontal: 12,
-    borderRadius: 6,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
   },
-  activeTab: {
-    backgroundColor: "#F0F0FF",
-  },
-  tabText: {
-    marginLeft: 6,
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#6B7280",
-  },
-  activeTabText: {
-    color: "#4F46E5",
-  },
-  messagesList: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  messageItem: {
+  activeTab: { backgroundColor: "#4F46E5" },
+  tabText: { fontSize: 12, fontWeight: "700", color: "#6B7280" },
+  activeTabText: { color: "#FFFFFF" },
+  tabBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, backgroundColor: "#F3F4F6" },
+  tabBadgeActive: { backgroundColor: "rgba(255,255,255,0.25)" },
+  tabBadgeText: { fontSize: 10, fontWeight: "700", color: "#6B7280" },
+  tabBadgeTextActive: { color: "#FFFFFF" },
+  messagesList: { flex: 1, paddingHorizontal: 16 },
+  conversationCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    padding: 16,
+    padding: 14,
     marginBottom: 8,
-    borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  messageLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  messageAvatar: {
-    width: 40,
-    height: 40,
     borderRadius: 20,
-    backgroundColor: "#4F46E5",
+  },
+  conversationAvatarWrap: { marginRight: 14 },
+  conversationAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
   },
-  messageAvatarText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "600",
+  conversationAvatarText: { fontSize: 16, fontWeight: "800", color: "#6B7280" },
+  unreadDot: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#3B82F6",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
   },
-  messageContent: {
-    flex: 1,
-  },
-  messageHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  messageSender: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#374151",
-  },
-  unreadSender: {
-    fontWeight: "600",
-    color: "#111827",
-  },
-  messageTime: {
-    fontSize: 12,
-    color: "#9CA3AF",
-  },
-  messageSubject: {
-    fontSize: 14,
-    color: "#374151",
-    marginBottom: 4,
-  },
-  unreadSubject: {
-    fontWeight: "600",
-    color: "#111827",
-  },
-  messagePreview: {
-    fontSize: 13,
-    color: "#6B7280",
-    lineHeight: 18,
-  },
-  starButton: {
-    padding: 8,
-    marginLeft: 8,
-  },
-  unreadIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#4F46E5",
-    marginLeft: 8,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 60,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: "#9CA3AF",
-    marginTop: 12,
-  },
+  conversationTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
+  conversationName: { flex: 1, fontSize: 14, fontWeight: "600", color: "#374151", marginRight: 8 },
+  conversationNameUnread: { fontWeight: "800", color: "#111827" },
+  conversationTime: { fontSize: 10, fontWeight: "700", color: "#9CA3AF" },
+  conversationSubject: { fontSize: 11, fontWeight: "700", color: "#4F46E5", marginTop: 1 },
+  conversationPreview: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+  threadCountWrap: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: 8 },
+  threadCountText: { fontSize: 10, fontWeight: "700", color: "#9CA3AF" },
+  emptyState: { alignItems: "center", paddingVertical: 60 },
+  emptyStateText: { fontSize: 15, fontWeight: "600", color: "#6B7280", marginTop: 12 },
+  emptyStateSubtext: { fontSize: 12, color: "#9CA3AF", marginTop: 4 },
+  loadingContainer: { alignItems: "center", paddingVertical: 60 },
+  loadingText: { fontSize: 14, color: "#6B7280", marginTop: 12 },
   floatingButton: {
     position: "absolute",
     bottom: 120,
@@ -601,192 +627,96 @@ const messagesStyles = StyleSheet.create({
     backgroundColor: "#4F46E5",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowColor: "#4F46E5",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 8,
   },
-  // Detail View Styles
-  detailHeader: {
+  // Trash
+  trashItem: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
     backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  detailHeaderInfo: {
-    flex: 1,
-    marginHorizontal: 16,
-  },
-  detailSubject: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  moreButton: {
-    padding: 4,
-  },
-  detailContent: {
-    flex: 1,
-    padding: 16,
-  },
-  messageInfo: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  messageInfoHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  messageInfoContent: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  messageInfoSender: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 4,
-  },
-  messageInfoTime: {
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  messageBody: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 8,
-    padding: 16,
-  },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: "#374151",
-  },
-  actionBar: {
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-  actionButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  actionButtonText: {
-    marginLeft: 8,
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#4F46E5",
-  },
-  // Compose Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  composeModal: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    height: "85%",
-  },
-  composeHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  composeTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  composeForm: {
-    flex: 1,
-    padding: 20,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#374151",
+    padding: 14,
     marginBottom: 8,
+    borderRadius: 16,
   },
-  textInput: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    backgroundColor: "#FFFFFF",
-  },
-  messageInput: {
-    height: 120,
-    textAlignVertical: "top",
-  },
-  composeActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-  cancelButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+  trashAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
   },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#6B7280",
-  },
-  sendButton: {
+  trashAvatarText: { fontSize: 13, fontWeight: "800", color: "#9CA3AF" },
+  trashSubject: { fontSize: 13, fontWeight: "700", color: "#374151" },
+  trashPreview: { fontSize: 12, color: "#9CA3AF", marginTop: 2 },
+  restoreButton: { padding: 8 },
+  // Thread / chat view
+  threadHeader: {
     flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 50,
+    paddingBottom: 14,
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  threadBackButton: { padding: 6, marginRight: 6 },
+  threadAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "#4F46E5",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  sendButtonText: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#FFFFFF",
-    marginLeft: 8,
-  },
-  loadingContainer: {
     alignItems: "center",
-    paddingVertical: 40,
+    justifyContent: "center",
+    marginRight: 12,
   },
-  loadingText: {
-    fontSize: 16,
-    color: "#6B7280",
-    textAlign: "center",
-    marginTop: 12,
+  threadAvatarText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
+  threadName: { fontSize: 15, fontWeight: "800", color: "#111827" },
+  threadSubject: { fontSize: 11, fontWeight: "600", color: "#9CA3AF" },
+  bubbleList: { flex: 1 },
+  bubbleRow: { flexDirection: "row", justifyContent: "flex-start", marginBottom: 12 },
+  bubbleRowMine: { justifyContent: "flex-end" },
+  bubble: { maxWidth: "80%", padding: 14, borderRadius: 22 },
+  bubbleTheirs: { backgroundColor: "#F3F4F6", borderBottomLeftRadius: 4 },
+  bubbleMine: { backgroundColor: "#4F46E5", borderBottomRightRadius: 4 },
+  bubbleText: { fontSize: 14, lineHeight: 20, color: "#111827" },
+  bubbleTextMine: { color: "#FFFFFF" },
+  bubbleTime: { fontSize: 10, color: "#9CA3AF", marginTop: 4, textAlign: "right" },
+  bubbleTimeMine: { color: "rgba(255,255,255,0.7)" },
+  replyBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    paddingBottom: 28,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
+  replyInput: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 14,
+    color: "#111827",
+  },
+  replySendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#4F46E5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  replySendButtonDisabled: { backgroundColor: "#E5E7EB" },
 });
 
 export default DashboardMessagesBody;

@@ -3,9 +3,9 @@ import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BottomSheet, Button, Input, LoadingSpinner } from '../../../../components/ui';
 import { colors, spacing, typography } from '../../../../styles/theme';
-import { exerciseService, questionService } from '../../../../services/api';
+import { exerciseService, matiereService, questionService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
-import { Exercise } from '../../../../types';
+import { Exercise, Matiere } from '../../../../types';
 
 interface QuestionDraft {
   id: string;
@@ -28,6 +28,11 @@ const NIVEAUX: { label: string; value: string }[] = [
 /** Matches the backend's EtatExercise enum. */
 const ETATS = ['BROUILLON', 'PUBLIE', 'ACTIF'];
 
+const RESTRICTIONS: { label: string; value: string }[] = [
+  { label: 'Public', value: 'PUBLIC' },
+  { label: 'Privé', value: 'PRIVE' },
+];
+
 interface CreateExerciseModalProps {
   visible: boolean;
   onClose: () => void;
@@ -49,10 +54,21 @@ const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: C
   const [description, setDescription] = useState('');
   const [niveau, setNiveau] = useState(NIVEAUX[0].value);
   const [etat, setEtat] = useState(ETATS[0]);
+  const [restriction, setRestriction] = useState(RESTRICTIONS[1].value);
+  const [matiereOptions, setMatiereOptions] = useState<Matiere[]>([]);
+  const [selectedMatiereIds, setSelectedMatiereIds] = useState<string[]>([]);
+  const [originalMatiereIds, setOriginalMatiereIds] = useState<string[]>([]);
   const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
   const [removedQuestionIds, setRemovedQuestionIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
+
+  useEffect(() => {
+    matiereService
+      .getAll()
+      .then(setMatiereOptions)
+      .catch(() => setMatiereOptions([]));
+  }, []);
 
   useEffect(() => {
     if (!visible) return;
@@ -62,6 +78,10 @@ const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: C
       setDescription(editingExercise.description ?? '');
       setNiveau(editingExercise.niveau ?? NIVEAUX[0].value);
       setEtat((editingExercise.etat as string) ?? ETATS[0]);
+      setRestriction((editingExercise.restriction as string) || RESTRICTIONS[1].value);
+      const existingMatiereIds = (editingExercise.matieres ?? []).map((m) => m.id);
+      setSelectedMatiereIds(existingMatiereIds);
+      setOriginalMatiereIds(existingMatiereIds);
       setLoadingExisting(true);
       questionService
         .getByExercise(editingExercise.id)
@@ -100,7 +120,14 @@ const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: C
     setDescription('');
     setNiveau(NIVEAUX[0].value);
     setEtat(ETATS[0]);
+    setRestriction(RESTRICTIONS[1].value);
+    setSelectedMatiereIds([]);
+    setOriginalMatiereIds([]);
     setQuestions([emptyQuestion()]);
+  };
+
+  const toggleMatiere = (id: string) => {
+    setSelectedMatiereIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
   const updateQuestion = (id: string, patch: Partial<QuestionDraft>) => {
@@ -142,6 +169,7 @@ const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: C
             description: description.trim(),
             niveau,
             etat,
+            restriction,
           })
         : await exerciseService.create({
             nom: nom.trim(),
@@ -149,8 +177,18 @@ const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: C
             redacteurId: user.userId,
             niveau,
             etat,
+            restriction,
           });
       const exerciseId = exercise.id ?? editingExercise?.id;
+
+      if (exerciseId) {
+        const toLink = selectedMatiereIds.filter((id) => !originalMatiereIds.includes(id));
+        const toUnlink = originalMatiereIds.filter((id) => !selectedMatiereIds.includes(id));
+        await Promise.all([
+          ...toLink.map((mId) => exerciseService.linkToMatiere(exerciseId, mId).catch(() => {})),
+          ...toUnlink.map((mId) => exerciseService.unlinkFromMatiere(exerciseId, mId).catch(() => {})),
+        ]);
+      }
 
       await Promise.all(removedQuestionIds.map((id) => questionService.remove(id).catch(() => {})));
 
@@ -217,6 +255,36 @@ const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: C
                 <Text style={[styles.chipText, etat === e && styles.chipTextActive]}>{e}</Text>
               </TouchableOpacity>
             ))}
+          </View>
+
+          <Text style={styles.label}>Visibilité</Text>
+          <View style={styles.chipRow}>
+            {RESTRICTIONS.map((r) => (
+              <TouchableOpacity
+                key={r.value}
+                style={[styles.chip, restriction === r.value && styles.chipActive]}
+                onPress={() => setRestriction(r.value)}
+              >
+                <Text style={[styles.chipText, restriction === r.value && styles.chipTextActive]}>{r.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.label}>Matières associées</Text>
+          <View style={styles.chipRow}>
+            {matiereOptions.length === 0 ? (
+              <Text style={styles.chipText}>Aucune matière disponible</Text>
+            ) : (
+              matiereOptions.map((m) => {
+                const selected = selectedMatiereIds.includes(m.id);
+                return (
+                  <TouchableOpacity key={m.id} style={[styles.chip, selected && styles.chipActive]} onPress={() => toggleMatiere(m.id)}>
+                    {selected && <FontAwesome5 name="check" size={10} color={colors.white} style={{ marginRight: 4 }} />}
+                    <Text style={[styles.chipText, selected && styles.chipTextActive]}>{m.nom}</Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
 
           <View style={styles.questionsHeader}>
@@ -288,6 +356,8 @@ const styles = StyleSheet.create({
   label: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.sm },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderRadius: 20,

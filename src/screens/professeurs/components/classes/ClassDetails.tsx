@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -11,8 +11,20 @@ import {
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { classService } from "../../../../services/classService";
-import { publicationRightsService } from "../../../../services/api";
-import { Professor, ClassUser } from "../../../../types";
+import {
+  activityFeedService,
+  classAdminService,
+  coursProgrammerService,
+  exerciseProgrammerService,
+  parentService,
+  professorService,
+  publicationRightsService,
+  studentService,
+  userService,
+} from "../../../../services/api";
+import { Badge, LoadingSpinner } from "../../../../components/ui";
+import OffreInfoPanel from "../../../../components/common/OffreInfoPanel";
+import { Professor, ClassUser, CoursProgramme, ExerciseProgramme, ActivityEvent } from "../../../../types";
 import { UIClass, FormattedAccessRequest } from "./DashboardClassesBody";
 
 interface ProfileUser {
@@ -25,12 +37,19 @@ interface ProfileUser {
   type?: string;
 }
 
+type SystemUserType = "professeurs" | "eleves" | "parents" | "utilisateurs";
+
+const formatShortDate = (dateString?: string) => (dateString ? new Date(dateString).toLocaleDateString("fr-FR") : "N/A");
+const isActiveState = (etat?: string) => etat === "ACTIVE" || etat === "ACTIF";
+
 interface ClassDetailsProps {
   selectedClass: UIClass;
   onBack: () => void;
   activeDetailTab: string;
   setActiveDetailTab: (tab: string) => void;
   onRefresh?: () => void | Promise<void>;
+  /** Admin's "Gérer une Classe" hides Cours/Exercices tabs — matches ManageClassDetailsView.jsx's tab list exactly. */
+  isAdmin?: boolean;
 }
 
 const ClassDetails = ({
@@ -39,6 +58,7 @@ const ClassDetails = ({
   activeDetailTab,
   setActiveDetailTab,
   onRefresh,
+  isAdmin,
 }: ClassDetailsProps) => {
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [selectedUser, setSelectedUser] = useState<ProfileUser | null>(null);
@@ -58,6 +78,56 @@ const ClassDetails = ({
   const [rightsTargetUser, setRightsTargetUser] = useState<ProfileUser | null>(null);
   const [canPublish, setCanPublish] = useState(false);
   const [canModerate, setCanModerate] = useState(false);
+  const [history, setHistory] = useState<Record<string, any>[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [courses, setCourses] = useState<CoursProgramme[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(false);
+  const [exercises, setExercises] = useState<ExerciseProgramme[]>([]);
+  const [loadingExercises, setLoadingExercises] = useState(false);
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+
+  useEffect(() => {
+    if (activeDetailTab !== "courses") return;
+    setLoadingCourses(true);
+    coursProgrammerService
+      .getByClasse(selectedClass.id)
+      .then(setCourses)
+      .catch(() => setCourses([]))
+      .finally(() => setLoadingCourses(false));
+  }, [activeDetailTab, selectedClass.id]);
+
+  useEffect(() => {
+    if (activeDetailTab !== "exercises") return;
+    setLoadingExercises(true);
+    exerciseProgrammerService
+      .getByClasse(selectedClass.id)
+      .then(setExercises)
+      .catch(() => setExercises([]))
+      .finally(() => setLoadingExercises(false));
+  }, [activeDetailTab, selectedClass.id]);
+
+  useEffect(() => {
+    if (activeDetailTab !== "events") return;
+    setLoadingEvents(true);
+    activityFeedService
+      .getAll()
+      .then((all) => setEvents(all.filter((e) => (e.classesIds ?? []).includes(selectedClass.id))))
+      .catch(() => setEvents([]))
+      .finally(() => setLoadingEvents(false));
+  }, [activeDetailTab, selectedClass.id]);
+
+  useEffect(() => {
+    if (activeDetailTab !== "history") return;
+    setLoadingHistory(true);
+    setHistoryError("");
+    classAdminService
+      .getActivationHistory(selectedClass.id)
+      .then(setHistory)
+      .catch((err) => setHistoryError(err instanceof Error ? err.message : "Échec du chargement de l'historique."))
+      .finally(() => setLoadingHistory(false));
+  }, [activeDetailTab, selectedClass.id]);
   const [isSavingRights, setIsSavingRights] = useState(false);
   const [moderators, setModerators] = useState<ClassUser[]>([]);
   const [isLoadingModerators, setIsLoadingModerators] = useState(false);
@@ -73,6 +143,16 @@ const ClassDetails = ({
   const getStateText = (state: string) => {
     return state === "ACTIVE" ? "Active" : "Inactive";
   };
+
+  // Mirrors web's getPublicationRightsTag() label map exactly.
+  const PUBLICATION_RIGHTS_LABELS: Record<string, string> = {
+    TOUS: "Tous peuvent publier",
+    MODERATEUR_SEULEMENT: "Modérateur seulement",
+    PARENTS_ET_MODERATEUR: "Parents et modérateur",
+    PROFESSEURS_SEULEMENT: "Professeurs seulement",
+  };
+  const getPublicationRightsLabel = (droit?: string) =>
+    (droit && PUBLICATION_RIGHTS_LABELS[droit]) || droit || "Non défini";
 
   const handleViewProfile = (user: ProfileUser) => {
     setSelectedUser(user);
@@ -103,6 +183,33 @@ const ClassDetails = ({
       console.error('Error removing user access:', error);
       Alert.alert("Erreur", "Impossible de retirer l'accès");
     }
+  };
+
+  /** Admin-only, matches web's UserTables handleDeleteUser — removes the user from the whole system, not just this class's access list. Irreversible. */
+  const handleDeleteFromSystem = (user: ProfileUser, userType: SystemUserType) => {
+    Alert.alert(
+      "Supprimer définitivement",
+      `Supprimer complètement ${user.name} du système ? Cette action est irréversible.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (userType === "professeurs") await professorService.remove(user.id);
+              else if (userType === "eleves") await studentService.remove(user.id);
+              else if (userType === "parents") await parentService.remove(user.id);
+              else await userService.deleteUser(user.id);
+              Alert.alert("Succès", "Utilisateur supprimé du système.");
+              if (onRefresh) onRefresh();
+            } catch (error) {
+              Alert.alert("Erreur", error instanceof Error ? error.message : "Impossible de supprimer cet utilisateur.");
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleOpenRights = (user: ProfileUser) => {
@@ -285,8 +392,12 @@ const ClassDetails = ({
             </Text>
           </View>
           <View style={styles.classInfoContent}>
-            <Text style={styles.className}>{selectedClass.name}</Text>
-            <Text style={styles.classLevel}>Niveau: {selectedClass.level}</Text>
+            <Text style={styles.className} numberOfLines={2}>
+              {selectedClass.name}
+            </Text>
+            <Text style={styles.classLevel} numberOfLines={1}>
+              Niveau: {selectedClass.level}
+            </Text>
             <View style={styles.classMetaRow}>
               <View
                 style={[
@@ -303,7 +414,7 @@ const ClassDetails = ({
                   {getStateText(selectedClass.state)}
                 </Text>
               </View>
-              <Text style={styles.classDate}>
+              <Text style={styles.classDate} numberOfLines={1}>
                 Créée le{" "}
                 {new Date(selectedClass.creationDate).toLocaleDateString(
                   "fr-FR"
@@ -312,28 +423,9 @@ const ClassDetails = ({
             </View>
           </View>
         </View>
-        {/* Stats Row */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <FontAwesome5 name="user-graduate" size={24} color="#4F46E5" />
-            <Text style={styles.statNumber}>{selectedClass.studentsCount}</Text>
-            <Text style={styles.statLabel}>Étudiants</Text>
-          </View>
-          <View style={styles.statCard}>
-            <FontAwesome5 name="users" size={24} color="#10B981" />
-            <Text style={styles.statNumber}>{selectedClass.parentsCount}</Text>
-            <Text style={styles.statLabel}>Parents</Text>
-          </View>
-          <View style={styles.statCard}>
-            <FontAwesome5 name="clock" size={24} color="#F59E0B" />
-            <Text style={styles.statNumber}>
-              {selectedClass.accessRequests.length}
-            </Text>
-            <Text style={styles.statLabel}>Demandes</Text>
-          </View>
-        </View>
-        {/* Detail Tabs */}
-        <View style={styles.tabsContainer}>
+        {/* Detail Tabs — matches web's ManageClassDetailsView.jsx TabScrollBar exactly:
+            Aperçu, Professeurs, Élèves, Parents, Utilisateurs, Demandes, [Cours, Exercices — hidden for Admin], Événements. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsContainer} contentContainerStyle={{ flexDirection: "row" }}>
           <TouchableOpacity
             style={[styles.tab, activeDetailTab === "info" && styles.activeTab]}
             onPress={() => setActiveDetailTab("info")}
@@ -344,40 +436,139 @@ const ClassDetails = ({
                 activeDetailTab === "info" && styles.activeTabText,
               ]}
             >
-              Informations
+              Aperçu
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeDetailTab === "professeurs" && styles.activeTab]}
+            onPress={() => setActiveDetailTab("professeurs")}
+          >
+            <Text style={[styles.tabText, activeDetailTab === "professeurs" && styles.activeTabText]}>
+              Professeurs ({selectedClass.professeurs?.length ?? 0})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeDetailTab === "eleves" && styles.activeTab]}
+            onPress={() => setActiveDetailTab("eleves")}
+          >
+            <Text style={[styles.tabText, activeDetailTab === "eleves" && styles.activeTabText]}>
+              Élèves ({selectedClass.students.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeDetailTab === "parents" && styles.activeTab]}
+            onPress={() => setActiveDetailTab("parents")}
+          >
+            <Text style={[styles.tabText, activeDetailTab === "parents" && styles.activeTabText]}>
+              Parents ({selectedClass.parents.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeDetailTab === "utilisateurs" && styles.activeTab]}
+            onPress={() => setActiveDetailTab("utilisateurs")}
+          >
+            <Text style={[styles.tabText, activeDetailTab === "utilisateurs" && styles.activeTabText]}>
+              Utilisateurs ({selectedClass.others?.length ?? 0})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeDetailTab === "access-requests" && styles.activeTab]}
+            onPress={() => setActiveDetailTab("access-requests")}
+          >
+            <Text style={[styles.tabText, activeDetailTab === "access-requests" && styles.activeTabText]}>
+              Demandes ({selectedClass.accessRequests.length})
+            </Text>
+          </TouchableOpacity>
+          {!isAdmin && (
+            <TouchableOpacity
+              style={[styles.tab, activeDetailTab === "courses" && styles.activeTab]}
+              onPress={() => setActiveDetailTab("courses")}
+            >
+              <Text style={[styles.tabText, activeDetailTab === "courses" && styles.activeTabText]}>
+                Cours ({courses.length})
+              </Text>
+            </TouchableOpacity>
+          )}
+          {!isAdmin && (
+            <TouchableOpacity
+              style={[styles.tab, activeDetailTab === "exercises" && styles.activeTab]}
+              onPress={() => setActiveDetailTab("exercises")}
+            >
+              <Text style={[styles.tabText, activeDetailTab === "exercises" && styles.activeTabText]}>
+                Exercices ({exercises.length})
+              </Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={[styles.tab, activeDetailTab === "events" && styles.activeTab]}
+            onPress={() => setActiveDetailTab("events")}
+          >
+            <Text style={[styles.tabText, activeDetailTab === "events" && styles.activeTabText]}>
+              Événements ({events.length})
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.tab,
-              activeDetailTab === "manage" && styles.activeTab,
+              activeDetailTab === "history" && styles.activeTab,
             ]}
-            onPress={() => setActiveDetailTab("manage")}
+            onPress={() => setActiveDetailTab("history")}
           >
             <Text
               style={[
                 styles.tabText,
-                activeDetailTab === "manage" && styles.activeTabText,
+                activeDetailTab === "history" && styles.activeTabText,
               ]}
             >
-              Gestion
+              Historique
             </Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
         {/* Tab Content */}
         {activeDetailTab === "info" && (
           <View style={styles.tabContent}>
             <View style={styles.infoSection}>
               <Text style={styles.sectionTitle}>Informations générales</Text>
               <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>ID:</Text>
+                <Text style={styles.infoValue} selectable numberOfLines={1}>
+                  {selectedClass.id}
+                </Text>
+              </View>
+              {/* Code d'activation — the invite code students/parents need to join; was previously not shown at all. */}
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>Code d'activation:</Text>
+                <Text style={[styles.infoValue, styles.codeValue]} selectable>
+                  {selectedClass.codeActivation || "Non défini"}
+                </Text>
+              </View>
+              <View style={styles.infoItem}>
                 <Text style={styles.infoLabel}>Modérateur:</Text>
                 <Text style={styles.infoValue}>{selectedClass.moderator}</Text>
               </View>
               <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>Droits:</Text>
+                <Text style={styles.infoLabel}>Droits de publication:</Text>
                 <Text style={styles.infoValue}>
-                  {selectedClass.teacherRights}
+                  {getPublicationRightsLabel(selectedClass.droitPublication)}
                 </Text>
+              </View>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>Accès majeur:</Text>
+                <View
+                  style={[
+                    styles.accesMajeurBadge,
+                    selectedClass.accesMajeur ? styles.accesMajeurBadgeOn : styles.accesMajeurBadgeOff,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.accesMajeurBadgeText,
+                      { color: selectedClass.accesMajeur ? "#7C3AED" : "#94A3B8" },
+                    ]}
+                  >
+                    {selectedClass.accesMajeur ? "Classe Majeure — email" : "Accès standard"}
+                  </Text>
+                </View>
               </View>
               <View style={styles.infoItem}>
                 <Text style={styles.infoLabel}>Établissement:</Text>
@@ -388,7 +579,7 @@ const ClassDetails = ({
               <View style={styles.infoItem}>
                 <Text style={styles.infoLabel}>Description:</Text>
                 <Text style={styles.infoValue}>
-                  {selectedClass.description}
+                  {selectedClass.description || "Aucune description"}
                 </Text>
               </View>
             </View>
@@ -408,18 +599,14 @@ const ClassDetails = ({
                 <Text style={styles.addModeratorButtonText}>Ajouter un modérateur</Text>
               </TouchableOpacity>
             </View>
+            <View style={{ marginTop: 16 }}>
+              <OffreInfoPanel type="CLASSE" entityId={selectedClass.id} />
+            </View>
           </View>
         )}
-        {activeDetailTab === "manage" && (
+        {activeDetailTab === "eleves" && (
           <View style={styles.tabContent}>
-            {/* Students Section */}
             <View style={styles.manageSection}>
-              <View style={styles.manageSectionHeader}>
-                <FontAwesome5 name="user-graduate" size={16} color="#4F46E5" />
-                <Text style={styles.manageSectionTitle}>
-                  Étudiants ({selectedClass.students.length})
-                </Text>
-              </View>
               {selectedClass.students.length > 0 ? (
                 selectedClass.students.map((student) => (
                   <View key={student.id} style={styles.listItem}>
@@ -433,6 +620,12 @@ const ClassDetails = ({
                     <View style={styles.listItemInfo}>
                       <Text style={styles.listItemName}>{student.name}</Text>
                       <Text style={styles.listItemEmail}>{student.email}</Text>
+                      <Text style={styles.listItemMeta}>
+                        Niveau: {student.niveau} · Inscrit le {formatShortDate(student.dateCreation)}
+                      </Text>
+                      {student.etat ? (
+                        <Badge label={isActiveState(student.etat) ? "Actif" : "Inactif"} tone={isActiveState(student.etat) ? "success" : "danger"} />
+                      ) : null}
                     </View>
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
@@ -453,21 +646,26 @@ const ClassDetails = ({
                       >
                         <FontAwesome5 name="times" size={12} color="#EF4444" />
                       </TouchableOpacity>
+                      {isAdmin ? (
+                        <TouchableOpacity
+                          style={styles.removeButton}
+                          onPress={() => handleDeleteFromSystem(student, "eleves")}
+                        >
+                          <FontAwesome5 name="trash" size={12} color="#EF4444" />
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                   </View>
                 ))
               ) : (
-                <Text style={styles.emptyText}>Aucun étudiant trouvé</Text>
+                <Text style={styles.emptyText}>Aucun élève trouvé</Text>
               )}
             </View>
-            {/* Parents Section */}
+          </View>
+        )}
+        {activeDetailTab === "parents" && (
+          <View style={styles.tabContent}>
             <View style={styles.manageSection}>
-              <View style={styles.manageSectionHeader}>
-                <FontAwesome5 name="users" size={16} color="#10B981" />
-                <Text style={styles.manageSectionTitle}>
-                  Parents ({selectedClass.parents.length})
-                </Text>
-              </View>
               {selectedClass.parents.length > 0 ? (
                 selectedClass.parents.map((parent) => (
                   <View key={parent.id} style={styles.listItem}>
@@ -477,6 +675,12 @@ const ClassDetails = ({
                     <View style={styles.listItemInfo}>
                       <Text style={styles.listItemName}>{parent.name}</Text>
                       <Text style={styles.listItemEmail}>{parent.phone}</Text>
+                      <Text style={styles.listItemMeta}>
+                        {parent.adresse ? `${parent.adresse} · ` : ""}Inscrit le {formatShortDate(parent.dateCreation)}
+                      </Text>
+                      {parent.etat ? (
+                        <Badge label={isActiveState(parent.etat) ? "Actif" : "Inactif"} tone={isActiveState(parent.etat) ? "success" : "danger"} />
+                      ) : null}
                     </View>
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
@@ -497,6 +701,14 @@ const ClassDetails = ({
                       >
                         <FontAwesome5 name="times" size={12} color="#EF4444" />
                       </TouchableOpacity>
+                      {isAdmin ? (
+                        <TouchableOpacity
+                          style={styles.removeButton}
+                          onPress={() => handleDeleteFromSystem(parent, "parents")}
+                        >
+                          <FontAwesome5 name="trash" size={12} color="#EF4444" />
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                   </View>
                 ))
@@ -504,14 +716,132 @@ const ClassDetails = ({
                 <Text style={styles.emptyText}>Aucun parent trouvé</Text>
               )}
             </View>
-            {/* Access Requests Section */}
+          </View>
+        )}
+        {activeDetailTab === "professeurs" && (
+          <View style={styles.tabContent}>
             <View style={styles.manageSection}>
-              <View style={styles.manageSectionHeader}>
-                <FontAwesome5 name="user-plus" size={16} color="#F59E0B" />
-                <Text style={styles.manageSectionTitle}>
-                  Demandes d'accès ({selectedClass.accessRequests.length})
-                </Text>
-              </View>
+              {selectedClass.professeurs && selectedClass.professeurs.length > 0 ? (
+                selectedClass.professeurs.map((prof) => {
+                  const profProfile: ProfileUser = {
+                    id: prof.id,
+                    name: `${prof.prenom ?? ""} ${prof.nom ?? ""}`.trim() || "Professeur",
+                    email: prof.email,
+                    type: prof.typeUtilisateur,
+                  };
+                  const nomEtablissement = (prof as any).nomEtablissement;
+                  const matricule = (prof as any).matriculeProfesseur;
+                  const dateCreation = (prof as any).dateCreation || (prof as any).creationDate;
+                  const etat = (prof as any).etat;
+                  return (
+                    <View key={prof.id} style={styles.listItem}>
+                      <View style={styles.listItemAvatar}>
+                        <FontAwesome5 name="chalkboard-teacher" size={14} color="#8B5CF6" />
+                      </View>
+                      <View style={styles.listItemInfo}>
+                        <Text style={styles.listItemName}>{profProfile.name}</Text>
+                        <Text style={styles.listItemEmail}>{prof.email ?? ""}</Text>
+                        <Text style={styles.listItemMeta}>
+                          {nomEtablissement ? `${nomEtablissement} · ` : ""}
+                          {matricule ? `Matricule: ${matricule} · ` : ""}
+                          Depuis le {formatShortDate(dateCreation)}
+                        </Text>
+                        {etat ? (
+                          <Badge label={isActiveState(etat) ? "Actif" : "Inactif"} tone={isActiveState(etat) ? "success" : "danger"} />
+                        ) : null}
+                      </View>
+                      <View style={styles.actionButtons}>
+                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleViewProfile(profProfile)}>
+                          <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleOpenRights(profProfile)}>
+                          <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveAccess(profProfile)}>
+                          <FontAwesome5 name="times" size={12} color="#EF4444" />
+                        </TouchableOpacity>
+                        {isAdmin ? (
+                          <TouchableOpacity
+                            style={styles.removeButton}
+                            onPress={() => handleDeleteFromSystem(profProfile, "professeurs")}
+                          >
+                            <FontAwesome5 name="trash" size={12} color="#EF4444" />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.emptyText}>Aucun professeur trouvé</Text>
+              )}
+            </View>
+          </View>
+        )}
+        {activeDetailTab === "utilisateurs" && (
+          <View style={styles.tabContent}>
+            <View style={styles.manageSection}>
+              {selectedClass.others && selectedClass.others.length > 0 ? (
+                selectedClass.others.map((other) => {
+                  const otherProfile: ProfileUser = {
+                    id: other.id,
+                    name: `${other.prenom ?? ""} ${other.nom ?? ""}`.trim() || "Utilisateur",
+                    email: other.email,
+                    type: other.typeUtilisateur,
+                  };
+                  const adresse = (other as any).adresse;
+                  const userTypeLabel = (other as any).type === "utilisateur" ? "Utilisateur" : (other as any).type;
+                  const isSystemAdmin = !!(other as any).admin;
+                  const dateCreation = (other as any).dateCreation || (other as any).creationDate;
+                  const etat = (other as any).etat;
+                  return (
+                    <View key={other.id} style={styles.listItem}>
+                      <View style={styles.listItemAvatar}>
+                        <FontAwesome5 name="user-circle" size={14} color="#6B7280" />
+                      </View>
+                      <View style={styles.listItemInfo}>
+                        <Text style={styles.listItemName}>{otherProfile.name}</Text>
+                        <Text style={styles.listItemEmail}>{other.email ?? ""}</Text>
+                        <Text style={styles.listItemMeta}>
+                          {adresse ? `${adresse} · ` : ""}Depuis le {formatShortDate(dateCreation)}
+                        </Text>
+                        <View style={styles.metaBadgeRow}>
+                          {userTypeLabel ? <Badge label={userTypeLabel} tone="neutral" /> : null}
+                          <Badge label={isSystemAdmin ? "Admin" : "Non admin"} tone={isSystemAdmin ? "warning" : "neutral"} />
+                          {etat ? <Badge label={isActiveState(etat) ? "Actif" : "Inactif"} tone={isActiveState(etat) ? "success" : "danger"} /> : null}
+                        </View>
+                      </View>
+                      <View style={styles.actionButtons}>
+                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleViewProfile(otherProfile)}>
+                          <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleOpenRights(otherProfile)}>
+                          <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveAccess(otherProfile)}>
+                          <FontAwesome5 name="times" size={12} color="#EF4444" />
+                        </TouchableOpacity>
+                        {isAdmin ? (
+                          <TouchableOpacity
+                            style={styles.removeButton}
+                            onPress={() => handleDeleteFromSystem(otherProfile, "utilisateurs")}
+                          >
+                            <FontAwesome5 name="trash" size={12} color="#EF4444" />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </View>
+                  );
+                })
+              ) : (
+                <Text style={styles.emptyText}>Aucun utilisateur trouvé</Text>
+              )}
+            </View>
+          </View>
+        )}
+        {activeDetailTab === "access-requests" && (
+          <View style={styles.tabContent}>
+            <View style={styles.manageSection}>
               {selectedClass.accessRequests.length > 0 ? (
                 selectedClass.accessRequests.map((request) => (
                   <View key={request.id} style={styles.requestItem}>
@@ -558,6 +888,104 @@ const ClassDetails = ({
                 <Text style={styles.emptyText}>Aucune demande d'accès</Text>
               )}
             </View>
+          </View>
+        )}
+        {activeDetailTab === "courses" && !isAdmin && (
+          <View style={styles.tabContent}>
+            <Text style={styles.sectionTitle}>Cours programmés</Text>
+            {loadingCourses ? (
+              <LoadingSpinner label="Chargement des cours..." />
+            ) : courses.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun cours programmé pour cette classe.</Text>
+            ) : (
+              courses.map((c) => (
+                <View key={c.id} style={styles.historyItem}>
+                  <FontAwesome5 name="book-open" size={16} color="#0EA5E9" />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.infoValue}>{c.description ?? "Cours"}</Text>
+                    <Text style={styles.infoLabel}>
+                      {c.dateCoursPrevue ? new Date(c.dateCoursPrevue).toLocaleString("fr-FR") : ""}
+                      {c.etatCoursProgramme ? ` • ${c.etatCoursProgramme}` : ""}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+        {activeDetailTab === "exercises" && !isAdmin && (
+          <View style={styles.tabContent}>
+            <Text style={styles.sectionTitle}>Exercices programmés</Text>
+            {loadingExercises ? (
+              <LoadingSpinner label="Chargement des exercices..." />
+            ) : exercises.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun exercice programmé pour cette classe.</Text>
+            ) : (
+              exercises.map((ex) => (
+                <View key={ex.id} style={styles.historyItem}>
+                  <FontAwesome5 name={ex.typeAssignation === "DEVOIR" ? "file-alt" : "clipboard-list"} size={16} color="#7C3AED" />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.infoValue}>{ex.nom ?? "Exercice"}</Text>
+                    <Text style={styles.infoLabel}>
+                      {ex.dateExoPrevue ? new Date(ex.dateExoPrevue).toLocaleString("fr-FR") : ""}
+                      {ex.typeAssignation ? ` • ${ex.typeAssignation}` : ""}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+        {activeDetailTab === "events" && (
+          <View style={styles.tabContent}>
+            <Text style={styles.sectionTitle}>Événements</Text>
+            {loadingEvents ? (
+              <LoadingSpinner label="Chargement des événements..." />
+            ) : events.length === 0 ? (
+              <Text style={styles.emptyText}>Aucun événement pour cette classe.</Text>
+            ) : (
+              events.map((ev) => (
+                <View key={ev.id} style={styles.historyItem}>
+                  <FontAwesome5 name="calendar-alt" size={16} color="#F97316" />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.infoValue}>{ev.titre ?? "Événement"}</Text>
+                    <Text style={styles.infoLabel}>
+                      {ev.heureDebut ? new Date(ev.heureDebut).toLocaleString("fr-FR") : ""}
+                      {ev.etat ? ` • ${ev.etat}` : ""}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+          </View>
+        )}
+        {activeDetailTab === "history" && (
+          <View style={styles.tabContent}>
+            <Text style={styles.sectionTitle}>Historique d'activation</Text>
+            {historyError ? <Text style={styles.emptyText}>{historyError}</Text> : null}
+            {loadingHistory ? (
+              <LoadingSpinner label="Chargement de l'historique..." />
+            ) : history.length === 0 && !historyError ? (
+              <Text style={styles.emptyText}>Aucun événement enregistré.</Text>
+            ) : (
+              history.map((entry, index) => (
+                <View key={entry.id ?? index} style={styles.historyItem}>
+                  <FontAwesome5
+                    name={String(entry.action ?? entry.type ?? "").toUpperCase().includes("DESACTIV") ? "toggle-off" : "toggle-on"}
+                    size={16}
+                    color={String(entry.action ?? entry.type ?? "").toUpperCase().includes("DESACTIV") ? "#EF4444" : "#10B981"}
+                  />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.infoValue}>{entry.action ?? entry.type ?? entry.evenement ?? "Événement"}</Text>
+                    {entry.date || entry.dateEvenement || entry.dateCreation ? (
+                      <Text style={styles.infoLabel}>
+                        {new Date(entry.date ?? entry.dateEvenement ?? entry.dateCreation).toLocaleString("fr-FR")}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))
+            )}
           </View>
         )}
         <View style={{ height: 100 }} />
@@ -1075,6 +1503,7 @@ const styles = StyleSheet.create({
   },
   classInfoContent: {
     flex: 1,
+    minWidth: 0,
   },
   className: {
     fontSize: 20,
@@ -1090,6 +1519,8 @@ const styles = StyleSheet.create({
   classMetaRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
+    rowGap: 4,
   },
   classDate: {
     fontSize: 12,
@@ -1105,41 +1536,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
-    marginHorizontal: 4,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#111827",
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginTop: 4,
-    textAlign: "center",
-  },
   tabsContainer: {
-    flexDirection: "row",
+    flexGrow: 0,
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    padding: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
     marginBottom: 20,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -1148,8 +1550,9 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   tab: {
-    flex: 1,
     paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginHorizontal: 2,
     alignItems: "center",
     borderRadius: 8,
   },
@@ -1198,6 +1601,30 @@ const styles = StyleSheet.create({
     color: "#111827",
     flex: 1,
   },
+  codeValue: {
+    fontFamily: "monospace",
+    fontWeight: "700",
+    color: "#4F46E5",
+  },
+  accesMajeurBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  accesMajeurBadgeOn: {
+    backgroundColor: "#F5F3FF",
+    borderWidth: 1,
+    borderColor: "#DDD6FE",
+  },
+  accesMajeurBadgeOff: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  accesMajeurBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
   manageSection: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
@@ -1208,17 +1635,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 2,
-  },
-  manageSectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  manageSectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    marginLeft: 8,
   },
   listItem: {
     flexDirection: "row",
@@ -1248,6 +1664,17 @@ const styles = StyleSheet.create({
   listItemEmail: {
     fontSize: 12,
     color: "#6B7280",
+  },
+  listItemMeta: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+  metaBadgeRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 4,
   },
   requestItem: {
     flexDirection: "row",
@@ -1282,6 +1709,14 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     textAlign: "center",
     paddingVertical: 16,
+  },
+  historyItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 10,
   },
   actionButtons: {
     flexDirection: "row",

@@ -4,11 +4,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { useAuthStore } from '../store/useAuthStore';
 import { AppRole } from '../types';
 import AuthNavigator from './AuthNavigator';
-import AdminDashboard from '../screens/admin/components/AdminDashboard';
-import DashboardScreen from '../screens/professeurs/DashboardScreen';
-import ParentDashboard from '../screens/parent/ParentDashboard';
-import StudentDashboard from '../screens/student/StudentDashboard';
-import EstablishmentDashboard from '../screens/establishment/EstablishmentDashboard';
+import DashboardShell from '../screens/shared/DashboardShell';
 import ComingSoonScreen from '../screens/shared/ComingSoonScreen';
 import { LoadingSpinner } from '../components/ui';
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
@@ -52,17 +48,13 @@ const AppShell = () => {
 
   switch (role) {
     case 'admin':
-      return <AdminDashboard onLogout={logout} />;
     case 'professor':
-      return <DashboardScreen onLogout={logout} />;
+    case 'tutor':
     case 'parent':
-      return <ParentDashboard onLogout={logout} />;
     case 'student':
-      return <StudentDashboard onLogout={logout} />;
     case 'establishment':
-      return <EstablishmentDashboard onLogout={logout} roleLabel="Établissement" />;
     case 'gestionnaire':
-      return <EstablishmentDashboard onLogout={logout} roleLabel="Gestionnaire" />;
+      return <DashboardShell onLogout={logout} />;
     default:
       return <ComingSoonScreen roleLabel={ROLE_LABELS[role]} />;
   }

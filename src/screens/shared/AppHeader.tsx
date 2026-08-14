@@ -5,17 +5,27 @@ import { useNavigation } from "@react-navigation/native";
 import { useUser } from "../../context/UserContext";
 import { notificationService } from "../../services/api";
 import { useNotificationsStore } from "../../store/useNotificationsStore";
+import { useUiStore } from "../../store/useUiStore";
 import { colors, spacing, typography } from "../../styles/theme";
+import { confirmLogout } from "../../utils/confirmLogout";
 
-interface RoleHeaderProps {
+interface AppHeaderProps {
   roleLabel: string;
   accentColor?: string;
   onLogout: () => void;
   onNavigateToProfile?: () => void;
 }
 
-/** Shared header (avatar + app name/role + notifications bell + logout) reused across Parent/Student/Establishment dashboards. */
-const RoleHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNavigateToProfile }: RoleHeaderProps) => {
+/**
+ * THE header — one component, every role. Matches web's shared/Header.jsx:
+ * a single implementation with no per-role branching, differing only by the
+ * `roleLabel`/`accentColor` data passed in. Previously this existed as three
+ * separately-authored near-duplicates (AdminHeader.tsx, DashboardHeader.tsx,
+ * RoleHeader.tsx) that had quietly drifted apart in styling and even in
+ * which notification fields they read — that's the bug this consolidation
+ * removes, not just the duplication itself.
+ */
+const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNavigateToProfile }: AppHeaderProps) => {
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -68,7 +78,7 @@ const RoleHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNavig
               </View>
             )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton} onPress={onLogout}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => confirmLogout(onLogout)}>
             <FontAwesome5 name="sign-out-alt" size={20} color={colors.danger} />
           </TouchableOpacity>
         </View>
@@ -88,10 +98,14 @@ const RoleHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNavig
                   onPress={() => {
                     markReadLocally(n.id);
                     notificationService.markAsRead(n.id).catch(() => {});
+                    if (n.type === "MESSAGE_SENT" || n.relatedEntityType === "MESSAGE") {
+                      setShowNotifications(false);
+                      useUiStore.getState().requestTab("messages");
+                    }
                   }}
                 >
-                  <Text style={[styles.notificationTitle, !n.lu && { fontWeight: "700" }]}>
-                    {n.titre ?? "Notification"}
+                  <Text style={[styles.notificationTitle, !n.isRead && { fontWeight: "700" }]}>
+                    {n.title ?? "Notification"}
                   </Text>
                   <Text style={styles.notificationMessage} numberOfLines={2}>
                     {n.message}
@@ -175,4 +189,4 @@ const styles = StyleSheet.create({
   viewAllButtonText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
 });
 
-export default RoleHeader;
+export default AppHeader;

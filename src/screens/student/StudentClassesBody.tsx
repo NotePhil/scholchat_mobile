@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FontAwesome5 } from "@expo/vector-icons";
 import { EmptyState, LoadingSpinner } from "../../components/ui";
+import JoinClassSheet from "../shared/JoinClassSheet";
 import { colors, spacing, typography } from "../../styles/theme";
 import { accederService } from "../../services/api";
 import { ClassEntity } from "../../types";
@@ -11,6 +13,7 @@ const StudentClassesBody = () => {
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showJoin, setShowJoin] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.userId) return;
@@ -34,6 +37,9 @@ const StudentClassesBody = () => {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Mes classes</Text>
+        <TouchableOpacity style={styles.addButton} onPress={() => setShowJoin(true)}>
+          <FontAwesome5 name="plus" size={14} color={colors.white} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.list}>
@@ -53,14 +59,17 @@ const StudentClassesBody = () => {
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <JoinClassSheet visible={showJoin} onClose={() => setShowJoin(false)} onSubmitted={load} utilisateurId={user?.userId} />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 16, marginTop: 20, marginBottom: spacing.md },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, marginTop: 20, marginBottom: spacing.md },
   title: { ...typography.h1, color: colors.text },
+  addButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   list: { flex: 1, paddingHorizontal: 16 },
   error: { color: colors.danger, marginBottom: spacing.md },
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md },

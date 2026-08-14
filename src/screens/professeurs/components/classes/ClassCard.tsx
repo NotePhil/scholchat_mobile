@@ -24,55 +24,58 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
 
   return (
     <View style={styles.classCard}>
-      <View style={styles.classCardHeader}>
-        <View style={styles.classCardLeft}>
-          <View style={styles.classCardIcon}>
-            <Text style={styles.classCardIconText}>
-              {classItem.name.substring(0, 2).toUpperCase()}
-            </Text>
+      {/* Tapping the card body goes straight to "Gérer" — same target as the gear button below. Only the eye button opens the read-only detail view instead. */}
+      <TouchableOpacity activeOpacity={0.7} onPress={() => onManageClass(classItem)}>
+        <View style={styles.classCardHeader}>
+          <View style={styles.classCardLeft}>
+            <View style={styles.classCardIcon}>
+              <Text style={styles.classCardIconText}>
+                {classItem.name.substring(0, 2).toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.classCardInfo}>
+              <Text style={styles.classCardName}>{classItem.name}</Text>
+              <Text style={styles.classCardLevel}>{classItem.level}</Text>
+            </View>
           </View>
-          <View style={styles.classCardInfo}>
-            <Text style={styles.classCardName}>{classItem.name}</Text>
-            <Text style={styles.classCardLevel}>{classItem.level}</Text>
-          </View>
-        </View>
-        <View
-          style={[
-            styles.statusBadge,
-            { backgroundColor: getStateBackground(classItem.state) },
-          ]}
-        >
-          <Text
+          <View
             style={[
-              styles.statusText,
-              { color: getStateColor(classItem.state) },
+              styles.statusBadge,
+              { backgroundColor: getStateBackground(classItem.state) },
             ]}
           >
-            {getStateText(classItem.state)}
-          </Text>
+            <Text
+              style={[
+                styles.statusText,
+                { color: getStateColor(classItem.state) },
+              ]}
+            >
+              {getStateText(classItem.state)}
+            </Text>
+          </View>
         </View>
-      </View>
-      <View style={styles.classCardStats}>
-        <View style={styles.statItem}>
-          <FontAwesome5 name="user-graduate" size={12} color="#6B7280" />
-          <Text style={styles.statItemText}>
-            {classItem.studentsCount} étudiants
-          </Text>
+        <View style={styles.classCardStats}>
+          <View style={styles.statItem}>
+            <FontAwesome5 name="user-graduate" size={12} color="#6B7280" />
+            <Text style={styles.statItemText}>
+              {classItem.studentsCount} étudiants
+            </Text>
+          </View>
+          <View style={styles.statItem}>
+            <FontAwesome5 name="users" size={12} color="#6B7280" />
+            <Text style={styles.statItemText}>
+              {classItem.parentsCount} parents
+            </Text>
+          </View>
+          <View style={styles.statItem}>
+            <FontAwesome5 name="calendar" size={12} color="#6B7280" />
+            <Text style={styles.statItemText}>
+              Créée le{" "}
+              {new Date(classItem.creationDate).toLocaleDateString("fr-FR")}
+            </Text>
+          </View>
         </View>
-        <View style={styles.statItem}>
-          <FontAwesome5 name="users" size={12} color="#6B7280" />
-          <Text style={styles.statItemText}>
-            {classItem.parentsCount} parents
-          </Text>
-        </View>
-        <View style={styles.statItem}>
-          <FontAwesome5 name="calendar" size={12} color="#6B7280" />
-          <Text style={styles.statItemText}>
-            Créée le{" "}
-            {new Date(classItem.creationDate).toLocaleDateString("fr-FR")}
-          </Text>
-        </View>
-      </View>
+      </TouchableOpacity>
       <View style={styles.classCardActions}>
         <TouchableOpacity
           style={[styles.actionButton, styles.viewButton]}

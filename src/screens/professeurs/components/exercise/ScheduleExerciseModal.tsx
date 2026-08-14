@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { BottomSheet, Button, EmptyState, Input, LoadingSpinner } from '../../../../components/ui';
+import { BottomSheet, Button, EmptyState, LoadingSpinner } from '../../../../components/ui';
+import DateTimeField from '../../../../components/common/DateTimeField';
 import { colors, spacing, typography } from '../../../../styles/theme';
 import { classService } from '../../../../services/classService';
 import { exerciseProgrammerService } from '../../../../services/api';
@@ -29,6 +30,8 @@ const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: Sch
   const [selectedClasseIds, setSelectedClasseIds] = useState<string[]>([]);
   const [typeAssignation, setTypeAssignation] = useState<'EXERCICE' | 'DEVOIR'>('EXERCICE');
   const [dateExoPrevue, setDateExoPrevue] = useState('');
+  const [dateDebutExoEffectif, setDateDebutExoEffectif] = useState('');
+  const [dateFinExoEffectif, setDateFinExoEffectif] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -46,6 +49,8 @@ const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: Sch
     setSelectedClasseIds([]);
     setTypeAssignation('EXERCICE');
     setDateExoPrevue('');
+    setDateDebutExoEffectif('');
+    setDateFinExoEffectif('');
   };
 
   const toggleClasse = (id: string) => {
@@ -61,15 +66,25 @@ const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: Sch
       Alert.alert('Erreur', 'Veuillez sélectionner un exercice et au moins une classe.');
       return;
     }
+    if (!dateExoPrevue || !dateDebutExoEffectif || !dateFinExoEffectif) {
+      Alert.alert('Erreur', 'Les trois dates (prévue, début, fin) sont obligatoires.');
+      return;
+    }
+    if (new Date(dateFinExoEffectif) <= new Date(dateDebutExoEffectif)) {
+      Alert.alert('Erreur', 'La date de fin doit être après la date de début.');
+      return;
+    }
     setSubmitting(true);
     try {
       await exerciseProgrammerService.programmerEtDiffuser({
         exerciseId: selectedExerciseId,
         programmeParId: user.userId,
         typeAssignation,
-        dateExoPrevue: dateExoPrevue.trim() || undefined,
+        dateExoPrevue,
+        dateDebutExoEffectif,
+        dateFinExoEffectif,
         classeIds: selectedClasseIds,
-        etat: 'PUBLIE',
+        etat: 'ACTIF',
       });
       reset();
       onScheduled();
@@ -145,12 +160,9 @@ const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: Sch
           </View>
         )}
 
-        <Input
-          label="Date limite prévue"
-          value={dateExoPrevue}
-          onChangeText={setDateExoPrevue}
-          placeholder="JJ/MM/AAAA HH:MM"
-        />
+        <DateTimeField label="Date prévue" value={dateExoPrevue} onChange={setDateExoPrevue} required />
+        <DateTimeField label="Début effectif" value={dateDebutExoEffectif} onChange={setDateDebutExoEffectif} required />
+        <DateTimeField label="Fin effective" value={dateFinExoEffectif} onChange={setDateFinExoEffectif} required />
 
         <Button label="Programmer et diffuser" onPress={handleSubmit} loading={submitting} fullWidth style={styles.submitButton} />
       </ScrollView>

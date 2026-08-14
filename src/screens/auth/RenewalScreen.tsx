@@ -121,7 +121,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
       try {
         const data = await contratService.getRenewalStatus(token);
         setStatut(data);
-        if (data?.contratCourant?.periodicite) setPeriodicite(data.contratCourant.periodicite);
+        if (data?.contratCourant?.periodicite) setPeriodicite(data.contratCourant.periodicite as 'MENSUEL' | 'ANNUEL');
       } catch {
         setError('Ce lien de renouvellement est invalide ou a expiré. Merci de refaire une demande.');
       } finally {

@@ -26,6 +26,7 @@ export { parentAccessService } from './parentAccessService';
 export { parentService } from './parentService';
 export { professorService } from './professorService';
 export { publicationRightsService } from './publicationRightsService';
+export { rejectionClassService } from './rejectionClassService';
 export { rejectionService } from './rejectionService';
 export { studentService } from './studentService';
 export { tutorService } from './tutorService';

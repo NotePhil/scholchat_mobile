@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FontAwesome5 } from "@expo/vector-icons";
 import { EmptyState, LoadingSpinner } from "../../components/ui";
+import JoinClassSheet from "../shared/JoinClassSheet";
 import { colors, spacing, typography } from "../../styles/theme";
 import { parentService } from "../../services/api";
 import { ClassEntity, StudentProfile } from "../../types";
@@ -13,6 +15,16 @@ const ParentClassesBody = () => {
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showJoin, setShowJoin] = useState(false);
+
+  const loadClassesForSelectedChild = useCallback(async () => {
+    if (!selectedChildId) return;
+    try {
+      setClasses(await parentService.getChildClasses(selectedChildId));
+    } catch {
+      // handled by the main load effect's error state
+    }
+  }, [selectedChildId]);
 
   const loadChildren = useCallback(async () => {
     if (!user?.userId) return;
@@ -54,6 +66,11 @@ const ParentClassesBody = () => {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Classes</Text>
+        {selectedChildId ? (
+          <TouchableOpacity style={styles.addButton} onPress={() => setShowJoin(true)}>
+            <FontAwesome5 name="plus" size={14} color={colors.white} />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {children.length > 0 && (
@@ -91,14 +108,23 @@ const ParentClassesBody = () => {
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <JoinClassSheet
+        visible={showJoin}
+        onClose={() => setShowJoin(false)}
+        onSubmitted={loadClassesForSelectedChild}
+        utilisateurId={selectedChildId ?? undefined}
+        estParent
+      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 16, marginTop: 20, marginBottom: spacing.md },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, marginTop: 20, marginBottom: spacing.md },
   title: { ...typography.h1, color: colors.text },
+  addButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   childRow: { paddingHorizontal: 16, marginBottom: spacing.md, flexGrow: 0 },
   childChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 20, backgroundColor: colors.grayLight, marginRight: spacing.sm },
   childChipActive: { backgroundColor: colors.primary },

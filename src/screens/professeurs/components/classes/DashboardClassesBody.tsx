@@ -23,12 +23,17 @@ export interface FormattedStudent {
   name: string;
   email: string;
   niveau: string;
+  dateCreation?: string;
+  etat?: string;
 }
 
 export interface FormattedParent {
   id: string;
   name: string;
   phone: string;
+  adresse?: string;
+  dateCreation?: string;
+  etat?: string;
 }
 
 export interface FormattedAccessRequest {
@@ -46,14 +51,22 @@ export interface UIClass {
   state: string;
   studentsCount: number;
   parentsCount: number;
+  professeursCount?: number;
   othersCount?: number;
   creationDate: string;
   description: string;
   etablissement: string;
   moderator: string;
   teacherRights: string;
+  /** Join/invite code shown to students & parents — the single most important field on this screen, easy to miss since it isn't part of the class name/level. */
+  codeActivation?: string;
+  /** Raw backend enum (TOUS/MODERATEUR_SEULEMENT/PARENTS_ET_MODERATEUR/PROFESSEURS_SEULEMENT) — mapped to a label in the UI, mirrors web's getPublicationRightsTag(). */
+  droitPublication?: string;
+  accesMajeur?: boolean;
   students: FormattedStudent[];
   parents: FormattedParent[];
+  /** typeUtilisateur === PROFESSEUR/REPETITEUR — kept separate from `others` (misc UTILISATEUR accounts: gestionnaires/admins/plain), matching web's distinct "Professeurs" vs "Utilisateurs" tabs. */
+  professeurs?: ClassUser[];
   others?: ClassUser[];
   accessRequests: FormattedAccessRequest[];
   etablissementDetails?: Etablissement;
@@ -65,6 +78,7 @@ interface CachedClassData {
   accessRequests: FormattedAccessRequest[];
   students: FormattedStudent[];
   parents: FormattedParent[];
+  professeurs: ClassUser[];
   others: ClassUser[];
   etablissementDetails?: Etablissement;
   moderatorDetails?: Professor;
@@ -187,9 +201,11 @@ const DashboardClassesBody = () => {
         ...classItem,
         studentsCount: cachedData.students.length,
         parentsCount: cachedData.parents.length,
+        professeursCount: cachedData.professeurs.length,
         othersCount: cachedData.others.length,
         students: cachedData.students,
         parents: cachedData.parents,
+        professeurs: cachedData.professeurs,
         others: cachedData.others,
         accessRequests: cachedData.accessRequests,
         etablissementDetails: cachedData.etablissementDetails,
@@ -213,9 +229,11 @@ const DashboardClassesBody = () => {
         ...classItem,
         studentsCount: cachedData.students.length,
         parentsCount: cachedData.parents.length,
+        professeursCount: cachedData.professeurs.length,
         othersCount: cachedData.others.length,
         students: cachedData.students,
         parents: cachedData.parents,
+        professeurs: cachedData.professeurs,
         others: cachedData.others,
         accessRequests: cachedData.accessRequests,
         etablissementDetails: cachedData.etablissementDetails,
@@ -224,7 +242,7 @@ const DashboardClassesBody = () => {
 
       setSelectedClass(enhancedClass);
       setCurrentView("details");
-      setActiveDetailTab("manage");
+      setActiveDetailTab("professeurs");
     } else {
       // Fallback to API call if cache is missing
       try {
@@ -234,21 +252,32 @@ const DashboardClassesBody = () => {
           classService.getClassUsers(classItem.id)
         ]);
 
-        const students = classUsers.filter(u => u.type === 'eleve');
-        const parents = classUsers.filter(u => u.type === 'utilisateur' && !u.admin);
-        const others = classUsers.filter(u => u.type !== 'eleve' && (u.type !== 'utilisateur' || u.admin));
+        // GET /acceder/classes/{id}/utilisateurs returns UtilisateurSimpleDto — the
+        // discriminator is `typeUtilisateur` (uppercase PROFESSEUR/ELEVE/PARENT/
+        // REPETITEUR/UTILISATEUR), not `type`/`admin` (neither field exists on this
+        // endpoint's response, so the old `.type`/`.admin` checks always matched
+        // nothing for students/parents and everything for "others").
+        const students = classUsers.filter(u => u.typeUtilisateur === 'ELEVE');
+        const parents = classUsers.filter(u => u.typeUtilisateur === 'PARENT');
+        const professeurs = classUsers.filter(u => u.typeUtilisateur === 'PROFESSEUR' || u.typeUtilisateur === 'REPETITEUR');
+        const others = classUsers.filter(u => u.typeUtilisateur === 'UTILISATEUR' || !u.typeUtilisateur);
 
         const formattedStudents: FormattedStudent[] = students.map(student => ({
           id: student.id,
           name: `${student.prenom || ''} ${student.nom || ''}`.trim(),
           email: student.email || student.telephone || 'Non spécifié',
-          niveau: student.niveau || 'Non spécifié'
+          niveau: student.niveau || 'Non spécifié',
+          dateCreation: (student as any).dateCreation || (student as any).creationDate,
+          etat: (student as any).etat,
         }));
 
         const formattedParents: FormattedParent[] = parents.map(parent => ({
           id: parent.id,
           name: `${parent.prenom || ''} ${parent.nom || ''}`.trim(),
-          phone: parent.telephone || parent.email || 'Non spécifié'
+          phone: parent.telephone || parent.email || 'Non spécifié',
+          adresse: (parent as any).adresse,
+          dateCreation: (parent as any).dateCreation || (parent as any).creationDate,
+          etat: (parent as any).etat,
         }));
 
         const formattedAccessRequests: FormattedAccessRequest[] = (accessRequests || []).map(request => ({
@@ -263,9 +292,11 @@ const DashboardClassesBody = () => {
           ...classItem,
           studentsCount: students.length,
           parentsCount: parents.length,
+          professeursCount: professeurs.length,
           othersCount: others.length,
           students: formattedStudents,
           parents: formattedParents,
+          professeurs,
           others: others,
           accessRequests: formattedAccessRequests,
           etablissementDetails: classDetails.etablissement,
@@ -274,7 +305,7 @@ const DashboardClassesBody = () => {
 
         setSelectedClass(enhancedClass);
         setCurrentView("details");
-        setActiveDetailTab("manage");
+        setActiveDetailTab("professeurs");
       } catch (error) {
         console.error('=== ERROR LOADING CLASS DETAILS ===');
         console.error('Error details:', error);
@@ -325,23 +356,29 @@ const DashboardClassesBody = () => {
                 classService.getClassUsers(classItem.id)
               ]);
 
-              // Count users by type
-              const students = classUsers.filter(u => u.type === 'eleve');
-              const parents = classUsers.filter(u => u.type === 'utilisateur' && !u.admin);
-              const others = classUsers.filter(u => u.type !== 'eleve' && (u.type !== 'utilisateur' || u.admin));
+              // Count users by type — see the typeUtilisateur note on the other occurrences of this filter in this file.
+              const students = classUsers.filter(u => u.typeUtilisateur === 'ELEVE');
+              const parents = classUsers.filter(u => u.typeUtilisateur === 'PARENT');
+              const professeurs = classUsers.filter(u => u.typeUtilisateur === 'PROFESSEUR' || u.typeUtilisateur === 'REPETITEUR');
+              const others = classUsers.filter(u => u.typeUtilisateur === 'UTILISATEUR' || !u.typeUtilisateur);
 
               // Format data for caching
               const formattedStudents: FormattedStudent[] = students.map(student => ({
                 id: student.id,
                 name: `${student.prenom || ''} ${student.nom || ''}`.trim(),
                 email: student.email || student.telephone || 'Non spécifié',
-                niveau: student.niveau || 'Non spécifié'
+                niveau: student.niveau || 'Non spécifié',
+                dateCreation: (student as any).dateCreation || (student as any).creationDate,
+                etat: (student as any).etat,
               }));
 
               const formattedParents: FormattedParent[] = parents.map(parent => ({
                 id: parent.id,
                 name: `${parent.prenom || ''} ${parent.nom || ''}`.trim(),
-                phone: parent.telephone || parent.email || 'Non spécifié'
+                phone: parent.telephone || parent.email || 'Non spécifié',
+                adresse: (parent as any).adresse,
+                dateCreation: (parent as any).dateCreation || (parent as any).creationDate,
+                etat: (parent as any).etat,
               }));
 
               const formattedAccessRequests: FormattedAccessRequest[] = (accessRequests || []).map(request => ({
@@ -358,6 +395,7 @@ const DashboardClassesBody = () => {
                 accessRequests: formattedAccessRequests,
                 students: formattedStudents,
                 parents: formattedParents,
+                professeurs,
                 others,
                 etablissementDetails: classDetails.etablissement,
                 moderatorDetails: classDetails.moderator,
@@ -377,6 +415,9 @@ const DashboardClassesBody = () => {
                 etablissement: classDetails.etablissement?.nom || 'Non spécifié',
                 moderator: classDetails.moderator ? `${classDetails.moderator.prenom || ''} ${classDetails.moderator.nom || ''}`.trim() : 'Non spécifié',
                 teacherRights: 'Droit de publication',
+                codeActivation: classDetails.codeActivation || classItem.codeActivation,
+                droitPublication: classDetails.droitPublication || classDetails.droit_publication || 'PROFESSEURS_SEULEMENT',
+                accesMajeur: !!classDetails.accesMajeur,
                 students: formattedStudents,
                 parents: formattedParents,
                 accessRequests: formattedAccessRequests,
@@ -395,6 +436,9 @@ const DashboardClassesBody = () => {
                 etablissement: 'Non spécifié',
                 moderator: 'Non spécifié',
                 teacherRights: 'Droit de publication',
+                codeActivation: classItem.codeActivation,
+                droitPublication: classItem.droitPublication || 'PROFESSEURS_SEULEMENT',
+                accesMajeur: !!classItem.accesMajeur,
                 students: [],
                 parents: [],
                 accessRequests: [],
@@ -523,6 +567,9 @@ const DashboardClassesBody = () => {
         etablissement: selectedEstablishment?.nom || "Non spécifié",
         moderator: user?.nom || "Non spécifié",
         teacherRights: "Droit de publication",
+        codeActivation: activationCode,
+        droitPublication: "PROFESSEURS_SEULEMENT",
+        accesMajeur: false,
         students: [],
         parents: [],
         accessRequests: [],
@@ -581,21 +628,27 @@ const DashboardClassesBody = () => {
               classService.getClassUsers(selectedClass.id)
             ]);
 
-            const students = classUsers.filter(u => u.type === 'eleve');
-            const parents = classUsers.filter(u => u.type === 'utilisateur' && !u.admin);
-            const others = classUsers.filter(u => u.type !== 'eleve' && (u.type !== 'utilisateur' || u.admin));
+            const students = classUsers.filter(u => u.typeUtilisateur === 'ELEVE');
+            const parents = classUsers.filter(u => u.typeUtilisateur === 'PARENT');
+            const professeurs = classUsers.filter(u => u.typeUtilisateur === 'PROFESSEUR' || u.typeUtilisateur === 'REPETITEUR');
+            const others = classUsers.filter(u => u.typeUtilisateur === 'UTILISATEUR' || !u.typeUtilisateur);
 
             const formattedStudents: FormattedStudent[] = students.map(student => ({
               id: student.id,
               name: `${student.prenom || ''} ${student.nom || ''}`.trim(),
               email: student.email || student.telephone || 'Non spécifié',
-              niveau: student.niveau || 'Non spécifié'
+              niveau: student.niveau || 'Non spécifié',
+              dateCreation: (student as any).dateCreation || (student as any).creationDate,
+              etat: (student as any).etat,
             }));
 
             const formattedParents: FormattedParent[] = parents.map(parent => ({
               id: parent.id,
               name: `${parent.prenom || ''} ${parent.nom || ''}`.trim(),
-              phone: parent.telephone || parent.email || 'Non spécifié'
+              phone: parent.telephone || parent.email || 'Non spécifié',
+              adresse: (parent as any).adresse,
+              dateCreation: (parent as any).dateCreation || (parent as any).creationDate,
+              etat: (parent as any).etat,
             }));
 
             const formattedAccessRequests: FormattedAccessRequest[] = (accessRequests || []).map(request => ({
@@ -612,6 +665,7 @@ const DashboardClassesBody = () => {
               accessRequests: formattedAccessRequests,
               students: formattedStudents,
               parents: formattedParents,
+              professeurs,
               others,
               etablissementDetails: classDetails.etablissement,
               moderatorDetails: classDetails.moderator,
@@ -624,9 +678,11 @@ const DashboardClassesBody = () => {
               ...selectedClass,
               studentsCount: students.length,
               parentsCount: parents.length,
+              professeursCount: professeurs.length,
               othersCount: others.length,
               students: formattedStudents,
               parents: formattedParents,
+              professeurs,
               others: others,
               accessRequests: formattedAccessRequests,
             };
