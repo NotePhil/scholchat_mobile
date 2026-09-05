@@ -44,7 +44,7 @@ const MobileFooterNav = ({
     { icon: 'envelope', label: 'Messages', tab: 'messages', badgeCount: unreadCount },
   ];
   const trailingItems: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string }[] = [
-    { icon: 'stream', label: 'Activités', tab: 'activities' },
+    { icon: 'heartbeat', label: 'Activités', tab: 'activities' },
     { icon: 'user', label: 'Profil', tab: 'settings' },
   ];
 

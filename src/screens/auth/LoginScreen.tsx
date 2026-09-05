@@ -17,12 +17,15 @@ import { colors, spacing, typography } from '../../styles/theme';
 import { authService } from '../../services/home/authService';
 import { useUser } from '../../context/UserContext';
 
+import RoleSelectorSheet from '../shared/RoleSelectorSheet';
+import { LoginResponse } from '../../types';
+
 const logo = require('../../../assets/logo.png');
 
 /**
  * Full-page login (replaces the old AuthModal overlay) — this is the direct
  * landing screen for a logged-out user, per explicit request: no marketing
- * tabs, straight to sign-in.
+ * tabs, straight to sign-in. Supports multi-role selection if account has >1 role.
  */
 const LoginScreen = () => {
   const navigation = useNavigation<any>();
@@ -33,6 +36,8 @@ const LoginScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pendingAuth, setPendingAuth] = useState<LoginResponse | null>(null);
+  const [showRolePicker, setShowRolePicker] = useState(false);
 
   const handleSignIn = async () => {
     if (!email.trim() || !password) {
@@ -43,13 +48,32 @@ const LoginScreen = () => {
     setError('');
     try {
       const loginResponse = await authService.login(email.trim(), password);
+      if (loginResponse.multiRole && loginResponse.availableRoles && loginResponse.availableRoles.length > 1) {
+        setPendingAuth(loginResponse);
+        setShowRolePicker(true);
+        return;
+      }
       login(loginResponse);
-      // RootNavigator watches isAuthenticated/role and swaps to the right
-      // dashboard automatically — no manual navigation needed here.
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Email ou mot de passe incorrect.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSelectRole = async (selectedRole: string) => {
+    if (!pendingAuth) return;
+    setLoading(true);
+    try {
+      const switched = await authService.switchRole(selectedRole);
+      login(switched);
+    } catch {
+      // Fallback: use initial auth response with selected role
+      login({ ...pendingAuth, role: selectedRole });
+    } finally {
+      setLoading(false);
+      setShowRolePicker(false);
+      setPendingAuth(null);
     }
   };
 
@@ -98,6 +122,18 @@ const LoginScreen = () => {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <RoleSelectorSheet
+        visible={showRolePicker}
+        roles={pendingAuth?.availableRoles || []}
+        onSelect={handleSelectRole}
+        onClose={() => {
+          setShowRolePicker(false);
+          if (pendingAuth) login(pendingAuth);
+        }}
+        title="Choisir un profil"
+        subtitle="Vous avez plusieurs rôles. Choisissez celui que vous souhaitez utiliser."
+      />
     </SafeAreaView>
   );
 };

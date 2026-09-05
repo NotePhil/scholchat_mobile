@@ -359,6 +359,35 @@ const ClassDetails = ({
     }
   };
 
+  const [deleting, setDeleting] = useState(false);
+
+  /** Admin-only, matches web's ManageClassDetailsView.jsx "Supprimer" header button — deletes the whole class, not just a member's access. */
+  const handleDeleteClass = () => {
+    Alert.alert(
+      "Confirmer la suppression de la classe",
+      "Êtes-vous sûr de vouloir supprimer définitivement cette classe ? Cette action est irréversible.",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await classAdminService.remove(selectedClass.id);
+              Alert.alert("Succès", "Classe supprimée avec succès");
+              onBack();
+            } catch (error) {
+              Alert.alert("Erreur", error instanceof Error ? error.message : "Erreur lors de la suppression de la classe");
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleViewModerators = async () => {
     setIsLoadingModerators(true);
     setShowModeratorsModal(true);
@@ -378,10 +407,24 @@ const ClassDetails = ({
       {/* Header */}
       <View style={styles.detailHeader}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <FontAwesome5 name="arrow-left" size={20} color="#111827" />
+          <FontAwesome5 name="arrow-left" size={16} color="#111827" />
+          <Text style={styles.backButtonText}>Retour</Text>
         </TouchableOpacity>
-        <Text style={styles.detailTitle}>Détails de la classe</Text>
-        <View style={styles.headerSpacer} />
+        <Text style={styles.detailTitle} numberOfLines={1}>
+          Détails de la classe
+        </Text>
+        {isAdmin ? (
+          <TouchableOpacity onPress={handleDeleteClass} style={styles.deleteClassButton} disabled={deleting}>
+            {deleting ? (
+              <FontAwesome5 name="spinner" size={14} color="#FFFFFF" />
+            ) : (
+              <FontAwesome5 name="trash" size={14} color="#FFFFFF" />
+            )}
+            <Text style={styles.deleteClassButtonText}>Supprimer</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
       </View>
       <ScrollView style={styles.content}>
         {/* Class Info Card */}
@@ -529,12 +572,6 @@ const ClassDetails = ({
           <View style={styles.tabContent}>
             <View style={styles.infoSection}>
               <Text style={styles.sectionTitle}>Informations générales</Text>
-              <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>ID:</Text>
-                <Text style={styles.infoValue} selectable numberOfLines={1}>
-                  {selectedClass.id}
-                </Text>
-              </View>
               {/* Code d'activation — the invite code students/parents need to join; was previously not shown at all. */}
               <View style={styles.infoItem}>
                 <Text style={styles.infoLabel}>Code d'activation:</Text>
@@ -1456,23 +1493,43 @@ const styles = StyleSheet.create({
     paddingTop: 50,
   },
   backButton: {
-    width: 40,
-    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 20,
     backgroundColor: "#F3F4F6",
-    justifyContent: "center",
-    alignItems: "center",
+  },
+  backButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#111827",
   },
   detailTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
     color: "#111827",
     flex: 1,
     textAlign: "center",
-    marginHorizontal: 16,
+    marginHorizontal: 8,
   },
   headerSpacer: {
     width: 40,
+  },
+  deleteClassButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: "#DC2626",
+  },
+  deleteClassButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   classInfoCard: {
     backgroundColor: "#FFFFFF",

@@ -17,8 +17,8 @@ import { useNavigation } from "@react-navigation/native";
 import { useUser } from "../../../../context/UserContext";
 import { coursService } from "../../../../services/api";
 import { LoadingSpinner } from "../../../../components/ui";
-import ScheduleCoursModal from "./ScheduleCoursModal";
-import ScheduledCoursListModal from "./ScheduledCoursListModal";
+import { CoursProgrammerScreen } from "./CoursProgrammerScreen";
+import CourseDetailView from "./CourseDetailView";
 
 export interface ChapitreImage {
   id: string;
@@ -87,14 +87,13 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours, onEditCours }: 
   const navigation = useNavigation<any>();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("tous");
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  type CoursViewMode = "list" | "detail" | "schedule";
+  const [viewMode, setViewMode] = useState<CoursViewMode>("list");
   const [selectedCours, setSelectedCours] = useState<Cours | null>(null);
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [cours, setCours] = useState<Cours[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [showScheduledList, setShowScheduledList] = useState(false);
 
   const loadCours = useCallback(async () => {
     if (!user?.userId) return;
@@ -185,7 +184,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours, onEditCours }: 
 
   const handleViewDetails = (coursItem: Cours) => {
     setSelectedCours(coursItem);
-    setShowDetailsModal(true);
+    setViewMode("detail");
   };
 
   const toggleFab = () => {
@@ -231,8 +230,43 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours, onEditCours }: 
 
   const handleProgramCours = () => {
     closeFab();
-    setShowScheduleModal(true);
+    setViewMode("schedule");
   };
+
+  if (viewMode === "detail" && selectedCours) {
+    return (
+      <CourseDetailView
+        cours={selectedCours}
+        onBack={() => {
+          setSelectedCours(null);
+          setViewMode("list");
+        }}
+        onEdit={(c) => {
+          setSelectedCours(null);
+          setViewMode("list");
+          onEditCours(c);
+        }}
+        onDelete={(c) => {
+          setSelectedCours(null);
+          setViewMode("list");
+          handleDeleteCours(c);
+        }}
+        onProgram={() => {
+          setViewMode("schedule");
+        }}
+      />
+    );
+  }
+
+  if (viewMode === "schedule") {
+    return (
+      <CoursProgrammerScreen
+        coursList={cours}
+        onClose={() => setViewMode("list")}
+        onScheduled={loadCours}
+      />
+    );
+  }
 
   // Filter courses based on search and active filter only
   const filteredCours = cours.filter((item) => {
@@ -288,7 +322,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours, onEditCours }: 
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={() => setShowScheduledList(true)}
+                onPress={() => setViewMode("schedule")}
                 style={{ padding: 8, backgroundColor: "#EEF2FF", borderRadius: 20 }}
               >
                 <FontAwesome5 name="calendar-alt" size={18} color="#4F46E5" />
@@ -428,6 +462,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours, onEditCours }: 
                           coursStyles.actionButton,
                           coursStyles.editButton,
                         ]}
+                        onPress={() => onEditCours(coursItem)}
                       >
                         <FontAwesome5 name="edit" size={16} color="#F59E0B" />
                       </TouchableOpacity>
@@ -524,217 +559,6 @@ const DashboardCoursBody = ({ onNavigateToCreate, onCreateCours, onEditCours }: 
             </TouchableOpacity>
           </Animated.View>
         </View>
-
-        {/* Enhanced Details Modal */}
-        <Modal
-          visible={showDetailsModal}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setShowDetailsModal(false)}
-        >
-          <View style={coursStyles.modalOverlay}>
-            <View style={coursStyles.modalContainer}>
-              {/* Header */}
-              <View style={coursStyles.modalHeader}>
-                <View style={coursStyles.headerLeft}>
-                  <View style={coursStyles.courseIcon}>
-                    <Text style={coursStyles.courseIconText}>
-                      {selectedCours
-                        ? selectedCours.titre.substring(0, 2).toUpperCase()
-                        : ""}
-                    </Text>
-                  </View>
-                  <Text style={coursStyles.modalTitle}>
-                    {selectedCours ? selectedCours.titre : ""}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setShowDetailsModal(false)}
-                  style={coursStyles.modalCloseButton}
-                >
-                  <FontAwesome5 name="times" size={20} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Tabs */}
-              <View style={coursStyles.tabsContainer}>
-                <TouchableOpacity
-                  style={[coursStyles.tab, coursStyles.activeTab]}
-                >
-                  <Text
-                    style={[coursStyles.tabText, coursStyles.activeTabText]}
-                  >
-                    Détails
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={coursStyles.tab}>
-                  <Text style={coursStyles.tabText}>Documents (0)</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={coursStyles.tab}>
-                  <Text style={coursStyles.tabText}>Historique</Text>
-                </TouchableOpacity>
-              </View>
-
-              {selectedCours && (
-                <ScrollView
-                  style={coursStyles.modalContent}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {/* Course Information Section */}
-                  <View style={coursStyles.sectionContainer}>
-                    <View style={coursStyles.sectionHeader}>
-                      <FontAwesome5
-                        name="info-circle"
-                        size={16}
-                        color="#4F46E5"
-                      />
-                      <Text style={coursStyles.sectionTitle}>
-                        Informations du Cours
-                      </Text>
-                    </View>
-
-                    <View style={coursStyles.courseInfoCard}>
-                      <View style={coursStyles.courseInfoLeft}>
-                        <View style={coursStyles.largeCourseIcon}>
-                          <Text style={coursStyles.largeCourseIconText}>
-                            {selectedCours.titre.substring(0, 2).toUpperCase()}
-                          </Text>
-                          <View style={coursStyles.statusIndicator} />
-                        </View>
-                      </View>
-
-                      <View style={coursStyles.courseInfoRight}>
-                        <Text style={coursStyles.courseInfoTitle}>
-                          {selectedCours.titre}
-                        </Text>
-                        <Text style={coursStyles.courseInfoSubtitle}>
-                          {selectedCours.matieres
-                            ? selectedCours.matieres.join(", ")
-                            : "Matière non définie"}
-                        </Text>
-                      </View>
-
-                      <View style={coursStyles.courseInfoDetails}>
-                        <View style={coursStyles.detailItem}>
-                          <FontAwesome5
-                            name="calendar-plus"
-                            size={14}
-                            color="#8B5CF6"
-                          />
-                          <View style={coursStyles.detailContent}>
-                            <Text style={coursStyles.detailLabel}>
-                              Date de création
-                            </Text>
-                            <Text style={coursStyles.detailValue}>
-                              {new Date(
-                                selectedCours.dateCreation
-                              ).toLocaleDateString("fr-FR")}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <View style={coursStyles.detailItem}>
-                          <FontAwesome5 name="user" size={14} color="#6B7280" />
-                          <View style={coursStyles.detailContent}>
-                            <Text style={coursStyles.detailLabel}>
-                              Professeur
-                            </Text>
-                            <Text style={coursStyles.detailValue}>
-                              {`${user?.prenom ?? ""} ${user?.nom ?? ""}`.trim() || user?.username || "Vous"}
-                            </Text>
-                          </View>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Description Section */}
-                  <View style={coursStyles.sectionContainer}>
-                    <View style={coursStyles.sectionHeader}>
-                      <FontAwesome5
-                        name="align-left"
-                        size={16}
-                        color="#4F46E5"
-                      />
-                      <Text style={coursStyles.sectionTitle}>Description</Text>
-                    </View>
-                    <Text style={coursStyles.descriptionText}>
-                      {selectedCours.description || "Aucune description fournie."}
-                    </Text>
-                  </View>
-
-                  {/* References Section */}
-                  <View style={coursStyles.sectionContainer}>
-                    <View style={coursStyles.sectionHeader}>
-                      <FontAwesome5 name="book" size={16} color="#4F46E5" />
-                      <Text style={coursStyles.sectionTitle}>Références</Text>
-                    </View>
-                    <Text style={coursStyles.referencesText}>
-                      {selectedCours.references || "Aucune référence spécifiée"}
-                    </Text>
-                  </View>
-
-                  {/* Course ID */}
-                  <View style={coursStyles.courseIdContainer}>
-                    <Text style={coursStyles.courseIdText}>ID: {selectedCours.id}</Text>
-                  </View>
-                </ScrollView>
-              )}
-
-              {/* Bottom Action Buttons */}
-              <View style={coursStyles.bottomActions}>
-                <TouchableOpacity
-                  style={[
-                    coursStyles.actionButtonBottom,
-                    coursStyles.updateButton,
-                  ]}
-                  onPress={() => {
-                    setShowDetailsModal(false);
-                    if (selectedCours) onEditCours(selectedCours);
-                  }}
-                >
-                  <FontAwesome5 name="edit" size={16} color="#FFFFFF" />
-                  <Text style={coursStyles.updateButtonText}>Modifier</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    coursStyles.actionButtonBottom,
-                    coursStyles.shareButton,
-                  ]}
-                  onPress={() => {
-                    if (!selectedCours) return;
-                    Share.share({
-                      title: selectedCours.titre,
-                      message: `${selectedCours.titre}\n\n${selectedCours.description ?? ""}`,
-                    }).catch(() => {});
-                  }}
-                >
-                  <FontAwesome5 name="share-alt" size={16} color="#FFFFFF" />
-                  <Text style={coursStyles.shareButtonText}>Partager</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    coursStyles.actionButtonBottom,
-                    coursStyles.closeButton,
-                  ]}
-                  onPress={() => setShowDetailsModal(false)}
-                >
-                  <Text style={coursStyles.closeButtonText}>Fermer</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        <ScheduleCoursModal
-          visible={showScheduleModal}
-          onClose={() => setShowScheduleModal(false)}
-          onScheduled={() => {}}
-          coursList={cours}
-        />
-        <ScheduledCoursListModal visible={showScheduledList} onClose={() => setShowScheduledList(false)} />
       </View>
     </TouchableWithoutFeedback>
   );

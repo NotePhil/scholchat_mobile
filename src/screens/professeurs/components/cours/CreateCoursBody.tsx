@@ -18,19 +18,21 @@ import { LoadingSpinner } from "../../../../components/ui";
 import PromptSheet from "../../../../components/common/PromptSheet";
 import { Matiere } from "../../../../types";
 
+// `etat` is intentionally never a user-facing field, on create OR edit — web
+// forces it to "BROUILLON" on create and leaves it completely untouched on
+// edit (CreateCourseComponent.jsx:1250: `editMode ? courseToEdit.etat :
+// "BROUILLON"`, no `etat` form field exists at all). Mobile previously
+// exposed it as a picker with a third value, "ARCHIVE", that doesn't exist
+// anywhere in web's schema — a real risk of sending a state the backend
+// doesn't expect.
 type EtatValue = "BROUILLON" | "PUBLIE" | "ARCHIVE";
-type RestrictionValue = "PUBLIC" | "PRIVE" | "LIMITE";
-
-const etatOptions: Array<{ value: EtatValue; label: string; color: string }> = [
-  { value: "BROUILLON", label: "Brouillon", color: "#F59E0B" },
-  { value: "PUBLIE", label: "Publié", color: "#10B981" },
-  { value: "ARCHIVE", label: "Archivé", color: "#6B7280" },
-];
+// Web's restriction select only ever offers PRIVE/PUBLIC — "LIMITE" isn't a
+// real value here (CreateCourseComponent.jsx:1351-1357).
+type RestrictionValue = "PUBLIC" | "PRIVE";
 
 const restrictionOptions: Array<{ value: RestrictionValue; label: string; color: string }> = [
-  { value: "PUBLIC", label: "Public", color: "#10B981" },
   { value: "PRIVE", label: "Privé", color: "#EF4444" },
-  { value: "LIMITE", label: "Limité", color: "#F59E0B" },
+  { value: "PUBLIC", label: "Public", color: "#10B981" },
 ];
 
 interface CreateCoursBodyProps {
@@ -50,7 +52,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
     description: "",
     etat: "BROUILLON" as EtatValue,
     references: "",
-    restriction: "PUBLIC" as RestrictionValue,
+    restriction: "PRIVE" as RestrictionValue,
     redacteurId: user?.userId ?? "",
   });
 
@@ -83,7 +85,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
       description: editingCours.description ?? "",
       etat: (editingCours.etat as EtatValue) ?? "BROUILLON",
       references: editingCours.references ?? "",
-      restriction: (editingCours.restriction as RestrictionValue) ?? "PUBLIC",
+      restriction: (editingCours.restriction as RestrictionValue) ?? "PRIVE",
       redacteurId: editingCours.redacteurId ?? user?.userId ?? "",
     });
     setLoadingExisting(true);
@@ -128,7 +130,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
       description: "",
       etat: "BROUILLON",
       references: "",
-      restriction: "PUBLIC",
+      restriction: "PRIVE",
       redacteurId: user?.userId ?? "",
     });
     setSelectedMatieres([]);
@@ -460,41 +462,6 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
             numberOfLines={4}
             textAlignVertical="top"
           />
-        </View>
-
-        {/* État Selection */}
-        <View style={createStyles.fieldContainer}>
-          <Text style={createStyles.fieldLabel}>État du cours</Text>
-          <View style={createStyles.optionsContainer}>
-            {etatOptions.map((option) => (
-              <TouchableOpacity
-                key={option.value}
-                style={[
-                  createStyles.option,
-                  formData.etat === option.value && {
-                    backgroundColor: option.color + "20",
-                    borderColor: option.color,
-                  },
-                ]}
-                onPress={() => setFormData({ ...formData, etat: option.value })}
-              >
-                <View
-                  style={[
-                    createStyles.optionIndicator,
-                    { backgroundColor: option.color },
-                  ]}
-                />
-                <Text
-                  style={[
-                    createStyles.optionText,
-                    formData.etat === option.value && { color: option.color },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
         </View>
 
         {/* Restriction Selection */}

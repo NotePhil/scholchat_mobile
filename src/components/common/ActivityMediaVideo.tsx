@@ -49,34 +49,51 @@ const ActiveVideo = ({ source, style, onError }: { source: VideoSource; style?: 
  * two phases, no exceptions.
  *   Phase 1 (default): dark placeholder, centered play button, "Vidéo" badge
  *     — zero network cost, matches every other cell in the grid until tapped.
- *   Phase 2 (after tap): resolves the real playable URL (presigned download
- *     URL, falling back to the /media/{id}/content proxy — same auth-gated
- *     path ActivityMediaImage already uses) and mounts the real player,
- *     which autoplays with native controls once ready.
+ *     This is web's own design too (a real thumbnail/poster frame is never
+ *     fetched or shown there either), not a bug — do not confuse it with the
+ *     genuinely broken all-black-after-tap case below.
+ *   Phase 2 (after tap): resolves the real playable URL and mounts the real
+ *     player, which autoplays with native controls once ready.
  *
- * CRITICAL: unlike <Image>, expo-video's player does its own network fetch
- * outside axios, so it never picks up the app's Bearer token automatically.
- * The /media/{id}/content proxy endpoint requires that header — without it
- * the backend 401s and the player just renders a black frame with no error
- * surfaced. So the resolved source is always passed as a {uri, headers}
- * object carrying the same Authorization header apiClient's interceptor
- * would have attached, not a bare url string.
+ * The resolved URL is one of two very different kinds, and only one of them
+ * wants the app's Bearer token:
+ *   - a real presigned S3/MinIO URL from getDownloadUrl() — this already
+ *     authenticates via its signed query params; attaching an extra
+ *     Authorization header here doesn't match what was signed and the
+ *     request fails, which expo-video surfaces as a silent black frame (no
+ *     error dialog, just nothing). This was happening for every video whose
+ *     download URL resolved successfully — exactly the "some videos stay
+ *     black even after I tap them" case.
+ *   - the /media/{id}/content same-origin proxy stream (used when
+ *     getDownloadUrl fails, or the presigned URL itself later errors) — this
+ *     one IS auth-gated and 401s without the header.
+ * So the header is attached only for the proxy URL, matching
+ * ActivityMediaImage's already-correct handling of this exact split, and a
+ * player error triggers a one-time retry through the proxy+header path
+ * before giving up.
  */
 const ActivityMediaVideo = ({ mediaId, presignedUrl, style }: ActivityMediaVideoProps) => {
   const [active, setActive] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [source, setSource] = useState<VideoSource | null>(null);
+  const [triedProxy, setTriedProxy] = useState(false);
   const [error, setError] = useState(false);
+
+  const withProxyFallback = async () => {
+    if (!mediaId) {
+      setError(true);
+      return;
+    }
+    const token = await storageService.getUserToken();
+    setSource({ uri: mediaService.getContentUrl(mediaId), headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+  };
 
   const activate = async () => {
     if (active) return;
     setActive(true);
 
-    const token = await storageService.getUserToken();
-    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
-
     if (presignedUrl) {
-      setSource({ uri: presignedUrl, headers });
+      setSource({ uri: presignedUrl });
       return;
     }
     if (!mediaId) {
@@ -84,11 +101,27 @@ const ActivityMediaVideo = ({ mediaId, presignedUrl, style }: ActivityMediaVideo
       return;
     }
     setResolving(true);
-    mediaService
-      .getDownloadUrl(mediaId)
-      .then((resolved) => setSource({ uri: resolved || mediaService.getContentUrl(mediaId), headers }))
-      .catch(() => setSource({ uri: mediaService.getContentUrl(mediaId), headers }))
-      .finally(() => setResolving(false));
+    try {
+      const resolved = await mediaService.getDownloadUrl(mediaId);
+      if (resolved) {
+        setSource({ uri: resolved });
+      } else {
+        await withProxyFallback();
+      }
+    } catch {
+      await withProxyFallback();
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const handlePlayerError = () => {
+    if (!triedProxy && mediaId) {
+      setTriedProxy(true);
+      withProxyFallback();
+    } else {
+      setError(true);
+    }
   };
 
   if (active) {
@@ -108,7 +141,7 @@ const ActivityMediaVideo = ({ mediaId, presignedUrl, style }: ActivityMediaVideo
         </View>
       );
     }
-    return <ActiveVideo source={source} style={style} onError={() => setError(true)} />;
+    return <ActiveVideo source={source} style={style} onError={handlePlayerError} />;
   }
 
   // Phase 1 — lazy preview, no network request until tapped.

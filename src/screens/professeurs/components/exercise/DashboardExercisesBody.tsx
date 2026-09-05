@@ -14,9 +14,10 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { useUser } from "../../../../context/UserContext";
 import { exerciseService } from "../../../../services/api";
 import { LoadingSpinner } from "../../../../components/ui";
-import CreateExerciseModal from "./CreateExerciseModal";
-import ScheduleExerciseModal from "./ScheduleExerciseModal";
-import CorrectionsModal from "./CorrectionsModal";
+import CreateExerciseView from "./CreateExerciseView";
+import ScheduleExerciseView from "./ScheduleExerciseView";
+import ExerciseCorrectionsView from "./ExerciseCorrectionsView";
+import ExerciseDetailView from "./ExerciseDetailView";
 
 interface Exercise {
   id: string;
@@ -50,10 +51,10 @@ const DashboardExercisesBody = () => {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  type ViewMode = "list" | "create" | "schedule" | "corrections" | "detail";
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [showCorrectionsModal, setShowCorrectionsModal] = useState(false);
 
   const loadExercises = useCallback(async () => {
     if (!user?.userId) return;
@@ -171,12 +172,13 @@ const DashboardExercisesBody = () => {
 
   const handleCreateExercise = () => {
     closeFab();
-    setShowCreateModal(true);
+    setEditingExercise(null);
+    setViewMode("create");
   };
 
   const handleProgramExercise = () => {
     closeFab();
-    setShowScheduleModal(true);
+    setViewMode("schedule");
   };
 
   // Animation styles
@@ -192,10 +194,10 @@ const DashboardExercisesBody = () => {
 
   const programExerciseTranslateY = programExerciseAnimation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, -180],
+    outputRange: [0, -50],
   });
 
-  const optionScale = createExerciseAnimation.interpolate({
+  const optionScale = fabAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
   });
@@ -218,6 +220,68 @@ const DashboardExercisesBody = () => {
     return matchesSearch && matchesFilter;
   });
 
+  if (viewMode === "create") {
+    return (
+      <CreateExerciseView
+        editingExercise={editingExercise}
+        onBack={() => {
+          setEditingExercise(null);
+          setViewMode("list");
+        }}
+        onCreated={() => {
+          setEditingExercise(null);
+          setViewMode("list");
+          loadExercises();
+        }}
+      />
+    );
+  }
+
+  if (viewMode === "schedule") {
+    return (
+      <ScheduleExerciseView
+        exercises={exercises}
+        onBack={() => setViewMode("list")}
+        onScheduled={() => {
+          setViewMode("list");
+          loadExercises();
+        }}
+      />
+    );
+  }
+
+  if (viewMode === "corrections") {
+    return (
+      <ExerciseCorrectionsView
+        onBack={() => setViewMode("list")}
+      />
+    );
+  }
+
+  if (viewMode === "detail" && selectedExercise) {
+    return (
+      <ExerciseDetailView
+        exercise={selectedExercise}
+        onBack={() => {
+          setSelectedExercise(null);
+          setViewMode("list");
+        }}
+        onEdit={() => {
+          setEditingExercise(selectedExercise);
+          setViewMode("create");
+        }}
+        onSchedule={() => {
+          setViewMode("schedule");
+        }}
+        onDelete={() => {
+          handleDeleteExercise(selectedExercise);
+          setSelectedExercise(null);
+          setViewMode("list");
+        }}
+      />
+    );
+  }
+
   return (
     <TouchableWithoutFeedback onPress={closeFab}>
       <View style={exercisesStyles.container}>
@@ -232,7 +296,7 @@ const DashboardExercisesBody = () => {
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={() => setShowCorrectionsModal(true)}
+                onPress={() => setViewMode("corrections")}
                 style={{ padding: 8, backgroundColor: "#EEF2FF", borderRadius: 20 }}
               >
                 <FontAwesome5 name="clipboard-check" size={18} color="#4F46E5" />
@@ -354,7 +418,10 @@ const DashboardExercisesBody = () => {
                 <View style={exercisesStyles.exerciseActions}>
                   <TouchableOpacity
                     style={exercisesStyles.actionButton}
-                    onPress={() => setEditingExercise(exercise)}
+                    onPress={() => {
+                      setEditingExercise(exercise);
+                      setViewMode("create");
+                    }}
                   >
                     <FontAwesome5 name="edit" size={16} color="#4F46E5" />
                     <Text style={exercisesStyles.actionButtonText}>
@@ -364,7 +431,10 @@ const DashboardExercisesBody = () => {
 
                   <TouchableOpacity
                     style={exercisesStyles.actionButton}
-                    onPress={() => setEditingExercise(exercise)}
+                    onPress={() => {
+                      setSelectedExercise(exercise);
+                      setViewMode("detail");
+                    }}
                   >
                     <FontAwesome5 name="eye" size={16} color="#10B981" />
                     <Text style={exercisesStyles.actionButtonText}>Voir</Text>
@@ -471,25 +541,6 @@ const DashboardExercisesBody = () => {
             </TouchableOpacity>
           </Animated.View>
         </View>
-
-        <CreateExerciseModal
-          visible={showCreateModal || !!editingExercise}
-          onClose={() => {
-            setShowCreateModal(false);
-            setEditingExercise(null);
-          }}
-          onCreated={loadExercises}
-          editingExercise={editingExercise}
-        />
-
-        <ScheduleExerciseModal
-          visible={showScheduleModal}
-          onClose={() => setShowScheduleModal(false)}
-          onScheduled={loadExercises}
-          exercises={exercises}
-        />
-
-        <CorrectionsModal visible={showCorrectionsModal} onClose={() => setShowCorrectionsModal(false)} />
       </View>
     </TouchableWithoutFeedback>
   );

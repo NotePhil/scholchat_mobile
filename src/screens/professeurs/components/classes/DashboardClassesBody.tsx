@@ -16,7 +16,7 @@ import AccessRequestModal from "./AccessRequestModal";
 import ClassDetails from "./ClassDetails";
 import { classService } from "../../../../services/classService";
 import { useUser } from "../../../../context/UserContext";
-import { ClassUser, Etablissement, Professor } from "../../../../types";
+import { ClassEntity, ClassUser, Etablissement, Professor } from "../../../../types";
 
 export interface FormattedStudent {
   id: string;
@@ -72,6 +72,80 @@ export interface UIClass {
   etablissementDetails?: Etablissement;
   moderatorDetails?: Professor;
 }
+
+/**
+ * Fetches everything ClassDetails' Professeurs/Élèves/Parents/Utilisateurs/
+ * Demandes tabs need (members, access requests, moderator, establishment)
+ * for one class, on demand. Shared by every screen that opens ClassDetails
+ * for a class it didn't load via this file's own cached list flow — admin's
+ * AdminClassesBody and gestionnaire's EstablishmentClassesBody both use this
+ * instead of each maintaining their own copy.
+ */
+export const enrichClassForDetails = async (cls: ClassEntity): Promise<UIClass> => {
+  const [classDetails, accessRequests, classUsers] = await Promise.all([
+    classService.getClassDetails(cls.id),
+    classService.getClassAccessRequests(cls.id).catch(() => []),
+    classService.getClassUsers(cls.id).catch(() => []),
+  ]);
+
+  // GET /acceder/classes/{id}/utilisateurs returns UtilisateurSimpleDto — the
+  // discriminator is `typeUtilisateur` (uppercase), not `type`/`admin` (neither
+  // field exists on this endpoint's response).
+  const students = classUsers.filter((u) => u.typeUtilisateur === "ELEVE");
+  const parents = classUsers.filter((u) => u.typeUtilisateur === "PARENT");
+  const professeurs = classUsers.filter((u) => u.typeUtilisateur === "PROFESSEUR" || u.typeUtilisateur === "REPETITEUR");
+  const others = classUsers.filter((u) => u.typeUtilisateur === "UTILISATEUR" || !u.typeUtilisateur);
+
+  const formattedAccessRequests: FormattedAccessRequest[] = (accessRequests || []).map((request: any) => ({
+    id: request.id,
+    name: `${request.utilisateurPrenom || ""} ${request.utilisateurNom || ""}`.trim(),
+    role: "Utilisateur",
+    date: request.dateDemande ? new Date(request.dateDemande).toLocaleDateString("fr-FR") : "",
+    status: request.etat || "EN_ATTENTE",
+  }));
+
+  return {
+    id: cls.id,
+    name: classDetails.nom || cls.nom || "Nom non défini",
+    level: classDetails.niveau || cls.niveau || "Niveau non défini",
+    state: classDetails.etat === "ACTIF" ? "ACTIVE" : "INACTIVE",
+    studentsCount: students.length,
+    parentsCount: parents.length,
+    professeursCount: professeurs.length,
+    othersCount: others.length,
+    creationDate: (classDetails as any).dateCreation || new Date().toISOString(),
+    description: (classDetails as any).description || "",
+    etablissement: (classDetails as any).etablissement?.nom || "Non spécifié",
+    moderator: (classDetails as any).moderator
+      ? `${(classDetails as any).moderator.prenom || ""} ${(classDetails as any).moderator.nom || ""}`.trim()
+      : "Non spécifié",
+    teacherRights: "Droit de publication",
+    codeActivation: (classDetails as any).codeActivation || (cls as any).codeActivation,
+    droitPublication: (classDetails as any).droitPublication || (classDetails as any).droit_publication || "PROFESSEURS_SEULEMENT",
+    accesMajeur: !!(classDetails as any).accesMajeur,
+    students: students.map((s) => ({
+      id: s.id,
+      name: `${s.prenom || ""} ${s.nom || ""}`.trim(),
+      email: s.email || s.telephone || "Non spécifié",
+      niveau: (s as any).niveau || "Non spécifié",
+      dateCreation: (s as any).dateCreation || (s as any).creationDate,
+      etat: (s as any).etat,
+    })),
+    parents: parents.map((p) => ({
+      id: p.id,
+      name: `${p.prenom || ""} ${p.nom || ""}`.trim(),
+      phone: p.telephone || p.email || "Non spécifié",
+      adresse: (p as any).adresse,
+      dateCreation: (p as any).dateCreation || (p as any).creationDate,
+      etat: (p as any).etat,
+    })),
+    professeurs,
+    others,
+    accessRequests: formattedAccessRequests,
+    etablissementDetails: (classDetails as any).etablissement,
+    moderatorDetails: (classDetails as any).moderator,
+  };
+};
 
 interface CachedClassData {
   classDetails: any;

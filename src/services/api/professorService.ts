@@ -73,4 +73,19 @@ export const professorService = {
       throw new Error(extractErrorMessage(error, 'Échec du retrait du motif de rejet.'));
     }
   },
+
+  /**
+   * Other professors with publication rights on this professor's classes
+   * (excluding self) — mirrors web's ProfessorsContent.jsx professor-role
+   * branch, which hits this same endpoint instead of the admin-only
+   * `getAll()` list.
+   */
+  getCollaborateurs: async (id: string): Promise<Professor[]> => {
+    try {
+      const { data } = await apiClient.get<Professor[]>(`/professeurs/moderateur/${id}/collaborateurs`);
+      return Array.isArray(data) ? data.filter((p) => p.id !== id) : [];
+    } catch {
+      return [];
+    }
+  },
 };

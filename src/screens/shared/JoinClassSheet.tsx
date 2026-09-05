@@ -52,7 +52,7 @@ const JoinClassSheet = ({ visible, onClose, onSubmitted, utilisateurId, estParen
     }
   };
 
-  const handleSubmit = async () => {
+  const executeSubmit = async () => {
     if (!foundClass || !utilisateurId) return;
     setSubmitting(true);
     try {
@@ -71,6 +71,18 @@ const JoinClassSheet = ({ visible, onClose, onSubmitted, utilisateurId, estParen
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSubmit = () => {
+    if (!foundClass || !utilisateurId) return;
+    Alert.alert(
+      "Confirmer la demande",
+      `Êtes-vous sûr de vouloir envoyer une demande d'accès pour la classe "${foundClass.nom}" ?`,
+      [
+        { text: "Annuler", style: "cancel" },
+        { text: "Confirmer la demande", onPress: executeSubmit },
+      ]
+    );
   };
 
   return (

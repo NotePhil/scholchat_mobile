@@ -12,17 +12,16 @@ import { AppRole } from "../../types";
 // Shared across every role
 import DashboardActivitiesBody from "../professeurs/components/DashboardActivitiesBody";
 import DashboardMessagesBody from "../professeurs/components/messages/DashboardMessagesBody";
+import DashboardContentBody from "./DashboardContentBody";
+import StudentParentStatsBody from "./StudentParentStatsBody";
 
-// Admin
-import AdminDashboardBody from "../admin/components/AdminDashboardBody";
 import AdminUsersBody from "../admin/components/AdminUsersBody";
 import AdminClassesBody from "../admin/components/AdminClassesBody";
 import AdminSchoolsBody from "../admin/components/AdminSchoolsBody";
 import MotifsDeRejetBody from "../admin/components/MotifsDeRejetBody";
+import GestionnairesBody from "../admin/components/GestionnairesBody";
 
 // Professor / Tutor
-import DashboardMainBody from "../professeurs/components/DashboardMainBody";
-import DashboardStatsBody from "../professeurs/components/DashboardStatsBody";
 import DashboardUsersBody from "../professeurs/components/DashboardUsersBody";
 import DashboardCoursBody, { Cours } from "../professeurs/components/cours/DashboardCoursBody";
 import CreateCoursBody from "../professeurs/components/cours/CreateCoursBody";
@@ -31,14 +30,12 @@ import DashboardClassesBody from "../professeurs/components/classes/DashboardCla
 import MatieresBody from "../professeurs/components/MatieresBody";
 
 // Parent
-import ParentOverviewBody from "../parent/ParentOverviewBody";
 import ParentChildrenBody from "../parent/ParentChildrenBody";
 import ParentClassesBody from "../parent/ParentClassesBody";
 import ParentCoursesBody from "../parent/ParentCoursesBody";
 import ParentExercisesBody from "../parent/ParentExercisesBody";
 
 // Student
-import StudentOverviewBody from "../student/StudentOverviewBody";
 import StudentClassesBody from "../student/StudentClassesBody";
 import StudentExercisesBody from "../student/StudentExercisesBody";
 import StudentCoursesBody from "../student/StudentCoursesBody";
@@ -56,8 +53,9 @@ interface DashboardShellProps {
 // Classes/Établissements dropdown grouping (Créer/Gérer sub-items each).
 const ADMIN_QUICK_ACTIONS: QuickAction[] = [
   { icon: "th-large", label: "Tableau de Bord", color: "#6366F1", tab: "dashboard" },
-  { icon: "tasks", label: "Activités", color: "#3B82F6", tab: "activities" },
-  { icon: "users", label: "Gérer Utilisateur", color: "#7C3AED", tab: "users" },
+  { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
+  { icon: "users", label: "Gérer Utilisateur", color: "#7C3AED", submenu: "users" },
+  { icon: "user-tie", label: "Gestionnaires", color: "#0D9488", tab: "gestionnaires" },
   { icon: "graduation-cap", label: "Matières", color: "#A855F7", tab: "matieres" },
   { icon: "exclamation-circle", label: "Motifs de Rejet", color: "#F97316", tab: "motifs" },
   { icon: "chalkboard", label: "Classes", color: "#0891B2", submenu: "classes" },
@@ -68,6 +66,15 @@ const ADMIN_QUICK_ACTIONS: QuickAction[] = [
 ];
 
 const ADMIN_QUICK_ACTION_SUBMENUS: Record<string, QuickAction[]> = {
+  users: [
+    { icon: "user-shield", label: "Admin", color: "#7C3AED", tab: "users-admins" },
+    { icon: "chalkboard-teacher", label: "Professeurs", color: "#3B82F6", tab: "users-professeurs" },
+    { icon: "user-friends", label: "Parents", color: "#F59E0B", tab: "users-parents" },
+    { icon: "user-graduate", label: "Élèves", color: "#10B981", tab: "users-eleves" },
+    { icon: "user", label: "Autres", color: "#6B7280", tab: "users-autres" },
+    { icon: "building", label: "Gestionnaires", color: "#0D9488", tab: "users-gestionnaires" },
+    { icon: "user-clock", label: "En attente", color: "#DC2626", tab: "users-pending" },
+  ],
   classes: [
     { icon: "plus-circle", label: "Créer une Classe", color: "#10B981", tab: "create-class" },
     { icon: "chalkboard", label: "Gérer une Classe", color: "#0891B2", tab: "classes" },
@@ -80,7 +87,7 @@ const ADMIN_QUICK_ACTION_SUBMENUS: Record<string, QuickAction[]> = {
 
 const PROFESSOR_QUICK_ACTIONS: QuickAction[] = [
   { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
-  { icon: "tasks", label: "Activités", color: "#3B82F6", tab: "activities" },
+  { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "book-open", label: "Cours", color: "#10B981", tab: "cours" },
   { icon: "graduation-cap", label: "Matières", color: "#A855F7", tab: "matieres" },
   { icon: "clipboard-list", label: "Exercices", color: "#F59E0B", tab: "exercises" },
@@ -92,7 +99,7 @@ const PROFESSOR_QUICK_ACTIONS: QuickAction[] = [
 
 const PARENT_QUICK_ACTIONS: QuickAction[] = [
   { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
-  { icon: "tasks", label: "Activités", color: "#3B82F6", tab: "activities" },
+  { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "clipboard-list", label: "Devoirs", color: "#F59E0B", tab: "exercises" },
   { icon: "chalkboard", label: "Classes", color: "#10B981", tab: "classes" },
   { icon: "book-open", label: "Mes Cours", color: "#8B5CF6", tab: "courses" },
@@ -103,7 +110,7 @@ const PARENT_QUICK_ACTIONS: QuickAction[] = [
 
 const STUDENT_QUICK_ACTIONS: QuickAction[] = [
   { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
-  { icon: "tasks", label: "Activités", color: "#3B82F6", tab: "activities" },
+  { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "clipboard-list", label: "Devoirs", color: "#F59E0B", tab: "exercises" },
   { icon: "chalkboard", label: "Classes", color: "#10B981", tab: "classes" },
   { icon: "book-open", label: "Mes Cours", color: "#8B5CF6", tab: "courses" },
@@ -113,7 +120,7 @@ const STUDENT_QUICK_ACTIONS: QuickAction[] = [
 
 const ESTABLISHMENT_QUICK_ACTIONS: QuickAction[] = [
   { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
-  { icon: "tasks", label: "Activités", color: "#3B82F6", tab: "activities" },
+  { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "school", label: "Écoles", color: "#0D9488", tab: "establishments" },
   { icon: "chalkboard", label: "Classes", color: "#10B981", tab: "classes" },
   { icon: "envelope", label: "Messagerie", color: "#0EA5E9", tab: "messages" },
@@ -196,9 +203,27 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
       case "admin":
         switch (activeTab) {
           case "dashboard":
-            return <AdminDashboardBody />;
+            return <DashboardContentBody />;
           case "users":
             return <AdminUsersBody />;
+          case "users-admins":
+            return <AdminUsersBody initialTab="admins" />;
+          case "users-professeurs":
+            return <AdminUsersBody initialTab="professeurs" />;
+          case "users-parents":
+            return <AdminUsersBody initialTab="parents" />;
+          case "users-eleves":
+            return <AdminUsersBody initialTab="eleves" />;
+          case "users-autres":
+            return <AdminUsersBody initialTab="autres" />;
+          case "users-gestionnaires":
+            return <AdminUsersBody initialTab="gestionnaires" />;
+          case "users-pending":
+            return <AdminUsersBody initialTab="pending" />;
+          case "gestionnaires":
+            return <GestionnairesBody />;
+          case "create-gestionnaire":
+            return <GestionnairesBody autoCreate />;
           case "classes":
             return <AdminClassesBody />;
           case "create-class":
@@ -220,20 +245,25 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
           default:
-            return <AdminDashboardBody />;
+            return <DashboardContentBody />;
         }
 
       case "parent":
         switch (activeTab) {
           case "dashboard":
-            return <ParentOverviewBody />;
+            return <StudentParentStatsBody userRole="parent" onNavigate={setActiveTab} />;
           case "children":
+          case "my-children":
             return <ParentChildrenBody />;
           case "classes":
+          case "class":
             return <ParentClassesBody />;
           case "courses":
+          case "cours":
             return <ParentCoursesBody />;
           case "exercises":
+          case "devoirs":
+          case "manage-exercises":
             return <ParentExercisesBody />;
           case "activities":
             return <DashboardActivitiesBody />;
@@ -242,18 +272,22 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
           default:
-            return <ParentOverviewBody />;
+            return <StudentParentStatsBody userRole="parent" onNavigate={setActiveTab} />;
         }
 
       case "student":
         switch (activeTab) {
           case "dashboard":
-            return <StudentOverviewBody />;
+            return <StudentParentStatsBody userRole="student" onNavigate={setActiveTab} />;
           case "classes":
+          case "class":
             return <StudentClassesBody />;
           case "exercises":
+          case "devoirs":
+          case "manage-exercises":
             return <StudentExercisesBody />;
           case "courses":
+          case "cours":
             return <StudentCoursesBody />;
           case "activities":
             return <DashboardActivitiesBody />;
@@ -262,14 +296,14 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
           default:
-            return <StudentOverviewBody />;
+            return <StudentParentStatsBody userRole="student" onNavigate={setActiveTab} />;
         }
 
       case "establishment":
       case "gestionnaire":
         switch (activeTab) {
           case "dashboard":
-            return <EstablishmentOverviewBody />;
+            return <EstablishmentOverviewBody onNavigate={setActiveTab} />;
           case "establishments":
             return <EstablishmentListBody />;
           case "classes":
@@ -289,12 +323,13 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
       default:
         switch (activeTab) {
           case "dashboard":
-            return <DashboardMainBody onOpenMessages={() => setActiveTab("messages")} />;
+            return <DashboardContentBody />;
           case "messages":
             return <DashboardMessagesBody onBack={() => setActiveTab("dashboard")} />;
           case "activities":
             return <DashboardActivitiesBody />;
           case "cours":
+          case "courses":
             return coursViewMode === "create" ? (
               <CreateCoursBody onBack={handleBackToCoursList} onCreateCours={handleCreateCours} editingCours={editingCours} />
             ) : (
@@ -305,19 +340,21 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
               />
             );
           case "exercises":
+          case "manage-exercises":
+          case "devoirs":
             return <DashboardExercisesBody />;
           case "class":
+          case "classes":
+          case "manage-class":
             return <DashboardClassesBody />;
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
-          case "stats":
-            return <DashboardStatsBody />;
           case "users":
             return <DashboardUsersBody />;
           case "matieres":
             return <MatieresBody />;
           default:
-            return <DashboardMainBody onOpenMessages={() => setActiveTab("messages")} />;
+            return <DashboardContentBody />;
         }
     }
   };

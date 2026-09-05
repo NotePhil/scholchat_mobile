@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { WebView } from "react-native-webview";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -7,7 +7,6 @@ import { Button, EmptyState, LoadingSpinner } from "../../components/ui";
 import { colors, spacing, typography } from "../../styles/theme";
 import { liveSessionService } from "../../services/api";
 import { LiveSessionInfo } from "../../types";
-import { useUser } from "../../context/UserContext";
 
 /**
  * Builds the same Jitsi meeting URL web's JitsiRoom.jsx configures via the
@@ -48,7 +47,6 @@ const buildJitsiUrl = (session: LiveSessionInfo, isModerator: boolean): string |
 const LiveSessionScreen = () => {
   const navigation = useNavigation();
   const route = useRoute<any>();
-  const { user } = useUser();
   const coursId: string | undefined = route.params?.coursId;
   const isHost: boolean = route.params?.isHost ?? false;
 
@@ -56,6 +54,8 @@ const LiveSessionScreen = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
+
+  const jitsiUrl = useMemo(() => (session ? buildJitsiUrl(session, isHost) : null), [session, isHost]);
 
   // getActiveSession() only confirms a session exists and hands back its id —
   // its response isn't directly connectable. Every client (host included,
@@ -198,6 +198,18 @@ const styles = StyleSheet.create({
   endButtonText: { color: colors.danger, fontWeight: "700" },
   webview: { flex: 1 },
   emptyWrap: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.xl },
+  contentOnlyWrap: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#111827", paddingHorizontal: spacing.xl },
+  contentOnlyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.md,
+  },
+  contentOnlyTitle: { color: "#FFFFFF", fontWeight: "700", fontSize: 16 },
+  contentOnlySubtitle: { color: "#9CA3AF", fontSize: 13, marginTop: spacing.xs, textAlign: "center" },
 });
 
 export default LiveSessionScreen;

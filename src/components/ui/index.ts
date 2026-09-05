@@ -3,6 +3,8 @@ export { default as Badge } from './Badge';
 export { default as BottomSheet } from './BottomSheet';
 export { default as Button } from './Button';
 export { default as Card } from './Card';
+export { default as DropdownField } from './DropdownField';
+export type { DropdownOption } from './DropdownField';
 export { default as EmptyState } from './EmptyState';
 export { default as Input } from './Input';
 export { default as ListItem } from './ListItem';

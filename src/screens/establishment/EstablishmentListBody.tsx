@@ -1,19 +1,28 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { BottomSheet, Button, EmptyState, Input, LoadingSpinner } from "../../components/ui";
+import { Badge, Button, EmptyState, LoadingSpinner } from "../../components/ui";
 import { colors, spacing, typography } from "../../styles/theme";
 import { establishmentService } from "../../services/api";
+import { CreateEstablishmentSheet } from "../admin/components/CreateEstablishmentSheet";
 import { Etablissement } from "../../types";
 import { useUser } from "../../context/UserContext";
 import EstablishmentDetails from "./EstablishmentDetails";
 
+/**
+ * Gestionnaire's own "Mes établissements" — reuses the exact same create/
+ * edit form as admin's (CreateEstablishmentSheet), matching web's
+ * CreateEstablishmentContent.jsx which both roles share verbatim. This used
+ * to keep its own separate, much thinner create form (nom + localisation
+ * only, no edit at all) instead of the real one.
+ */
 const EstablishmentListBody = () => {
   const { user } = useUser();
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [editingEstablishment, setEditingEstablishment] = useState<Etablissement | null>(null);
   const [managedEstId, setManagedEstId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -78,71 +87,48 @@ const EstablishmentListBody = () => {
           />
         ) : (
           establishments.map((est) => (
-            <TouchableOpacity key={est.id} style={styles.card} onPress={() => setManagedEstId(est.id)}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{est.nom}</Text>
-                <TouchableOpacity onPress={() => handleDelete(est)}>
+            <View key={est.id} style={styles.card}>
+              <TouchableOpacity onPress={() => setManagedEstId(est.id)}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>{est.nom}</Text>
+                  {(est as any).expireParOffre ? <Badge label="Offre expirée" tone="danger" /> : null}
+                </View>
+                {est.localisation ? <Text style={styles.cardMeta}>{est.localisation}</Text> : null}
+                {(est.optionEnvoiMailNewClasse || est.optionTokenGeneral) && (
+                  <View style={styles.badgeRow}>
+                    {est.optionEnvoiMailNewClasse ? <Badge label="Email Classes" tone="success" /> : null}
+                    {est.optionTokenGeneral ? <Badge label="Code Unique" tone="info" /> : null}
+                  </View>
+                )}
+              </TouchableOpacity>
+              <View style={styles.cardActions}>
+                <Button label="Gérer" variant="secondary" onPress={() => setManagedEstId(est.id)} style={{ flex: 1 }} />
+                <TouchableOpacity style={styles.iconBtn} onPress={() => setEditingEstablishment(est)}>
+                  <FontAwesome5 name="edit" size={16} color={colors.success} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconBtn} onPress={() => handleDelete(est)}>
                   <FontAwesome5 name="trash" size={16} color={colors.danger} />
                 </TouchableOpacity>
               </View>
-              {est.localisation ? <Text style={styles.cardMeta}>{est.localisation}</Text> : null}
-              <Button
-                label="Gérer"
-                variant="secondary"
-                onPress={() => setManagedEstId(est.id)}
-                style={{ marginTop: spacing.sm }}
-              />
-            </TouchableOpacity>
+            </View>
           ))
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <CreateSheet visible={showCreate} onClose={() => setShowCreate(false)} onCreated={load} gestionnaireId={user?.userId} />
+      <CreateEstablishmentSheet
+        visible={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreated={load}
+        defaultGestionnaireId={user?.userId}
+      />
+      <CreateEstablishmentSheet
+        visible={!!editingEstablishment}
+        onClose={() => setEditingEstablishment(null)}
+        onCreated={load}
+        editingEstablishment={editingEstablishment}
+      />
     </View>
-  );
-};
-
-const CreateSheet = ({
-  visible,
-  onClose,
-  onCreated,
-  gestionnaireId,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onCreated: () => void;
-  gestionnaireId?: string;
-}) => {
-  const [nom, setNom] = useState("");
-  const [localisation, setLocalisation] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!nom.trim()) {
-      Alert.alert("Erreur", "Le nom est obligatoire.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await establishmentService.create({ nom: nom.trim(), localisation: localisation.trim(), gestionnaireId });
-      setNom("");
-      setLocalisation("");
-      onCreated();
-      onClose();
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la création.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <BottomSheet visible={visible} onClose={onClose} title="Nouvel établissement">
-      <Input label="Nom" value={nom} onChangeText={setNom} placeholder="Nom de l'établissement" />
-      <Input label="Localisation" value={localisation} onChangeText={setLocalisation} placeholder="Ville, pays" />
-      <Button label="Créer" onPress={handleSubmit} loading={submitting} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
-    </BottomSheet>
   );
 };
 
@@ -161,9 +147,12 @@ const styles = StyleSheet.create({
   list: { flex: 1, paddingHorizontal: 16 },
   error: { color: colors.danger, marginBottom: spacing.md },
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cardTitle: { ...typography.bodyBold, color: colors.text },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
+  cardTitle: { ...typography.bodyBold, color: colors.text, flex: 1 },
   cardMeta: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.sm },
+  cardActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
+  iconBtn: { width: 40, height: 40, borderRadius: 10, backgroundColor: colors.grayLight, alignItems: "center", justifyContent: "center" },
 });
 
 export default EstablishmentListBody;

@@ -3,53 +3,54 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-nati
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { Badge, Button, EmptyState, LoadingSpinner } from "../../components/ui";
+import ChildSelectorRow from "./ChildSelectorRow";
+import CourseContentSheet from "../shared/CourseContentSheet";
 import { colors, spacing, typography } from "../../styles/theme";
 import { parentService } from "../../services/api";
-import { CoursProgramme, StudentProfile } from "../../types";
+import { CoursProgramme } from "../../types";
 import { useUser } from "../../context/UserContext";
+import { useSelectedChildStore } from "../../store/useSelectedChildStore";
+
+const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral" | "info"> = {
+  PLANIFIE: "info",
+  EN_COURS: "success",
+  TERMINE: "neutral",
+  ANNULE: "danger",
+};
 
 const ParentCoursesBody = () => {
   const { user } = useUser();
   const navigation = useNavigation<any>();
-  const [children, setChildren] = useState<StudentProfile[]>([]);
-  const [selectedChildId, setSelectedChildId] = useState<string | null>(null);
+  const { children, selectedChildId, loadChildren } = useSelectedChildStore();
   const [courses, setCourses] = useState<CoursProgramme[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedCourse, setSelectedCourse] = useState<CoursProgramme | null>(null);
 
-  const loadChildren = useCallback(async () => {
-    if (!user?.userId) return;
+  useEffect(() => {
+    if (user?.userId) loadChildren(user.userId);
+  }, [user?.userId, loadChildren]);
+
+  const loadCourses = useCallback(async () => {
+    if (!selectedChildId) {
+      setCourses([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError("");
     try {
-      const data = await parentService.getChildren(user.userId);
-      setChildren(data);
-      if (data.length > 0) setSelectedChildId(data[0].id);
-      else setLoading(false);
+      setCourses(await parentService.getChildScheduledCourses(selectedChildId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec du chargement.");
+      setError(err instanceof Error ? err.message : "Échec du chargement des cours.");
+    } finally {
       setLoading(false);
     }
-  }, [user?.userId]);
-
-  useEffect(() => {
-    loadChildren();
-  }, [loadChildren]);
-
-  useEffect(() => {
-    const loadCourses = async () => {
-      if (!selectedChildId) return;
-      setLoading(true);
-      setError("");
-      try {
-        const data = await parentService.getChildScheduledCourses(selectedChildId);
-        setCourses(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Échec du chargement des cours.");
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadCourses();
   }, [selectedChildId]);
+
+  useEffect(() => {
+    loadCourses();
+  }, [loadCourses]);
 
   return (
     <View style={styles.container}>
@@ -57,21 +58,7 @@ const ParentCoursesBody = () => {
         <Text style={styles.title}>Cours programmés</Text>
       </View>
 
-      {children.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.childRow}>
-          {children.map((child) => (
-            <TouchableOpacity
-              key={child.id}
-              style={[styles.childChip, selectedChildId === child.id && styles.childChipActive]}
-              onPress={() => setSelectedChildId(child.id)}
-            >
-              <Text style={[styles.childChipText, selectedChildId === child.id && styles.childChipTextActive]}>
-                {child.prenom} {child.nom}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      )}
+      <ChildSelectorRow />
 
       <ScrollView style={styles.list}>
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -82,28 +69,54 @@ const ParentCoursesBody = () => {
         ) : courses.length === 0 ? (
           <EmptyState icon="calendar" title="Aucun cours programmé" />
         ) : (
-          courses.map((course) => (
-            <View key={course.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <FontAwesome5 name="calendar-alt" size={16} color={colors.primary} />
-                <Text style={styles.cardTitle}>
-                  {course.dateCoursPrevue ? new Date(course.dateCoursPrevue).toLocaleString("fr-FR") : "Cours"}
-                </Text>
-              </View>
-              {course.etatCoursProgramme ? <Badge label={course.etatCoursProgramme} tone="info" /> : null}
-              {course.coursId ? (
-                <Button
-                  label="Rejoindre la session"
-                  variant="secondary"
-                  onPress={() => navigation.navigate("LiveSession", { coursId: course.coursId, isHost: false })}
-                  style={{ marginTop: spacing.sm }}
-                />
-              ) : null}
-            </View>
-          ))
+          courses.map((course) => {
+            const etat = course.etatCoursProgramme;
+            const isLive = etat === "EN_COURS";
+            return (
+              <TouchableOpacity
+                key={course.id}
+                style={styles.card}
+                onPress={() => setSelectedCourse(course)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.cardHeader}>
+                  <FontAwesome5 name="calendar-alt" size={16} color={colors.primary} />
+                  <Text style={styles.cardTitle}>
+                    {course.dateCoursPrevue ? new Date(course.dateCoursPrevue).toLocaleString("fr-FR") : "Cours"}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                  {etat ? <Badge label={etat} tone={STATUS_TONE[etat] ?? "neutral"} /> : null}
+                  {course.lieu ? <Text style={styles.hintText}>{course.lieu}</Text> : null}
+                </View>
+                {isLive && course.coursId ? (
+                  <Button
+                    label="Rejoindre la session en direct"
+                    variant="secondary"
+                    onPress={() => navigation.navigate("LiveSession", { coursId: course.coursId, isHost: false })}
+                    style={{ marginTop: spacing.sm }}
+                  />
+                ) : (
+                  <TouchableOpacity
+                    style={styles.viewCourseBtn}
+                    onPress={() => setSelectedCourse(course)}
+                  >
+                    <FontAwesome5 name="book-open" size={12} color={colors.primary} />
+                    <Text style={styles.viewCourseText}>Voir le contenu du cours</Text>
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            );
+          })
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <CourseContentSheet
+        visible={!!selectedCourse}
+        coursProgramme={selectedCourse}
+        onClose={() => setSelectedCourse(null)}
+      />
     </View>
   );
 };
@@ -112,16 +125,20 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 16, marginTop: 20, marginBottom: spacing.md },
   title: { ...typography.h1, color: colors.text },
-  childRow: { paddingHorizontal: 16, marginBottom: spacing.md, flexGrow: 0 },
-  childChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 20, backgroundColor: colors.grayLight, marginRight: spacing.sm },
-  childChipActive: { backgroundColor: colors.primary },
-  childChipText: { ...typography.caption, color: colors.text, fontWeight: "600" },
-  childChipTextActive: { color: colors.white },
   list: { flex: 1, paddingHorizontal: 16 },
   error: { color: colors.danger, marginBottom: spacing.md },
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md, gap: spacing.xs },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
   cardTitle: { ...typography.bodyBold, color: colors.text },
+  hintText: { ...typography.caption, color: colors.textMuted },
+  viewCourseBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    paddingVertical: 4,
+  },
+  viewCourseText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
 });
 
 export default ParentCoursesBody;

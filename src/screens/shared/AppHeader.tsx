@@ -1,13 +1,19 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, TouchableWithoutFeedback } from "react-native";
+import { Alert, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useUser } from "../../context/UserContext";
 import { notificationService } from "../../services/api";
+import { authService } from "../../services/home/authService";
+import { useAuthStore } from "../../store/useAuthStore";
+import { useLanguageStore } from "../../store/useLanguageStore";
 import { useNotificationsStore } from "../../store/useNotificationsStore";
+import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 import { useUiStore } from "../../store/useUiStore";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography } from "../../styles/theme";
 import { confirmLogout } from "../../utils/confirmLogout";
+import RoleSelectorSheet from "./RoleSelectorSheet";
+import { BottomSheet } from "../../components/ui";
 
 interface AppHeaderProps {
   roleLabel: string;
@@ -16,20 +22,28 @@ interface AppHeaderProps {
   onNavigateToProfile?: () => void;
 }
 
-/**
- * THE header — one component, every role. Matches web's shared/Header.jsx:
- * a single implementation with no per-role branching, differing only by the
- * `roleLabel`/`accentColor` data passed in. Previously this existed as three
- * separately-authored near-duplicates (AdminHeader.tsx, DashboardHeader.tsx,
- * RoleHeader.tsx) that had quietly drifted apart in styling and even in
- * which notification fields they read — that's the bug this consolidation
- * removes, not just the duplication itself.
- */
 const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNavigateToProfile }: AppHeaderProps) => {
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showRoleSheet, setShowRoleSheet] = useState(false);
+  const [showChildSheet, setShowChildSheet] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState(false);
+
   const { items: notifications, unreadCount, setItems, setUnreadCount, markReadLocally } = useNotificationsStore();
+  const currentRole = useAuthStore((s) => s.role);
+  const roles = useAuthStore((s) => s.roles);
+  const authUser = useAuthStore((s) => s.user);
+  const login = useAuthStore((s) => s.login);
+
+  const { currentLanguage, toggleLanguage, loadLanguage } = useLanguageStore();
+  const { children, selectedChildId, setSelectedChildId, loadChildren } = useSelectedChildStore();
+
+  const isParent = currentRole === "parent";
+  const selectedChild = children.find((c) => c.id === selectedChildId);
+
+  // Available roles from authResponse or token roles
+  const availableRoles: string[] = (authUser?.availableRoles as string[]) || (roles.length > 0 ? roles : [currentRole]);
 
   const name = user?.username || `${user?.prenom ?? ""} ${user?.nom ?? ""}`.trim() || roleLabel;
   const initial = name.charAt(0).toUpperCase();
@@ -49,7 +63,27 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
 
   useEffect(() => {
     loadNotifications();
-  }, [loadNotifications]);
+    loadLanguage();
+  }, [loadNotifications, loadLanguage]);
+
+  useEffect(() => {
+    if (isParent && user?.userId) {
+      loadChildren(user.userId);
+    }
+  }, [isParent, user?.userId, loadChildren]);
+
+  const handleRoleSelect = async (selectedRole: string) => {
+    setSwitchingRole(true);
+    try {
+      const switched = await authService.switchRole(selectedRole);
+      login(switched);
+    } catch (err) {
+      Alert.alert("Changement de rôle", err instanceof Error ? err.message : "Échec du changement de rôle.");
+    } finally {
+      setSwitchingRole(false);
+      setShowRoleSheet(false);
+    }
+  };
 
   return (
     <>
@@ -58,28 +92,69 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
           <View style={styles.overlay} />
         </TouchableWithoutFeedback>
       )}
+
       <View style={styles.header}>
-        <TouchableOpacity style={styles.left} onPress={onNavigateToProfile}>
+        <TouchableOpacity style={styles.left} onPress={onNavigateToProfile} activeOpacity={0.7}>
           <View style={[styles.avatar, { backgroundColor: accentColor }]}>
             <Text style={styles.avatarText}>{initial}</Text>
           </View>
-          <View>
+          <View style={styles.titleWrap}>
             <Text style={styles.appName}>SchoolChat</Text>
-            <Text style={styles.role}>{roleLabel}</Text>
+            <Text style={styles.role} numberOfLines={1}>{roleLabel}</Text>
           </View>
         </TouchableOpacity>
 
         <View style={styles.right}>
+          {/* Multi-role button if user has > 1 role */}
+          {availableRoles.length > 1 && (
+            <TouchableOpacity
+              style={[styles.roleSwitchBtn, { borderColor: accentColor }]}
+              onPress={() => setShowRoleSheet(true)}
+              activeOpacity={0.7}
+            >
+              <FontAwesome5 name="sync-alt" size={11} color={accentColor} />
+              <Text style={[styles.roleSwitchText, { color: accentColor }]}>Profil</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Child Switcher for Parents */}
+          {isParent && children.length > 0 && (
+            <TouchableOpacity
+              style={styles.childSwitchBtn}
+              onPress={() => setShowChildSheet(true)}
+              activeOpacity={0.7}
+            >
+              <FontAwesome5 name="child" size={11} color="#9333EA" />
+              <Text style={styles.childSwitchText} numberOfLines={1}>
+                {selectedChild ? `${selectedChild.prenom ?? "Enfant"}` : "Enfant"}
+              </Text>
+              <FontAwesome5 name="chevron-down" size={9} color="#9333EA" />
+            </TouchableOpacity>
+          )}
+
+          {/* Language Toggle */}
+          <TouchableOpacity
+            style={styles.langBtn}
+            onPress={toggleLanguage}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.langFlag}>{currentLanguage === "fr" ? "🇫🇷" : "🇬🇧"}</Text>
+            <Text style={styles.langText}>{currentLanguage.toUpperCase()}</Text>
+          </TouchableOpacity>
+
+          {/* Notifications */}
           <TouchableOpacity style={styles.iconButton} onPress={() => setShowNotifications((v) => !v)}>
-            <FontAwesome5 name="bell" size={18} color={colors.textMuted} />
+            <FontAwesome5 name="bell" size={17} color={colors.textMuted} />
             {unreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
               </View>
             )}
           </TouchableOpacity>
+
+          {/* Logout */}
           <TouchableOpacity style={styles.iconButton} onPress={() => confirmLogout(onLogout)}>
-            <FontAwesome5 name="sign-out-alt" size={20} color={colors.danger} />
+            <FontAwesome5 name="sign-out-alt" size={18} color={colors.danger} />
           </TouchableOpacity>
         </View>
 
@@ -91,7 +166,7 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
             {notifications.length === 0 ? (
               <Text style={styles.emptyText}>Aucune notification</Text>
             ) : (
-              notifications.slice(0, 10).map((n) => (
+              notifications.slice(0, 8).map((n) => (
                 <TouchableOpacity
                   key={n.id}
                   style={styles.notificationItem}
@@ -125,6 +200,57 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
           </View>
         )}
       </View>
+
+      {/* Role Selection Sheet */}
+      <RoleSelectorSheet
+        visible={showRoleSheet}
+        roles={availableRoles}
+        currentRole={currentRole}
+        onSelect={handleRoleSelect}
+        onClose={() => setShowRoleSheet(false)}
+        title="Changer de profil"
+        subtitle="Choisissez le profil vers lequel vous souhaitez basculer."
+      />
+
+      {/* Child Selection Sheet for Parents */}
+      {isParent && (
+        <BottomSheet
+          visible={showChildSheet}
+          onClose={() => setShowChildSheet(false)}
+          title="Mes enfants"
+        >
+          <View style={styles.childList}>
+            {children.map((c) => {
+              const isSelected = c.id === selectedChildId;
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[
+                    styles.childCard,
+                    isSelected && { borderColor: "#9333EA", backgroundColor: "#FAF5FF" },
+                  ]}
+                  onPress={() => {
+                    setSelectedChildId(c.id);
+                    setShowChildSheet(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.childAvatar, isSelected && { backgroundColor: "#9333EA" }]}>
+                    <Text style={[styles.childAvatarText, isSelected && { color: colors.white }]}>
+                      {(c.prenom || "?").charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.childName}>{c.prenom} {c.nom}</Text>
+                    {c.classeNom ? <Text style={styles.childSub}>{c.classeNom}</Text> : null}
+                  </View>
+                  {isSelected && <FontAwesome5 name="check-circle" size={16} color="#9333EA" />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </BottomSheet>
+      )}
     </>
   );
 };
@@ -135,21 +261,57 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingTop: 50,
-    paddingBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: 48,
+    paddingBottom: spacing.sm,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     zIndex: 1001,
   },
-  left: { flexDirection: "row", alignItems: "center" },
-  avatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", marginRight: spacing.md },
-  avatarText: { color: colors.white, fontSize: 18, fontWeight: "700" },
-  appName: { ...typography.h3, color: colors.text },
-  role: { ...typography.caption, color: colors.textMuted },
-  right: { flexDirection: "row", alignItems: "center" },
-  iconButton: { padding: spacing.sm, marginLeft: spacing.xs },
+  left: { flexDirection: "row", alignItems: "center", flex: 1, marginRight: spacing.xs },
+  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", marginRight: spacing.sm },
+  avatarText: { color: colors.white, fontSize: 16, fontWeight: "700" },
+  titleWrap: { flexShrink: 1 },
+  appName: { ...typography.h3, fontSize: 16, color: colors.text },
+  role: { ...typography.caption, color: colors.textMuted, fontSize: 11 },
+  right: { flexDirection: "row", alignItems: "center", gap: 6 },
+  roleSwitchBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    backgroundColor: colors.background,
+  },
+  roleSwitchText: { fontSize: 11, fontWeight: "700" },
+  childSwitchBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: "#D8B4FE",
+    backgroundColor: "#FAF5FF",
+    maxWidth: 90,
+  },
+  childSwitchText: { fontSize: 11, fontWeight: "700", color: "#9333EA" },
+  langBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    backgroundColor: colors.background,
+  },
+  langFlag: { fontSize: 12 },
+  langText: { fontSize: 10, fontWeight: "700", color: colors.textMuted },
+  iconButton: { padding: 6, position: "relative" },
   badge: {
     position: "absolute",
     top: 2,
@@ -162,12 +324,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 2,
   },
-  badgeText: { color: colors.white, fontSize: 10, fontWeight: "700" },
+  badgeText: { color: colors.white, fontSize: 9, fontWeight: "700" },
   dropdown: {
     position: "absolute",
     top: 76,
-    right: spacing.lg,
-    left: spacing.lg,
+    right: spacing.md,
+    left: spacing.md,
     backgroundColor: colors.surface,
     borderRadius: 12,
     padding: spacing.md,
@@ -183,10 +345,33 @@ const styles = StyleSheet.create({
   dropdownTitle: { ...typography.h3, color: colors.text },
   emptyText: { ...typography.body, color: colors.textMuted, paddingVertical: spacing.md },
   notificationItem: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
-  notificationTitle: { ...typography.body, color: colors.text },
-  notificationMessage: { ...typography.caption, color: colors.textMuted },
+  notificationTitle: { ...typography.body, color: colors.text, fontSize: 13 },
+  notificationMessage: { ...typography.caption, color: colors.textMuted, fontSize: 11 },
   viewAllButton: { paddingTop: spacing.sm, alignItems: "center" },
   viewAllButtonText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
+  childList: { gap: spacing.sm, marginBottom: spacing.md },
+  childCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  childAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#E9D5FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: spacing.sm,
+  },
+  childAvatarText: { fontSize: 14, fontWeight: "700", color: "#7C3AED" },
+  childName: { ...typography.bodyBold, fontSize: 14, color: colors.text },
+  childSub: { ...typography.caption, color: colors.textMuted, fontSize: 11 },
 });
 
 export default AppHeader;
+

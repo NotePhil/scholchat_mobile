@@ -5,6 +5,8 @@ import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from ".
 import { colors, spacing, typography } from "../../styles/theme";
 import { classAdminService, establishmentService } from "../../services/api";
 import { classService } from "../../services/classService";
+import ClassDetails from "../professeurs/components/classes/ClassDetails";
+import { UIClass, enrichClassForDetails } from "../professeurs/components/classes/DashboardClassesBody";
 import { ClassEntity, Etablissement } from "../../types";
 import { useUser } from "../../context/UserContext";
 
@@ -14,7 +16,14 @@ const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> 
   EN_ATTENTE_APPROBATION: "warning",
 };
 
-/** Establishment/Gestionnaire "Classes" section — mirrors web's create-class/manage-class sidebar dropdown. */
+/**
+ * Establishment/Gestionnaire "Classes" section — mirrors web's create-class/
+ * manage-class sidebar dropdown. Tapping a class opens the SAME ClassDetails
+ * component admin and professor use (members, access requests, moderator,
+ * offer status, cours/exercices) — this used to be a dead-end card with only
+ * approve/reject, no way to actually manage the class, unlike every other
+ * role's class list.
+ */
 const EstablishmentClassesBody = () => {
   const { user } = useUser();
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
@@ -22,6 +31,10 @@ const EstablishmentClassesBody = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [managedClass, setManagedClass] = useState<ClassEntity | null>(null);
+  const [selectedClass, setSelectedClass] = useState<UIClass | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState("info");
+  const [managing, setManaging] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.userId) return;
@@ -64,6 +77,47 @@ const EstablishmentClassesBody = () => {
     }
   };
 
+  const handleManage = async (cls: ClassEntity) => {
+    setManagedClass(cls);
+    setActiveDetailTab("info");
+    setManaging(true);
+    try {
+      setSelectedClass(await enrichClassForDetails(cls));
+    } catch (err) {
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du chargement des détails.");
+      setManagedClass(null);
+    } finally {
+      setManaging(false);
+    }
+  };
+
+  const handleRefreshManaged = async () => {
+    if (!managedClass) return;
+    try {
+      setSelectedClass(await enrichClassForDetails(managedClass));
+    } catch {
+      // keep showing the previous snapshot on transient refresh failures
+    }
+  };
+
+  if (managedClass) {
+    if (managing || !selectedClass) {
+      return <LoadingSpinner label="Chargement des détails..." fullScreen />;
+    }
+    return (
+      <ClassDetails
+        selectedClass={selectedClass}
+        onBack={() => {
+          setManagedClass(null);
+          setSelectedClass(null);
+        }}
+        activeDetailTab={activeDetailTab}
+        setActiveDetailTab={setActiveDetailTab}
+        onRefresh={handleRefreshManaged}
+      />
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -82,27 +136,33 @@ const EstablishmentClassesBody = () => {
         ) : (
           classes.map((cls) => {
             const etat = (cls.etat as string) ?? "EN_ATTENTE_APPROBATION";
-            const isPending = etat === "EN_ATTENTE_APPROBATION";
+            const isPending = etat.toUpperCase().includes("ATTENTE");
             return (
-              <View key={cls.id} style={styles.card}>
+              <TouchableOpacity key={cls.id} style={styles.card} activeOpacity={0.7} onPress={() => handleManage(cls)}>
                 <View style={styles.cardHeader}>
                   <Text style={styles.cardTitle}>{cls.nom ?? "Classe sans nom"}</Text>
                   <Badge label={etat} tone={STATUS_TONE[etat] ?? "neutral"} />
                 </View>
                 {cls.niveau ? <Text style={styles.cardMeta}>Niveau: {cls.niveau}</Text> : null}
-                {isPending && (
-                  <View style={styles.cardActions}>
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleApprove(cls)}>
-                      <FontAwesome5 name="check" size={14} color={colors.success} />
-                      <Text style={[styles.actionText, { color: colors.success }]}>Approuver</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleReject(cls)}>
-                      <FontAwesome5 name="times" size={14} color={colors.danger} />
-                      <Text style={[styles.actionText, { color: colors.danger }]}>Rejeter</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
+                <View style={styles.cardActions}>
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleManage(cls)}>
+                    <FontAwesome5 name="cog" size={14} color={colors.primary} />
+                    <Text style={[styles.actionText, { color: colors.primary }]}>Gérer</Text>
+                  </TouchableOpacity>
+                  {isPending && (
+                    <>
+                      <TouchableOpacity style={styles.actionBtn} onPress={() => handleApprove(cls)}>
+                        <FontAwesome5 name="check" size={14} color={colors.success} />
+                        <Text style={[styles.actionText, { color: colors.success }]}>Approuver</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.actionBtn} onPress={() => handleReject(cls)}>
+                        <FontAwesome5 name="times" size={14} color={colors.danger} />
+                        <Text style={[styles.actionText, { color: colors.danger }]}>Rejeter</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </TouchableOpacity>
             );
           })
         )}
@@ -128,9 +188,13 @@ interface CreateClassSheetProps {
   creatorId?: string;
 }
 
+const NIVEAUX = ["CP", "CE1", "CE2", "CM1", "CM2", "6ème", "5ème", "4ème", "3ème", "2nde", "1ère", "Terminale", "Autre"];
+
 const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creatorId }: CreateClassSheetProps) => {
   const [nom, setNom] = useState("");
   const [niveau, setNiveau] = useState("");
+  const [accesMajeur, setAccesMajeur] = useState(false);
+  const [codeUnique, setCodeUnique] = useState("");
   const [etablissementId, setEtablissementId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -138,7 +202,15 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
     if (visible && establishments.length > 0 && !etablissementId) {
       setEtablissementId(establishments[0].id);
     }
+    if (!visible) {
+      setNom("");
+      setNiveau("");
+      setAccesMajeur(false);
+      setCodeUnique("");
+    }
   }, [visible, establishments]);
+
+  const selectedEstablishment = establishments.find((e) => e.id === etablissementId) || null;
 
   const handleSubmit = async () => {
     if (!creatorId) {
@@ -149,20 +221,30 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
       Alert.alert("Erreur", "Le nom est obligatoire.");
       return;
     }
+    if (!niveau) {
+      Alert.alert("Erreur", "Le niveau est requis.");
+      return;
+    }
     if (!etablissementId) {
       Alert.alert("Erreur", "Sélectionnez un établissement.");
       return;
     }
+    if (selectedEstablishment?.optionTokenGeneral && !codeUnique.trim()) {
+      Alert.alert("Erreur", "Le code unique de l'établissement est requis.");
+      return;
+    }
     setSubmitting(true);
     try {
-      await classService.createNewClass({
+      const payload: Record<string, unknown> = {
         nom: nom.trim(),
-        niveau: niveau.trim() || undefined,
+        niveau,
         etablissementId,
         creatorId,
-      });
-      setNom("");
-      setNiveau("");
+        moderatorId: creatorId,
+        accesMajeur,
+      };
+      if (selectedEstablishment?.optionTokenGeneral && codeUnique) payload.codeUnique = codeUnique;
+      await classService.createNewClass(payload as Parameters<typeof classService.createNewClass>[0]);
       onCreated();
       onClose();
     } catch (err) {
@@ -174,8 +256,26 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title="Nouvelle classe">
-      <Input label="Nom de la classe" value={nom} onChangeText={setNom} placeholder="Ex: 3ème A" />
-      <Input label="Niveau" value={niveau} onChangeText={setNiveau} placeholder="Ex: Collège" />
+      <Input label="Nom de la classe *" value={nom} onChangeText={setNom} placeholder="Ex: 3ème A" />
+
+      <Text style={styles.fieldLabel}>Niveau *</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+        <View style={styles.chipRow}>
+          {NIVEAUX.map((n) => (
+            <TouchableOpacity key={n} style={[styles.chip, niveau === n && styles.chipActive]} onPress={() => setNiveau(n)}>
+              <Text style={[styles.chipText, niveau === n && styles.chipTextActive]}>{n}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </ScrollView>
+
+      <TouchableOpacity style={styles.accesMajeurBox} onPress={() => setAccesMajeur((v) => !v)}>
+        <FontAwesome5 name={accesMajeur ? "check-square" : "square"} size={18} color={accesMajeur ? colors.primary : colors.textMuted} />
+        <View style={{ flex: 1, marginLeft: spacing.sm }}>
+          <Text style={styles.accesMajeurTitle}>Classe Majeure</Text>
+          <Text style={styles.accesMajeurSub}>Les élèves rejoignent par recherche d'email</Text>
+        </View>
+      </TouchableOpacity>
 
       <Text style={styles.fieldLabel}>Établissement</Text>
       <View style={styles.chipRow}>
@@ -193,6 +293,16 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
           ))
         )}
       </View>
+
+      {selectedEstablishment?.optionTokenGeneral && (
+        <Input
+          label="Code Unique de l'établissement *"
+          value={codeUnique}
+          onChangeText={setCodeUnique}
+          placeholder="ABC123"
+          autoCapitalize="characters"
+        />
+      )}
 
       <Button label="Créer" onPress={handleSubmit} loading={submitting} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
     </BottomSheet>
@@ -217,7 +327,7 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.xs },
   cardTitle: { ...typography.bodyBold, color: colors.text, flex: 1, marginRight: spacing.sm },
   cardMeta: { ...typography.caption, color: colors.textMuted },
-  cardActions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
+  cardActions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
   actionText: { ...typography.caption, fontWeight: "600" },
   fieldLabel: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.sm },
@@ -226,6 +336,18 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.primary },
   chipText: { ...typography.caption, color: colors.text },
   chipTextActive: { color: colors.white, fontWeight: "600" },
+  accesMajeurBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#F5F3FF",
+    borderWidth: 1,
+    borderColor: "#DDD6FE",
+    borderRadius: 12,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  accesMajeurTitle: { ...typography.bodyBold, color: "#6D28D9" },
+  accesMajeurSub: { ...typography.caption, color: "#7C3AED" },
 });
 
 export default EstablishmentClassesBody;

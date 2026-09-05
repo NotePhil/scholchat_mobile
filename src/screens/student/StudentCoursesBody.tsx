@@ -1,20 +1,29 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { Badge, Button, EmptyState, LoadingSpinner } from "../../components/ui";
+import CourseContentSheet from "../shared/CourseContentSheet";
 import { colors, spacing, typography } from "../../styles/theme";
 import { coursProgrammerService } from "../../services/api";
 import { CoursProgramme } from "../../types";
 import { useUser } from "../../context/UserContext";
 
-/** A student's own scheduled courses + live-session join — mirrors web's "Cours" parent/student sidebar tab. */
+const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral" | "info"> = {
+  PLANIFIE: "info",
+  EN_COURS: "success",
+  TERMINE: "neutral",
+  ANNULE: "danger",
+};
+
+/** A student's own scheduled courses + live-session join + course materials — mirrors web's "Cours" student sidebar tab. */
 const StudentCoursesBody = () => {
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const [courses, setCourses] = useState<CoursProgramme[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedCourse, setSelectedCourse] = useState<CoursProgramme | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.userId) return;
@@ -47,29 +56,54 @@ const StudentCoursesBody = () => {
         ) : courses.length === 0 ? (
           <EmptyState icon="calendar" title="Aucun cours programmé" />
         ) : (
-          courses.map((course) => (
-            <View key={course.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <FontAwesome5 name="calendar-alt" size={16} color={colors.primary} />
-                <Text style={styles.cardTitle}>
-                  {course.dateCoursPrevue ? new Date(course.dateCoursPrevue).toLocaleString("fr-FR") : "Cours"}
-                </Text>
-              </View>
-              {course.etatCoursProgramme ? <Badge label={course.etatCoursProgramme} tone="info" /> : null}
-              {course.lieu ? <Text style={styles.cardMeta}>{course.lieu}</Text> : null}
-              {course.coursId ? (
-                <Button
-                  label="Rejoindre la session"
-                  variant="secondary"
-                  onPress={() => navigation.navigate("LiveSession", { coursId: course.coursId, isHost: false })}
-                  style={{ marginTop: spacing.sm }}
-                />
-              ) : null}
-            </View>
-          ))
+          courses.map((course) => {
+            const etat = course.etatCoursProgramme;
+            const isLive = etat === "EN_COURS";
+            return (
+              <TouchableOpacity
+                key={course.id}
+                style={styles.card}
+                onPress={() => setSelectedCourse(course)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.cardHeader}>
+                  <FontAwesome5 name="calendar-alt" size={16} color={colors.primary} />
+                  <Text style={styles.cardTitle}>
+                    {course.dateCoursPrevue ? new Date(course.dateCoursPrevue).toLocaleString("fr-FR") : "Cours"}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                  {etat ? <Badge label={etat} tone={STATUS_TONE[etat] ?? "neutral"} /> : null}
+                  {course.lieu ? <Text style={styles.cardMeta}>{course.lieu}</Text> : null}
+                </View>
+                {isLive && course.coursId ? (
+                  <Button
+                    label="Rejoindre la session en direct"
+                    variant="secondary"
+                    onPress={() => navigation.navigate("LiveSession", { coursId: course.coursId, isHost: false })}
+                    style={{ marginTop: spacing.sm }}
+                  />
+                ) : (
+                  <TouchableOpacity
+                    style={styles.viewCourseBtn}
+                    onPress={() => setSelectedCourse(course)}
+                  >
+                    <FontAwesome5 name="book-open" size={12} color={colors.primary} />
+                    <Text style={styles.viewCourseText}>Voir le contenu du cours</Text>
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+            );
+          })
         )}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <CourseContentSheet
+        visible={!!selectedCourse}
+        coursProgramme={selectedCourse}
+        onClose={() => setSelectedCourse(null)}
+      />
     </View>
   );
 };
@@ -84,6 +118,15 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
   cardTitle: { ...typography.bodyBold, color: colors.text },
   cardMeta: { ...typography.caption, color: colors.textMuted },
+  viewCourseBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+    paddingVertical: 4,
+  },
+  viewCourseText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
 });
 
 export default StudentCoursesBody;
+

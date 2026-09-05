@@ -30,4 +30,13 @@ export const gestionnaireService = {
       throw new Error(extractErrorMessage(error, 'Échec de la création du gestionnaire.'));
     }
   },
+
+  remove: async (id: string): Promise<void> => {
+    try {
+      await apiClient.delete(`/utilisateurs/${id}`);
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec de la suppression du gestionnaire.'));
+    }
+  },
 };
+
