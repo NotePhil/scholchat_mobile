@@ -389,7 +389,11 @@ export const CoursProgrammerScreen = ({
 
       {/* Main Body */}
       {view === 'list' ? (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 130 }}
+          showsVerticalScrollIndicator={false}
+        >
           <Input
             placeholder="Rechercher par cours ou lieu/lien..."
             value={searchTerm}
@@ -549,7 +553,11 @@ export const CoursProgrammerScreen = ({
         </ScrollView>
       ) : (
         /* Full Page Form View */
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 130 }}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Course Dropdown */}
           <DropdownField
             label="Cours à programmer *"
@@ -681,7 +689,7 @@ export const CoursProgrammerScreen = ({
             fullWidth
             style={styles.submitButton}
           />
-          <View style={{ height: 60 }} />
+          <View style={{ height: 120 }} />
         </ScrollView>
       )}
 

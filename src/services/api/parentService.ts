@@ -27,7 +27,21 @@ export const parentService = {
 
   create: async (payload: Partial<ParentUser>): Promise<ParentUser> => {
     try {
-      const { data } = await apiClient.post<ParentUser>('/parents', payload);
+      // POST /parents (ParentsBusiness.posterParent) never assigns an id before
+      // save and throws "Identifier ... must be manually assigned". /utilisateurs
+      // with type: 'parent' routes through UtilisateursBusiness.posterUtilisateur
+      // which performs ID generation and role assignment correctly, matching web.
+      const body = {
+        type: 'parent',
+        nom: payload.nom?.trim(),
+        prenom: payload.prenom?.trim(),
+        email: payload.email?.trim().toLowerCase(),
+        telephone: payload.telephone?.trim(),
+        adresse: payload.adresse?.trim(),
+        etat: payload.etat || 'ACTIVE',
+        classes: payload.classes || [],
+      };
+      const { data } = await apiClient.post<ParentUser>('/utilisateurs', body);
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la création du parent.'));
@@ -35,11 +49,21 @@ export const parentService = {
   },
 
   update: async (id: string, payload: Partial<ParentUser>): Promise<ParentUser> => {
+    const body = {
+      type: 'parent',
+      ...payload,
+      email: payload.email ? payload.email.trim().toLowerCase() : undefined,
+    };
     try {
-      const { data } = await apiClient.put<ParentUser>(`/parents/${id}`, payload);
+      const { data } = await apiClient.put<ParentUser>(`/parents/${id}`, body);
       return data;
-    } catch (error) {
-      throw new Error(extractErrorMessage(error, 'Échec de la mise à jour du parent.'));
+    } catch {
+      try {
+        const { data } = await apiClient.patch<ParentUser>(`/utilisateurs/${id}`, body);
+        return data;
+      } catch (patchErr) {
+        throw new Error(extractErrorMessage(patchErr, 'Échec de la mise à jour du parent.'));
+      }
     }
   },
 

@@ -189,15 +189,15 @@ const DashboardExercisesBody = () => {
 
   const createExerciseTranslateY = createExerciseAnimation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, -100],
+    outputRange: [0, -68],
   });
 
   const programExerciseTranslateY = programExerciseAnimation.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, -50],
+    outputRange: [0, -136],
   });
 
-  const optionScale = fabAnimation.interpolate({
+  const optionScale = createExerciseAnimation.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
   });
@@ -283,9 +283,12 @@ const DashboardExercisesBody = () => {
   }
 
   return (
-    <TouchableWithoutFeedback onPress={closeFab}>
-      <View style={exercisesStyles.container}>
-        <ScrollView style={exercisesStyles.content}>
+    <View style={exercisesStyles.container}>
+      <ScrollView
+        style={exercisesStyles.content}
+        contentContainerStyle={{ paddingBottom: 160 }}
+        showsVerticalScrollIndicator={false}
+      >
           {/* Header Section */}
           <View style={exercisesStyles.pageHeader}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -470,79 +473,96 @@ const DashboardExercisesBody = () => {
 
           {/* Extra space for bottom navigation */}
           <View style={{ height: 100 }} />
-        </ScrollView>
+      </ScrollView>
 
-        {/* Animated Floating Action Buttons */}
-        <View style={exercisesStyles.fabContainer}>
-          {/* Program Exercise Option - appears first (higher) */}
-          <Animated.View
-            style={[
-              exercisesStyles.fabOption,
-              {
-                transform: [
-                  { translateY: programExerciseTranslateY },
-                  { scale: optionScale },
-                ],
-              },
-            ]}
-          >
-            <TouchableOpacity
-              style={[
-                exercisesStyles.optionButton,
-                exercisesStyles.programButton,
-              ]}
-              onPress={handleProgramExercise}
-            >
-              <FontAwesome5 name="clock" size={18} color="#FFFFFF" />
-              <Text style={exercisesStyles.optionText}>
-                Programmer un exercice
-              </Text>
-            </TouchableOpacity>
-          </Animated.View>
+      {/* FAB Backdrop */}
+      {isFabOpen && (
+        <TouchableWithoutFeedback onPress={closeFab}>
+          <View style={exercisesStyles.fabBackdrop} />
+        </TouchableWithoutFeedback>
+      )}
 
-          {/* Create Exercise Option - appears second (lower) */}
-          <Animated.View
-            style={[
-              exercisesStyles.fabOption,
-              {
-                transform: [
-                  { translateY: createExerciseTranslateY },
-                  { scale: optionScale },
-                ],
-              },
-            ]}
+      {/* Animated Floating Action Buttons */}
+      <View style={exercisesStyles.fabContainer} pointerEvents="box-none">
+        {/* Program Exercise Option */}
+        <Animated.View
+          style={[
+            exercisesStyles.fabOption,
+            {
+              transform: [
+                { translateY: programExerciseTranslateY },
+                { scale: optionScale },
+              ],
+              opacity: optionScale,
+            },
+          ]}
+          pointerEvents={isFabOpen ? "auto" : "none"}
+        >
+          <TouchableOpacity
+            style={exercisesStyles.speedDialCard}
+            onPress={handleProgramExercise}
+            activeOpacity={0.85}
           >
-            <TouchableOpacity
-              style={[
-                exercisesStyles.optionButton,
-                exercisesStyles.createButton,
-              ]}
-              onPress={handleCreateExercise}
-            >
-              <FontAwesome5 name="plus-circle" size={18} color="#FFFFFF" />
-              <Text style={exercisesStyles.optionText}>Créer un exercice</Text>
-            </TouchableOpacity>
-          </Animated.View>
+            <View style={[exercisesStyles.speedDialIconBadge, { backgroundColor: "#F5F3FF", borderColor: "#DDD6FE" }]}>
+              <FontAwesome5 name="calendar-alt" size={14} color="#7C3AED" />
+            </View>
+            <View style={exercisesStyles.speedDialTextContainer}>
+              <Text style={exercisesStyles.speedDialTitle}>Programmer un exercice</Text>
+              <Text style={exercisesStyles.speedDialSubtitle}>Assigner à une classe</Text>
+            </View>
+            <FontAwesome5 name="chevron-right" size={10} color="#CBD5E1" />
+          </TouchableOpacity>
+        </Animated.View>
 
-          {/* Main FAB */}
-          <Animated.View
-            style={[
-              exercisesStyles.floatingButton,
-              {
-                transform: [{ rotate: fabRotation }],
-              },
-            ]}
+        {/* Create Exercise Option */}
+        <Animated.View
+          style={[
+            exercisesStyles.fabOption,
+            {
+              transform: [
+                { translateY: createExerciseTranslateY },
+                { scale: optionScale },
+              ],
+              opacity: optionScale,
+            },
+          ]}
+          pointerEvents={isFabOpen ? "auto" : "none"}
+        >
+          <TouchableOpacity
+            style={exercisesStyles.speedDialCard}
+            onPress={handleCreateExercise}
+            activeOpacity={0.85}
           >
-            <TouchableOpacity
-              style={exercisesStyles.fabTouchable}
-              onPress={toggleFab}
-            >
-              <FontAwesome5 name="plus" size={24} color="#FFFFFF" />
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
+            <View style={[exercisesStyles.speedDialIconBadge, { backgroundColor: "#ECFDF5", borderColor: "#A7F3D0" }]}>
+              <FontAwesome5 name="plus" size={14} color="#059669" />
+            </View>
+            <View style={exercisesStyles.speedDialTextContainer}>
+              <Text style={exercisesStyles.speedDialTitle}>Créer un exercice</Text>
+              <Text style={exercisesStyles.speedDialSubtitle}>QCM ou devoir à faire</Text>
+            </View>
+            <FontAwesome5 name="chevron-right" size={10} color="#CBD5E1" />
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Main FAB */}
+        <Animated.View
+          style={[
+            exercisesStyles.floatingButton,
+            {
+              transform: [{ rotate: fabRotation }],
+            },
+          ]}
+        >
+          <TouchableOpacity
+            style={exercisesStyles.fabTouchable}
+            onPress={toggleFab}
+            activeOpacity={0.85}
+          >
+            <FontAwesome5 name="plus" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </Animated.View>
       </View>
-    </TouchableWithoutFeedback>
+    </View>
   );
 };
 
@@ -705,52 +725,69 @@ const exercisesStyles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 32,
   },
+  fabBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.4)",
+    zIndex: 10,
+  },
   fabContainer: {
     position: "absolute",
-    bottom: 120,
+    bottom: 110,
     right: 20,
     alignItems: "flex-end",
+    zIndex: 20,
   },
   fabOption: {
     position: "absolute",
     bottom: 0,
     right: 0,
-    marginBottom: 8,
   },
-  optionButton: {
+  speedDialCard: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 28,
-    minWidth: 200,
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 6,
+    gap: 12,
+    minWidth: 235,
   },
-  createButton: {
-    backgroundColor: "#10B981",
+  speedDialIconBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  programButton: {
-    backgroundColor: "#8B5CF6",
+  speedDialTextContainer: {
+    flex: 1,
   },
-  optionText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
-    marginLeft: 12,
-    textAlign: "center",
+  speedDialTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  speedDialSubtitle: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 1,
   },
   floatingButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: "#4F46E5",
-    shadowColor: "#000",
+    shadowColor: "#4F46E5",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 8,
   },

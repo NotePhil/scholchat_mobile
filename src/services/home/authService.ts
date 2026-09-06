@@ -1,4 +1,5 @@
 import { apiClient, extractErrorMessage } from '../api/client';
+import { mediaService } from '../api/mediaService';
 import { storageService } from '../storageService';
 import { LoginResponse } from '../../types';
 
@@ -58,12 +59,13 @@ export const authService = {
     try {
       const { data } = await apiClient.post('/utilisateurs', {
         type: 'professeur',
-        nom: userData.lastName,
-        prenom: userData.firstName,
-        email: userData.email,
-        telephone: userData.phone,
-        adresse: userData.address,
-        matriculeProfesseur: userData.teacherMatricule || '',
+        nom: userData.lastName.trim(),
+        prenom: userData.firstName.trim(),
+        email: userData.email.trim().toLowerCase(),
+        telephone: userData.phone.trim(),
+        adresse: userData.address.trim(),
+        matriculeProfesseur: userData.teacherMatricule?.trim() || '',
+        etat: 'INACTIVE',
       });
       return data;
     } catch (error) {
@@ -81,7 +83,7 @@ export const authService = {
       const { data } = await apiClient.post<PresignedUrlResponse>('/media/presigned-url', {
         fileName,
         contentType,
-        mediaType: 'DOCUMENT',
+        mediaType: 'IMAGE',
         ownerId,
         documentType,
       });
@@ -91,9 +93,8 @@ export const authService = {
     }
   },
 
-  // Direct PUT to a presigned MinIO URL, not our backend — kept on raw fetch
-  // since it's an unauthenticated binary upload to a third-party host, not a
-  // ScholChat API call that should go through apiClient's interceptors.
+  // Direct PUT to a presigned MinIO URL, with automatic fallback to backend proxy-upload
+  // if direct upload fails (e.g. CORS on web, network, or storage policies).
   uploadFile: async (presignedUrl: string, file: UploadableFile): Promise<boolean> => {
     try {
       const response = await fetch(presignedUrl, {
@@ -109,14 +110,14 @@ export const authService = {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`File upload failed: ${response.status} ${errorText}`);
+        throw new Error(`Direct PUT failed with status: ${response.status}`);
       }
 
       return true;
     } catch (error) {
-      console.error('File upload error:', error);
-      throw error;
+      console.warn('Direct upload failed (likely CORS or network), falling back to backend proxy:', error);
+      await mediaService.proxyUpload(file, presignedUrl, file.mimeType);
+      return true;
     }
   },
 
@@ -157,11 +158,13 @@ export const authService = {
     urls: ProfessorDocumentUrls
   ): Promise<Record<string, unknown>> => {
     try {
+      const hasUploaded = !!(urls.cniRecto && urls.cniVerso && urls.selfie);
       const { data } = await apiClient.patch(`/utilisateurs/${professorId}`, {
         type: 'professeur',
         cniUrlRecto: urls.cniRecto,
         cniUrlVerso: urls.cniVerso,
         selfieUrl: urls.selfie,
+        hasUploaded,
       });
       return data;
     } catch (error) {

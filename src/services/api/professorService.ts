@@ -22,7 +22,23 @@ export const professorService = {
 
   create: async (payload: Partial<Professor>): Promise<Professor> => {
     try {
-      const { data } = await apiClient.post<Professor>('/professeurs', payload);
+      // The backend resolves the concrete user subtype from the "type" JSON property
+      // (@JsonTypeInfo discriminator on Utilisateurs). Route through /utilisateurs
+      // with type: 'professeur' matching web's ScholchatService.createUser.
+      const body = {
+        type: 'professeur',
+        nom: payload.nom?.trim(),
+        prenom: payload.prenom?.trim(),
+        email: payload.email?.trim().toLowerCase(),
+        telephone: payload.telephone?.trim(),
+        adresse: payload.adresse?.trim(),
+        etat: payload.etat || 'ACTIVE',
+        matriculeProfesseur: payload.matriculeProfesseur || null,
+        cniUrlRecto: payload.cniUrlRecto || null,
+        cniUrlVerso: payload.cniUrlVerso || null,
+        selfieUrl: payload.selfieUrl || null,
+      };
+      const { data } = await apiClient.post<Professor>('/utilisateurs', body);
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la création du professeur.'));
@@ -31,7 +47,14 @@ export const professorService = {
 
   update: async (id: string, payload: Partial<Professor>): Promise<Professor> => {
     try {
-      const { data } = await apiClient.put<Professor>(`/professeurs/${id}`, payload);
+      // /utilisateurs/{id} only exposes PATCH (patcherUtilisateur) — PUT is not supported
+      // on the backend. PATCH requires "type: 'professeur'" for proper subtype deserialization.
+      const body = {
+        type: 'professeur',
+        ...payload,
+        email: payload.email ? payload.email.trim().toLowerCase() : undefined,
+      };
+      const { data } = await apiClient.patch<Professor>(`/utilisateurs/${id}`, body);
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la mise à jour du professeur.'));

@@ -35,8 +35,20 @@ export const userService = {
   },
 
   createUser: async (payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    if (!payload.type) {
+      throw new Error("createUser() requires an explicit 'type' (the backend uses it to decide which role to grant).");
+    }
     try {
-      const { data } = await apiClient.post('/utilisateurs', payload);
+      const body: Record<string, unknown> = {
+        ...payload,
+        nom: typeof payload.nom === 'string' ? payload.nom.trim() : payload.nom,
+        prenom: typeof payload.prenom === 'string' ? payload.prenom.trim() : payload.prenom,
+        email: typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : payload.email,
+        telephone: typeof payload.telephone === 'string' ? payload.telephone.trim() : payload.telephone,
+        adresse: typeof payload.adresse === 'string' ? payload.adresse.trim() : payload.adresse,
+        etat: payload.etat || 'ACTIVE',
+      };
+      const { data } = await apiClient.post('/utilisateurs', body);
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de la création de l'utilisateur."));
@@ -45,7 +57,11 @@ export const userService = {
 
   updateUser: async (id: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
     try {
-      const { data } = await apiClient.patch(`/utilisateurs/${id}`, payload);
+      const body: Record<string, unknown> = {
+        ...payload,
+        email: typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : payload.email,
+      };
+      const { data } = await apiClient.patch(`/utilisateurs/${id}`, body);
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de la mise à jour de l'utilisateur."));
@@ -54,7 +70,12 @@ export const userService = {
 
   replaceUser: async (id: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
     try {
-      const { data } = await apiClient.put(`/utilisateurs/${id}`, payload);
+      // /utilisateurs/{id} only exposes PATCH on backend — fallback cleanly if PUT is attempted
+      const body: Record<string, unknown> = {
+        ...payload,
+        email: typeof payload.email === 'string' ? payload.email.trim().toLowerCase() : payload.email,
+      };
+      const { data } = await apiClient.patch(`/utilisateurs/${id}`, body);
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de la mise à jour de l'utilisateur."));

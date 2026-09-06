@@ -354,7 +354,8 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
         references: formData.references || "Aucune référence spécifiée",
         restriction: formData.restriction,
         redacteurId: formData.redacteurId || user.userId,
-        matieres: selectedMatieres,
+        // Web's CoursService.js sends only { id } per matiere — matching backend schema.
+        matieres: selectedMatieres.map((m) => ({ id: m.id })),
         chapitres: chapitresPayload,
       };
 
@@ -1232,19 +1233,20 @@ const createStyles = StyleSheet.create({
   },
 
   bottomSpacing: {
-    height: 100,
+    height: 180,
   },
   bottomContainer: {
     backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingTop: 14,
+    paddingBottom: 95,
     borderTopWidth: 1,
     borderTopColor: "#E5E7EB",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 4,
   },
   createButton: {
     flexDirection: "row",

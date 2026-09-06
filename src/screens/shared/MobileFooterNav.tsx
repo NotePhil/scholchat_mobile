@@ -51,16 +51,21 @@ const MobileFooterNav = ({
   const renderItem = (item: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string; badgeCount?: number }) => {
     const active = activeTab === item.tab;
     return (
-      <TouchableOpacity key={item.tab} style={styles.navItem} onPress={() => onTabPress(item.tab)}>
-        <View style={styles.iconWrap}>
-          <FontAwesome5 name={item.icon} size={20} color={active ? accentColor : colors.gray} solid={active} />
+      <TouchableOpacity
+        key={item.tab}
+        style={[styles.navItem, active && styles.navItemActive]}
+        onPress={() => onTabPress(item.tab)}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.iconWrap, active && { backgroundColor: `${accentColor}18` }]}>
+          <FontAwesome5 name={item.icon} size={18} color={active ? accentColor : colors.gray} solid={active} />
           {item.badgeCount ? (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{item.badgeCount > 9 ? '9+' : item.badgeCount}</Text>
             </View>
           ) : null}
         </View>
-        {active ? <Text style={[styles.label, { color: accentColor }]}>{item.label}</Text> : null}
+        <Text style={[styles.label, { color: active ? accentColor : colors.gray }]}>{item.label}</Text>
       </TouchableOpacity>
     );
   };
@@ -95,14 +100,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    paddingTop: 8,
+    paddingTop: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 8,
   },
-  navItem: { alignItems: 'center', justifyContent: 'center', minWidth: 52, gap: 2 },
-  iconWrap: { padding: 4 },
+  navItem: { alignItems: 'center', justifyContent: 'center', minWidth: 54, gap: 2 },
+  navItemActive: {},
+  iconWrap: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   badge: {
     position: 'absolute',
     top: -2,
-    right: -6,
+    right: 2,
     backgroundColor: colors.danger,
     borderRadius: 8,
     minWidth: 16,
@@ -114,18 +125,18 @@ const styles = StyleSheet.create({
     borderColor: colors.surface,
   },
   badgeText: { color: colors.white, fontSize: 9, fontWeight: '700' },
-  label: { fontSize: 10, fontWeight: '700' },
-  centerSlot: { alignItems: 'center', justifyContent: 'center', marginTop: -28 },
+  label: { fontSize: 10, fontWeight: '600' },
+  centerSlot: { alignItems: 'center', justifyContent: 'center', marginTop: -26 },
   fab: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
     elevation: 8,
   },
 });

@@ -92,7 +92,11 @@ export const CourseDetailView = ({
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        showsVerticalScrollIndicator={false}
+      >
         {activeTab === 'details' && (
           <>
             <View style={styles.card}>

@@ -6,11 +6,10 @@ import SignUpScreen from '../screens/auth/SignUpScreen';
 const Stack = createStackNavigator();
 
 /**
- * Logged-out experience: straight to a full-page Login screen (no marketing
- * tabs) per explicit product decision — the mobile app is direct, not a
- * public site. SignUp is one tap away; ForgotPassword/ResetPassword etc.
- * live as siblings on RootNavigator's outer stack since they're also
- * reachable from emailed links regardless of auth state.
+ * Logged-out experience: Login & SignUp screens.
+ * Sibling screens like ForgotPassword, ResetPassword, VerifyEmail, etc.
+ * live on the root stack in RootNavigator so they can be deep-linked
+ * or navigated to without route name collisions.
  */
 const AuthNavigator = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>

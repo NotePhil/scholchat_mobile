@@ -12,6 +12,7 @@ import { useAuthStore } from '../../store/useAuthStore';
  */
 export const apiClient = axios.create({
   baseURL: environment.baseUrl,
+  timeout: 25000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -72,8 +73,11 @@ export const extractErrorMessage = (
   fallback = 'Une erreur est survenue. Veuillez réessayer.'
 ): string => {
   if (axios.isAxiosError(error)) {
+    if (error.code === 'ECONNABORTED' || (error.message && error.message.toLowerCase().includes('timeout'))) {
+      return 'Le serveur met du temps à répondre. Veuillez patienter et réessayer.';
+    }
     if (!error.response) {
-      return 'Erreur réseau. Vérifiez votre connexion.';
+      return 'Erreur réseau. Vérifiez votre connexion internet.';
     }
     const data = error.response.data as
       | { message?: string; error?: string; details?: string }

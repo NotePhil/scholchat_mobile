@@ -8,6 +8,8 @@ import { useUiStore } from "../../store/useUiStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { colors } from "../../styles/theme";
 import { AppRole } from "../../types";
+import { userService } from "../../services/api";
+import CompleteProfileModal, { MissingDoc } from "../../components/modals/CompleteProfileModal";
 
 // Shared across every role
 import DashboardActivitiesBody from "../professeurs/components/DashboardActivitiesBody";
@@ -153,13 +155,46 @@ const ROLE_CONFIG: Partial<Record<AppRole, RoleConfig>> = {
  */
 const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   const role = useAuthStore((s) => s.role);
+  const user = useAuthStore((s) => s.user);
   // Lands on Activités first after login, per product requirement — every role.
   const [activeTab, setActiveTabState] = useState("activities");
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [coursViewMode, setCoursViewMode] = useState<"list" | "create">("list");
   const [editingCours, setEditingCours] = useState<Cours | null>(null);
+  const [missingProfessorDocs, setMissingProfessorDocs] = useState<MissingDoc[]>([]);
+  const [showCompleteProfileModal, setShowCompleteProfileModal] = useState(false);
   const pendingTab = useUiStore((s) => s.pendingTab);
   const clearPendingTab = useUiStore((s) => s.clearPendingTab);
+
+  // Professor profile completeness check, mirroring web's Principal.jsx (commit 9fe943b)
+  useEffect(() => {
+    if (role !== "professor" && role !== "tutor") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const userId = user?.userId;
+        if (!userId) return;
+        const profData = await userService.getUserById(userId);
+        if (cancelled || !profData) return;
+
+        const docFields: MissingDoc[] = [
+          { field: "cniUrlRecto", docType: "CNI_RECTO", label: "CNI - Recto" },
+          { field: "cniUrlVerso", docType: "CNI_VERSO", label: "CNI - Verso" },
+          { field: "selfieUrl", docType: "PROFILE_PHOTO", label: "Photo de profil" },
+        ];
+        const missing = docFields.filter((doc) => !profData[doc.field]);
+        if (missing.length > 0) {
+          setMissingProfessorDocs(missing);
+          setShowCompleteProfileModal(true);
+        }
+      } catch (e) {
+        console.warn("Could not check professor document completeness:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [role, user?.userId]);
 
   const setActiveTab = (tab: string) => {
     setActiveTabState(tab);
@@ -384,6 +419,18 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
         submenus={config.submenus}
         accentColor={config.accentColor}
       />
+      {showCompleteProfileModal && user?.userId ? (
+        <CompleteProfileModal
+          visible={showCompleteProfileModal}
+          userId={user.userId}
+          missingDocs={missingProfessorDocs}
+          onClose={() => setShowCompleteProfileModal(false)}
+          onCompleted={() => {
+            setShowCompleteProfileModal(false);
+            setMissingProfessorDocs([]);
+          }}
+        />
+      ) : null}
     </View>
   );
 };

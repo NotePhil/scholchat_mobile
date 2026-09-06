@@ -244,7 +244,11 @@ export const ScheduleExerciseView = ({
       </View>
 
       {view === 'list' ? (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 130 }}
+          showsVerticalScrollIndicator={false}
+        >
           <Input
             placeholder="Rechercher par titre ou classe..."
             value={searchTerm}
@@ -361,7 +365,11 @@ export const ScheduleExerciseView = ({
         </ScrollView>
       ) : (
         /* Full Page Form View */
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 130 }}
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.card}>
             <Text style={styles.formTitle}>Informations de programmation</Text>
 
@@ -426,7 +434,7 @@ export const ScheduleExerciseView = ({
             onPress={handleSubmit}
             loading={submitting}
             fullWidth
-            style={{ marginBottom: 60 }}
+            style={{ marginBottom: 20 }}
           />
         </ScrollView>
       )}

@@ -25,32 +25,45 @@ export const mediaService = {
     contentType: string,
     ownerId: string,
     mediaType: 'DOCUMENT' | 'IMAGE' | 'VIDEO' = 'IMAGE',
-    documentType?: string
+    documentType?: string,
+    coursId?: string
   ): Promise<PresignedUrlResponse> => {
     try {
-      const { data } = await apiClient.post<PresignedUrlResponse>('/media/presigned-url', {
+      const payload: Record<string, unknown> = {
         fileName,
         contentType,
         mediaType,
         ownerId,
         documentType,
-      });
+      };
+      if (coursId) {
+        payload.coursId = coursId;
+      }
+      const { data } = await apiClient.post<PresignedUrlResponse>('/media/presigned-url', payload);
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de la génération de l'URL de téléversement."));
     }
   },
 
-  /** Direct PUT to the presigned MinIO URL — not our backend, so raw fetch (no auth interceptor needed). */
+  /**
+   * Direct PUT to the presigned MinIO URL.
+   * If direct PUT fails (e.g. CORS on web or storage policy/network error),
+   * automatically falls back to backend proxyUpload.
+   */
   putToPresignedUrl: async (presignedUrl: string, file: UploadableFile): Promise<void> => {
-    const response = await fetch(presignedUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.mimeType },
-      body: { uri: file.uri, type: file.mimeType, name: file.name } as unknown as BodyInit,
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Échec du téléversement: ${response.status} ${errorText}`);
+    try {
+      const response = await fetch(presignedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.mimeType },
+        body: { uri: file.uri, type: file.mimeType, name: file.name } as unknown as BodyInit,
+      });
+      if (!response.ok) {
+        throw new Error(`Direct PUT failed with status: ${response.status}`);
+      }
+    } catch (directError) {
+      console.warn('Direct upload failed (likely CORS or network), falling back to backend proxy:', directError);
+      await mediaService.proxyUpload(file, presignedUrl, file.mimeType);
     }
   },
 
@@ -62,21 +75,22 @@ export const mediaService = {
     file: UploadableFile,
     ownerId: string,
     mediaType: 'DOCUMENT' | 'IMAGE' | 'VIDEO' = 'IMAGE',
-    documentType?: string
+    documentType?: string,
+    coursId?: string
   ): Promise<string> => {
-    const presigned = await mediaService.getPresignedUploadUrl(file.name, file.mimeType, ownerId, mediaType, documentType);
+    const presigned = await mediaService.getPresignedUploadUrl(file.name, file.mimeType, ownerId, mediaType, documentType, coursId);
     await mediaService.putToPresignedUrl(presigned.url, file);
     return presigned.url.split('?')[0];
   },
 
-  /** FormData fallback proxy upload, for hosts where direct-to-MinIO PUT is blocked. */
-  proxyUpload: async (file: UploadableFile, ownerId: string, mediaType: string): Promise<PresignedUrlResponse> => {
+  /** FormData fallback proxy upload, matching backend POST /media/proxy-upload */
+  proxyUpload: async (file: UploadableFile, presignedUrl: string, contentType: string): Promise<PresignedUrlResponse> => {
     try {
       const token = await storageService.getUserToken();
       const formData = new FormData();
-      formData.append('file', { uri: file.uri, type: file.mimeType, name: file.name } as unknown as Blob);
-      formData.append('ownerId', ownerId);
-      formData.append('mediaType', mediaType);
+      formData.append('file', { uri: file.uri, type: file.mimeType || contentType, name: file.name } as unknown as Blob);
+      formData.append('presignedUrl', presignedUrl);
+      formData.append('contentType', contentType || file.mimeType);
 
       const response = await fetch(`${environment.baseUrl}/media/proxy-upload`, {
         method: 'POST',
@@ -93,7 +107,7 @@ export const mediaService = {
       }
       return await response.json();
     } catch (error) {
-      throw new Error(extractErrorMessage(error, 'Échec du téléversement.'));
+      throw new Error(extractErrorMessage(error, 'Échec du téléversement via proxy.'));
     }
   },
 

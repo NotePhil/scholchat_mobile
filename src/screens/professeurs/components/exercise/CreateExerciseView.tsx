@@ -281,7 +281,11 @@ export const CreateExerciseView = ({
       {loadingExisting ? (
         <LoadingSpinner label="Chargement de l'exercice..." fullScreen />
       ) : (
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={{ paddingBottom: 130 }}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Main Info Card */}
           <View style={styles.card}>
             <Text style={styles.cardSectionTitle}>Informations générales</Text>
