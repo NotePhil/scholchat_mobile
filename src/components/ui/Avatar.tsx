@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, typography } from '../../styles/theme';
+import { radius, typography, useThemeColors } from '../../styles/theme';
 
 interface AvatarProps {
   name?: string;
@@ -16,6 +16,8 @@ const getInitials = (name?: string): string => {
 };
 
 const Avatar = ({ name, uri, size = 40 }: AvatarProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const dimensionStyle = { width: size, height: size, borderRadius: size / 2 };
 
   if (uri) {
@@ -29,7 +31,7 @@ const Avatar = ({ name, uri, size = 40 }: AvatarProps) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   image: {
     backgroundColor: colors.grayLight,
   },

@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { SafeAreaView, StyleSheet, View } from 'react-native';
 import { EmptyState } from '../../components/ui';
-import { colors, spacing } from '../../styles/theme';
+import { colors, spacing, useThemeColors } from '../../styles/theme';
 import { useUser } from '../../context/UserContext';
 
 interface ComingSoonScreenProps {
@@ -14,6 +14,8 @@ interface ComingSoonScreenProps {
  * roadmap). Still lets the user see who they're signed in as and log out.
  */
 const ComingSoonScreen = ({ roleLabel }: ComingSoonScreenProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user, logout } = useUser();
 
   return (
@@ -31,7 +33,7 @@ const ComingSoonScreen = ({ roleLabel }: ComingSoonScreenProps) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

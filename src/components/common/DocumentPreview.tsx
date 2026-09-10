@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Image, Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { mediaService } from "../../services/api";
 import { storageService } from "../../services/storageService";
 
@@ -32,6 +32,8 @@ interface DocumentPreviewProps {
  * approving/rejecting a professor.
  */
 const DocumentPreview = ({ path, label }: DocumentPreviewProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [url, setUrl] = useState<string | null>(null);
   const [authHeader, setAuthHeader] = useState<Record<string, string> | undefined>(undefined);
   const [failed, setFailed] = useState(false);
@@ -92,7 +94,7 @@ const DocumentPreview = ({ path, label }: DocumentPreviewProps) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   thumb: {
     width: 100,
     height: 90,

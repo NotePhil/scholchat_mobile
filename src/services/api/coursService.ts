@@ -1,9 +1,17 @@
 import { apiClient, extractErrorMessage } from './client';
 import { ApiSuccess, Cours } from '../../types';
 
+/**
+ * create/update send only `{ id }` per matière (matching web's
+ * CoursService.js and the backend's real write schema) — a full `Matiere`
+ * (with `nom`, etc.) is only ever present on what a GET returns, so the
+ * write payload can't reuse `Cours` as-is for that field.
+ */
+type CoursWritePayload = Partial<Omit<Cours, 'matieres'>> & { matieres?: { id: string }[] };
+
 /** /cours endpoints, ported from scholchat_front's CoursService.js. */
 export const coursService = {
-  create: async (payload: Partial<Cours>): Promise<Cours> => {
+  create: async (payload: CoursWritePayload): Promise<Cours> => {
     try {
       const { data } = await apiClient.post<Cours>('/cours', payload);
       return data;
@@ -48,7 +56,7 @@ export const coursService = {
     }
   },
 
-  update: async (id: string, payload: Partial<Cours>): Promise<Cours> => {
+  update: async (id: string, payload: CoursWritePayload): Promise<Cours> => {
     try {
       const { data } = await apiClient.put<Cours>(`/cours/${id}`, payload);
       return data;

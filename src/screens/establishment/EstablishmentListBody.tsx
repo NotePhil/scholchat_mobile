@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Badge, Button, EmptyState, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { establishmentService } from "../../services/api";
 import { CreateEstablishmentSheet } from "../admin/components/CreateEstablishmentSheet";
 import { Etablissement } from "../../types";
@@ -17,6 +17,8 @@ import EstablishmentDetails from "./EstablishmentDetails";
  * only, no edit at all) instead of the real one.
  */
 const EstablishmentListBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,7 +134,7 @@ const EstablishmentListBody = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ScrollView,
   View,
@@ -13,7 +13,10 @@ import {
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { useUser } from "../../../context/UserContext";
+import { useAuthStore } from "../../../store/useAuthStore";
 import { activityFeedService, mediaService } from "../../../services/api";
+import { classService } from "../../../services/classService";
+import { ActivityEvent, ActivityMedia as RawActivityMedia, ClassEntity } from "../../../types";
 
 export interface ActivityMedia {
   id: string;
@@ -53,22 +56,24 @@ export interface Activity {
   comments: number;
   commentsList?: ActivityComment[];
   medias?: ActivityMedia[];
+  /** Needed for the edit/delete permission check on the feed screen. */
+  createurId?: string;
 }
 
-// Matches the backend's EtatEvenement enum exactly.
-type EtatValue = "PLANIFIE" | "A_VENIR" | "EN_COURS" | "ANNULE" | "PASSE" | "EN_ATTENTE_CONFIRMATION" | "COMPLET";
+/** A locally-picked, not-yet-uploaded file — carries the extra fields (real mime type, byte size) the create/edit payload needs but the display-oriented ActivityMedia doesn't. */
+type PickedMedia = ActivityMedia & { mimeType?: string; fileSizeBytes?: number };
 
-const etatOptions: Array<{ value: EtatValue; label: string; color: string }> = [
-  { value: "PLANIFIE", label: "Planifié", color: "#3B82F6" },
-  { value: "A_VENIR", label: "À venir", color: "#8B5CF6" },
-  { value: "EN_COURS", label: "En cours", color: "#F59E0B" },
-  { value: "PASSE", label: "Passé", color: "#10B981" },
-  { value: "ANNULE", label: "Annulé", color: "#EF4444" },
-];
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024; // 5MB — matches web's ActivitiesContent.jsx limit
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024; // 50MB
 
 interface CreateActivityModalProps {
   onClose: () => void;
-  onCreateActivity: (activity: Activity) => void;
+  /** Called with the raw backend event after a successful create. */
+  onCreateActivity: (activity: ActivityEvent) => void;
+  /** When set, the modal opens in edit mode, prefilled from this activity. */
+  activityToEdit?: ActivityEvent | null;
+  /** Called with the raw backend event after a successful edit. */
+  onUpdateActivity?: (activity: ActivityEvent) => void;
 }
 
 interface DragEndEvent {
@@ -79,21 +84,42 @@ interface DragEvent {
   nativeEvent: { translationY: number };
 }
 
-const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalProps) => {
+const CreateActivityModal = ({ onClose, onCreateActivity, activityToEdit, onUpdateActivity }: CreateActivityModalProps) => {
   const { user } = useUser();
+  const role = useAuthStore((s) => s.role);
+  const isEditMode = !!activityToEdit;
+
   const [formData, setFormData] = useState({
-    titre: "",
-    description: "",
-    lieu: "",
-    etat: "PLANIFIE" as EtatValue,
-    heureDebut: "",
-    heureFin: "",
-    createurId: user?.userId ?? "",
+    titre: activityToEdit?.titre ?? "",
+    description: activityToEdit?.description ?? "",
+    lieu: activityToEdit?.lieu ?? "",
+    heureDebut: activityToEdit?.heureDebut ?? "",
+    heureFin: activityToEdit?.heureFin ?? "",
+    visibility: (activityToEdit?.visibility ?? "PUBLIC") as "PUBLIC" | "PRIVATE",
+    classesIds: activityToEdit?.classesIds ?? [],
   });
-  const [selectedImages, setSelectedImages] = useState<ActivityMedia[]>([]);
-  const [participantsInput, setParticipantsInput] = useState("");
+  // Media already stored on the backend when editing — kept separately so
+  // submission can preserve each entry's `id` (tells the backend "keep",
+  // not "new"), matching web's editEvent payload building.
+  const [existingMedias, setExistingMedias] = useState<RawActivityMedia[]>(activityToEdit?.medias ?? []);
+  const [selectedImages, setSelectedImages] = useState<PickedMedia[]>([]);
   const [translateY] = useState(new Animated.Value(0));
   const [submitting, setSubmitting] = useState(false);
+
+  const [classes, setClasses] = useState<ClassEntity[]>([]);
+  const [loadingClasses, setLoadingClasses] = useState(false);
+
+  // Lazily fetch the role-appropriate class list once PRIVATE is selected —
+  // mirrors web's `useEffect` on `formData.visibility`.
+  useEffect(() => {
+    if (formData.visibility !== "PRIVATE" || !user?.userId || classes.length > 0) return;
+    setLoadingClasses(true);
+    classService
+      .getClassesForRole(role, user.userId)
+      .then(setClasses)
+      .catch(() => setClasses([]))
+      .finally(() => setLoadingClasses(false));
+  }, [formData.visibility, user?.userId, role, classes.length]);
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { translationY, velocityY } = event.nativeEvent;
@@ -120,43 +146,64 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
       titre: "",
       description: "",
       lieu: "",
-      etat: "PLANIFIE",
       heureDebut: "",
       heureFin: "",
-      createurId: "current_user_id",
+      visibility: "PUBLIC",
+      classesIds: [],
     });
     setSelectedImages([]);
-    setParticipantsInput("");
+    setExistingMedias([]);
   };
 
   const handleImagePicker = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour ajouter une image.");
+      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour ajouter un média.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       quality: 0.8,
     });
     if (result.canceled || !result.assets?.length) return;
 
     const asset = result.assets[0];
-    const picked: ActivityMedia = {
+    const isVideo = asset.type === "video";
+    const maxSize = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+    if (asset.fileSize && asset.fileSize > maxSize) {
+      Alert.alert(
+        "Fichier trop volumineux",
+        `Maximum ${(maxSize / 1024 / 1024).toFixed(0)} Mo pour ${isVideo ? "une vidéo" : "une image"}.`
+      );
+      return;
+    }
+
+    const picked: PickedMedia = {
       id: Date.now().toString(),
       uri: asset.uri,
-      type: "image",
-      name: asset.fileName ?? `image_${Date.now()}.jpg`,
+      type: isVideo ? "VIDEO" : "IMAGE",
+      name: asset.fileName ?? `${isVideo ? "video" : "image"}_${Date.now()}.${isVideo ? "mp4" : "jpg"}`,
+      mimeType: asset.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg"),
+      fileSizeBytes: asset.fileSize,
     };
     setSelectedImages((prev) => [...prev, picked]);
   };
 
   const removeImage = (imageId: string) => {
-    setSelectedImages(selectedImages.filter((img) => img.id !== imageId));
+    setSelectedImages((prev) => prev.filter((img) => img.id !== imageId));
   };
 
-  const handleDateTimeInput = (field: 'heureDebut' | 'heureFin', value: string) => {
-    setFormData({ ...formData, [field]: value });
+  const removeExistingMedia = (mediaId?: string) => {
+    setExistingMedias((prev) => prev.filter((m) => m.id !== mediaId));
+  };
+
+  const toggleClasse = (classId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      classesIds: prev.classesIds.includes(classId)
+        ? prev.classesIds.filter((id) => id !== classId)
+        : [...prev.classesIds, classId],
+    }));
   };
 
   const validateForm = () => {
@@ -168,16 +215,17 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
       Alert.alert("Erreur", "La description est obligatoire");
       return false;
     }
-    if (!formData.lieu.trim()) {
-      Alert.alert("Erreur", "Le lieu est obligatoire");
+    if (formData.visibility === "PRIVATE" && formData.classesIds.length === 0) {
+      Alert.alert("Erreur", "Sélectionnez au moins une classe pour une activité privée.");
       return false;
     }
-    if (!formData.heureDebut) {
-      Alert.alert("Erreur", "L'heure de début est obligatoire");
-      return false;
-    }
-    if (!formData.heureFin) {
-      Alert.alert("Erreur", "L'heure de fin est obligatoire");
+    if (
+      isEditMode &&
+      formData.heureFin &&
+      formData.heureDebut &&
+      new Date(formData.heureFin) <= new Date(formData.heureDebut)
+    ) {
+      Alert.alert("Erreur", "La date de fin doit être postérieure à la date de début.");
       return false;
     }
     return true;
@@ -190,72 +238,68 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
       return;
     }
 
-    const participantsIds = participantsInput
-      .split(",")
-      .map((id) => id.trim())
-      .filter((id) => id.length > 0);
-
     setSubmitting(true);
     try {
-      // Upload any locally-picked images to MinIO before creating the activity.
+      // Upload any locally-picked files to MinIO before saving the activity.
       const uploadedMedias = await Promise.all(
         selectedImages
           .filter((img) => img.uri.startsWith("file:") || img.uri.startsWith("content:"))
           .map(async (img) => {
+            const mediaType = img.type === "VIDEO" ? "VIDEO" : "IMAGE";
+            const mimeType = img.mimeType ?? (mediaType === "VIDEO" ? "video/mp4" : "image/jpeg");
             const filePath = await mediaService.uploadFile(
-              { uri: img.uri, mimeType: "image/jpeg", name: img.name },
+              { uri: img.uri, mimeType, name: img.name },
               user.userId as string,
-              "IMAGE"
+              mediaType
             );
-            return { filePath, mediaType: "IMAGE", fileName: img.name, presignedUrl: filePath };
+            return {
+              fileName: img.name,
+              filePath,
+              contentType: mimeType,
+              fileSize: img.fileSizeBytes ?? 0,
+              mediaType,
+              bucketName: "scholchat",
+            };
           })
       );
 
-      const created = await activityFeedService.create({
+      // Existing media kept as-is: id preserved so the backend treats it as
+      // "keep", not "new" — matches web's editEvent payload building.
+      const keptExistingMedias = existingMedias.map((m) => ({
+        id: m.id,
+        fileName: m.fileName,
+        filePath: m.filePath,
+        contentType: m.contentType,
+        fileSize: m.fileSize,
+        mediaType: m.mediaType,
+        bucketName: m.bucketName || "scholchat",
+      }));
+
+      const payload = {
         titre: formData.titre,
         description: formData.description,
         createurId: user.userId,
-        lieu: formData.lieu,
-        etat: formData.etat,
-        heureDebut: formData.heureDebut,
-        heureFin: formData.heureFin,
-        participantsIds,
-        medias: uploadedMedias,
-      });
-
-      const newActivity: Activity = {
-        id: created.id ?? Date.now().toString(),
-        title: formData.titre,
-        description: formData.description,
-        location: formData.lieu,
-        status:
-          formData.etat === "PLANIFIE" || formData.etat === "A_VENIR"
-            ? "Scheduled"
-            : formData.etat === "EN_COURS"
-              ? "In Progress"
-              : formData.etat === "PASSE"
-                ? "Completed"
-                : "Cancelled",
-        eventDate: formData.heureDebut,
-        rawDate: formData.heureDebut,
-        medias: selectedImages,
-        creator: user.username || user.nom || "Vous",
-        role: "Professeur",
-        date: new Date().toLocaleDateString("fr-FR"),
-        likes: 0,
-        comments: 0,
-        type: "event",
-        participants: `${participantsIds.length} participant(s)`,
-        participantsCount: participantsIds.length,
-        isParticipating: false,
-        isLiked: false,
+        lieu: formData.lieu || undefined,
+        etat: "PLANIFIE" as const,
+        heureDebut: formData.heureDebut || undefined,
+        heureFin: formData.heureFin || undefined,
+        visibility: formData.visibility,
+        classesIds: formData.visibility === "PRIVATE" ? formData.classesIds : [],
+        medias: [...keptExistingMedias, ...uploadedMedias],
       };
 
-      onCreateActivity(newActivity);
-      resetForm();
-      Alert.alert("Succès", "Activité créée avec succès!", [{ text: "OK", onPress: onClose }]);
+      if (isEditMode && activityToEdit) {
+        const updated = await activityFeedService.update(String(activityToEdit.id), payload);
+        onUpdateActivity?.(updated);
+        Alert.alert("Succès", "Activité modifiée avec succès!", [{ text: "OK", onPress: onClose }]);
+      } else {
+        const created = await activityFeedService.create(payload);
+        onCreateActivity(created);
+        resetForm();
+        Alert.alert("Succès", "Activité créée avec succès!", [{ text: "OK", onPress: onClose }]);
+      }
     } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la création de l'activité.");
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'enregistrement de l'activité.");
     } finally {
       setSubmitting(false);
     }
@@ -263,7 +307,7 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
 
   const handleCancel = () => {
     Alert.alert(
-      "Annuler la création",
+      isEditMode ? "Annuler la modification" : "Annuler la création",
       "Êtes-vous sûr de vouloir annuler? Toutes les données saisies seront perdues.",
       [
         { text: "Continuer", style: "cancel" },
@@ -302,7 +346,7 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
         <TouchableOpacity onPress={onClose} style={modalStyles.backButton}>
           <FontAwesome5 name="arrow-left" size={20} color="#111827" />
         </TouchableOpacity>
-        <Text style={modalStyles.headerTitle}>Créer une activité</Text>
+        <Text style={modalStyles.headerTitle}>{isEditMode ? "Modifier l'activité" : "Créer une activité"}</Text>
         <TouchableOpacity
           onPress={handleCancel}
           style={modalStyles.cancelButton}
@@ -348,112 +392,133 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
 
         {/* Location Field */}
         <View style={modalStyles.fieldContainer}>
-          <Text style={modalStyles.fieldLabel}>Lieu *</Text>
+          <Text style={modalStyles.fieldLabel}>Lieu</Text>
           <TextInput
             style={modalStyles.textInput}
             value={formData.lieu}
             onChangeText={(text) => setFormData({ ...formData, lieu: text })}
-            placeholder="Lieu de l'activité"
+            placeholder="Lieu de l'activité (optionnel)"
             placeholderTextColor="#9CA3AF"
           />
         </View>
 
-        {/* State Selection */}
+        {/* Visibility Toggle */}
         <View style={modalStyles.fieldContainer}>
-          <Text style={modalStyles.fieldLabel}>État</Text>
-          <View style={modalStyles.stateContainer}>
-            {etatOptions.map((option) => (
-              <TouchableOpacity
-                key={option.value}
-                style={[
-                  modalStyles.stateOption,
-                  formData.etat === option.value && {
-                    backgroundColor: option.color + "20",
-                    borderColor: option.color,
-                  },
-                ]}
-                onPress={() => setFormData({ ...formData, etat: option.value })}
-              >
-                <View
-                  style={[
-                    modalStyles.stateIndicator,
-                    { backgroundColor: option.color },
-                  ]}
-                />
-                <Text
-                  style={[
-                    modalStyles.stateText,
-                    formData.etat === option.value && { color: option.color },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <Text style={modalStyles.fieldLabel}>Visibilité</Text>
+          <View style={modalStyles.visibilityRow}>
+            <TouchableOpacity
+              style={[modalStyles.visibilityOption, formData.visibility === "PUBLIC" && modalStyles.visibilityOptionActivePublic]}
+              onPress={() => setFormData({ ...formData, visibility: "PUBLIC" })}
+            >
+              <FontAwesome5 name="globe" size={14} color={formData.visibility === "PUBLIC" ? "#3B82F6" : "#6B7280"} />
+              <Text style={[modalStyles.visibilityText, formData.visibility === "PUBLIC" && { color: "#3B82F6" }]}>Public</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[modalStyles.visibilityOption, formData.visibility === "PRIVATE" && modalStyles.visibilityOptionActivePrivate]}
+              onPress={() => setFormData({ ...formData, visibility: "PRIVATE" })}
+            >
+              <FontAwesome5 name="lock" size={14} color={formData.visibility === "PRIVATE" ? "#7C3AED" : "#6B7280"} />
+              <Text style={[modalStyles.visibilityText, formData.visibility === "PRIVATE" && { color: "#7C3AED" }]}>Privé</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
+        {/* Class picker — only for PRIVATE */}
+        {formData.visibility === "PRIVATE" && (
+          <View style={modalStyles.fieldContainer}>
+            <Text style={modalStyles.fieldLabel}>Classes * (plusieurs possibles)</Text>
+            {loadingClasses ? (
+              <Text style={modalStyles.helpText}>Chargement des classes...</Text>
+            ) : classes.length === 0 ? (
+              <Text style={modalStyles.helpText}>Aucune classe disponible</Text>
+            ) : (
+              <View style={modalStyles.chipRow}>
+                {classes.map((cls) => {
+                  const selected = formData.classesIds.includes(cls.id);
+                  return (
+                    <TouchableOpacity
+                      key={cls.id}
+                      style={[modalStyles.chip, selected && modalStyles.chipActive]}
+                      onPress={() => toggleClasse(cls.id)}
+                    >
+                      {selected && <FontAwesome5 name="check" size={10} color="#FFFFFF" style={{ marginRight: 4 }} />}
+                      <Text style={[modalStyles.chipText, selected && modalStyles.chipTextActive]}>{cls.nom || cls.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Start Time */}
         <View style={modalStyles.fieldContainer}>
-          <Text style={modalStyles.fieldLabel}>Heure de début *</Text>
+          <Text style={modalStyles.fieldLabel}>Heure de début</Text>
           <TextInput
             style={modalStyles.textInput}
             value={formData.heureDebut}
-            onChangeText={(text) => handleDateTimeInput("heureDebut", text)}
-            placeholder="DD/MM/YYYY HH:MM"
+            onChangeText={(text) => setFormData({ ...formData, heureDebut: text })}
+            placeholder="DD/MM/YYYY HH:MM (optionnel — laissez vide pour une publication)"
             placeholderTextColor="#9CA3AF"
           />
         </View>
 
         {/* End Time */}
         <View style={modalStyles.fieldContainer}>
-          <Text style={modalStyles.fieldLabel}>Heure de fin *</Text>
+          <Text style={modalStyles.fieldLabel}>Heure de fin</Text>
           <TextInput
             style={modalStyles.textInput}
             value={formData.heureFin}
-            onChangeText={(text) => handleDateTimeInput("heureFin", text)}
-            placeholder="DD/MM/YYYY HH:MM"
+            onChangeText={(text) => setFormData({ ...formData, heureFin: text })}
+            placeholder="DD/MM/YYYY HH:MM (optionnel)"
             placeholderTextColor="#9CA3AF"
           />
-        </View>
-
-        {/* Participants */}
-        <View style={modalStyles.fieldContainer}>
-          <Text style={modalStyles.fieldLabel}>IDs des participants</Text>
-          <TextInput
-            style={modalStyles.textInput}
-            value={participantsInput}
-            onChangeText={setParticipantsInput}
-            placeholder="ID1, ID2, ID3... (séparés par des virgules)"
-            placeholderTextColor="#9CA3AF"
-          />
-          <Text style={modalStyles.helpText}>
-            Entrez les IDs des participants séparés par des virgules
-          </Text>
         </View>
 
         {/* Media Section */}
         <View style={modalStyles.fieldContainer}>
-          <Text style={modalStyles.fieldLabel}>Images</Text>
+          <Text style={modalStyles.fieldLabel}>Médias</Text>
 
-          {/* Image Picker Button */}
           <TouchableOpacity
             style={modalStyles.imagePickerButton}
             onPress={handleImagePicker}
           >
             <FontAwesome5 name="camera" size={20} color="#4F46E5" />
-            <Text style={modalStyles.imagePickerText}>Ajouter une image</Text>
+            <Text style={modalStyles.imagePickerText}>Ajouter une image ou une vidéo</Text>
           </TouchableOpacity>
 
-          {/* Selected Images */}
-          {selectedImages.length > 0 && (
+          {(existingMedias.length > 0 || selectedImages.length > 0) && (
             <View style={modalStyles.imagesContainer}>
+              {existingMedias.map((media) => (
+                <View key={`existing-${media.id}`} style={modalStyles.imageContainer}>
+                  {(media.mediaType || "IMAGE").toUpperCase() === "VIDEO" ? (
+                    <View style={[modalStyles.image, modalStyles.videoPlaceholder]}>
+                      <FontAwesome5 name="video" size={20} color="#FFFFFF" />
+                    </View>
+                  ) : media.presignedUrl ? (
+                    <Image source={{ uri: media.presignedUrl }} style={modalStyles.image} />
+                  ) : (
+                    <View style={[modalStyles.image, modalStyles.videoPlaceholder]}>
+                      <FontAwesome5 name="image" size={20} color="#FFFFFF" />
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={modalStyles.removeImageButton}
+                    onPress={() => removeExistingMedia(media.id)}
+                  >
+                    <FontAwesome5 name="times" size={12} color="#FFFFFF" />
+                  </TouchableOpacity>
+                </View>
+              ))}
               {selectedImages.map((image) => (
                 <View key={image.id} style={modalStyles.imageContainer}>
-                  <Image
-                    source={{ uri: image.uri }}
-                    style={modalStyles.image}
-                  />
+                  {image.type === "VIDEO" ? (
+                    <View style={[modalStyles.image, modalStyles.videoPlaceholder]}>
+                      <FontAwesome5 name="video" size={20} color="#FFFFFF" />
+                    </View>
+                  ) : (
+                    <Image source={{ uri: image.uri }} style={modalStyles.image} />
+                  )}
                   <TouchableOpacity
                     style={modalStyles.removeImageButton}
                     onPress={() => removeImage(image.id)}
@@ -470,7 +535,7 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
         <View style={modalStyles.bottomSpacing} />
       </ScrollView>
 
-      {/* Create Button */}
+      {/* Submit Button */}
       <View style={modalStyles.bottomContainer}>
         <TouchableOpacity
           style={[modalStyles.createButton, submitting && { opacity: 0.7 }]}
@@ -478,13 +543,13 @@ const CreateActivityModal = ({ onClose, onCreateActivity }: CreateActivityModalP
           disabled={submitting}
         >
           <FontAwesome5
-            name={submitting ? "spinner" : "plus"}
+            name={submitting ? "spinner" : isEditMode ? "save" : "plus"}
             size={16}
             color="#FFFFFF"
             style={modalStyles.buttonIcon}
           />
           <Text style={modalStyles.createButtonText}>
-            {submitting ? "Création..." : "Créer l'activité"}
+            {submitting ? (isEditMode ? "Modification..." : "Création...") : isEditMode ? "Enregistrer" : "Créer l'activité"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -592,37 +657,61 @@ const modalStyles = StyleSheet.create({
     textAlignVertical: "top",
     paddingTop: 14,
   },
-  stateContainer: {
+  visibilityRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 10,
   },
-  stateOption: {
+  visibilityOption: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 25,
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: "#E5E7EB",
     backgroundColor: "#FFFFFF",
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
-  stateIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 10,
+  visibilityOptionActivePublic: {
+    borderColor: "#3B82F6",
+    backgroundColor: "#EFF6FF",
   },
-  stateText: {
+  visibilityOptionActivePrivate: {
+    borderColor: "#0D9488",
+    backgroundColor: "#CCFBF1",
+  },
+  visibilityText: {
     fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  chipActive: {
+    borderColor: "#7C3AED",
+    backgroundColor: "#7C3AED",
+  },
+  chipText: {
+    fontSize: 13,
     fontWeight: "500",
     color: "#374151",
+  },
+  chipTextActive: {
+    color: "#FFFFFF",
   },
   helpText: {
     fontSize: 12,
@@ -662,6 +751,11 @@ const modalStyles = StyleSheet.create({
     height: 80,
     borderRadius: 12,
     backgroundColor: "#F3F4F6",
+  },
+  videoPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1F2937",
   },
   removeImageButton: {
     position: "absolute",

@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from '../../../../components/ui';
-import { colors, spacing, typography } from '../../../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { exerciseProgrammerService, participationService, reponseService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
 import { Participation, Question, Reponse } from '../../../../types';
@@ -18,6 +18,8 @@ interface CorrectionsModalProps {
  * one to review each question's answer and record a grade/appreciation.
  */
 const CorrectionsModal = ({ visible, onClose }: CorrectionsModalProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const [participations, setParticipations] = useState<Participation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +92,8 @@ interface GradingDetailProps {
 }
 
 const GradingDetail = ({ participation, onClose, onGraded }: GradingDetailProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [reponses, setReponses] = useState<Record<string, Reponse>>({});
   const [loading, setLoading] = useState(true);
@@ -215,7 +219,7 @@ const GradingDetail = ({ participation, onClose, onGraded }: GradingDetailProps)
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   scroll: { maxHeight: 500 },
   error: { color: colors.danger, marginBottom: spacing.md },
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md },

@@ -3,7 +3,7 @@ import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from '../../../../components/ui';
 import DateTimeField from '../../../../components/common/DateTimeField';
-import { colors, radius, spacing, typography } from '../../../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { classService } from '../../../../services/classService';
 import { exerciseProgrammerService, userService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
@@ -53,6 +53,8 @@ type ViewMode = 'list' | 'form';
  * with no way to see, filter, or remove a programmation once made.
  */
 const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: ScheduleExerciseModalProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const [view, setView] = useState<ViewMode>('list');
 
@@ -452,29 +454,41 @@ const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: Sch
   );
 };
 
-const StatChip = ({ label, value, color }: { label: string; value: number; color: string }) => (
-  <View style={styles.statChip}>
-    <Text style={[styles.statValue, { color }]}>{value}</Text>
-    <Text style={styles.statLabel}>{label}</Text>
-  </View>
-);
+const StatChip = ({ label, value, color }: { label: string; value: number; color: string }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.statChip}>
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+};
 
-const FilterChip = ({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) => (
-  <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}>
-    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
-      {label}
-    </Text>
-  </TouchableOpacity>
-);
+const FilterChip = ({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}>
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
-const DetailRow = ({ label, value }: { label: string; value: string }) => (
-  <View style={styles.detailRow}>
-    <Text style={styles.detailLabel}>{label}</Text>
-    <Text style={styles.detailValue}>{value}</Text>
-  </View>
-);
+const DetailRow = ({ label, value }: { label: string; value: string }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   scroll: { maxHeight: 560 },
   backRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.md },
   backText: { ...typography.bodyBold, color: colors.primary, fontSize: 13 },

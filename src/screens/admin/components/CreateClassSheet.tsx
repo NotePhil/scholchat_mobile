@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   ScrollView,
@@ -15,7 +15,7 @@ import {
   Input,
 } from "../../../components/ui";
 import PaymentModal from "../../../components/common/PaymentModal";
-import { colors, spacing, typography } from "../../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../../styles/theme";
 import { establishmentService, offerService } from "../../../services/api";
 import { classService } from "../../../services/classService";
 import { PaymentInfo } from "../../../services/api/contratService";
@@ -70,6 +70,8 @@ export const CreateClassSheet = ({
   defaultEstablishmentId,
   lockEstablishment,
 }: CreateClassSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [nom, setNom] = useState("");
   const [niveau, setNiveau] = useState("");
   const [accesMajeur, setAccesMajeur] = useState(false);
@@ -294,50 +296,52 @@ export const CreateClassSheet = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   fieldLabel: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.sm },
   fieldError: { ...typography.caption, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.sm },
   accesMajeurBox: {
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "#F5F3FF",
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: "#DDD6FE",
-    borderRadius: 12,
+    borderColor: colors.border,
+    borderRadius: 14,
     padding: spacing.md,
     marginBottom: spacing.md,
   },
-  accesMajeurTitle: { ...typography.bodyBold, color: "#6D28D9" },
-  accesMajeurSub: { ...typography.caption, color: "#7C3AED" },
+  accesMajeurTitle: { ...typography.bodyBold, color: colors.text },
+  accesMajeurSub: { ...typography.caption, color: colors.textMuted },
   offreBox: {
-    backgroundColor: "#FFFBEB",
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: "#FDE68A",
-    borderRadius: 12,
+    borderColor: colors.border,
+    borderRadius: 14,
     padding: spacing.md,
     marginBottom: spacing.md,
   },
   offreHint: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.sm },
   periodBtn: {
     flex: 1,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: "center",
+    backgroundColor: colors.surface,
   },
   periodBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   periodBtnText: { ...typography.caption, color: colors.text, fontWeight: "600" },
   periodBtnTextActive: { color: colors.white },
   reductionText: {
     ...typography.caption,
-    color: colors.success,
+    color: colors.successDark,
     backgroundColor: colors.successLight,
     borderWidth: 1,
-    borderColor: colors.success,
+    borderColor: colors.successLight,
     borderRadius: 8,
     padding: spacing.sm,
     marginTop: spacing.sm,
+    fontWeight: "700",
   },
 });
 export default CreateClassSheet;

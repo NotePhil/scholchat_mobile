@@ -1,8 +1,8 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../../styles/theme';
+import { colors, useThemeColors } from '../../styles/theme';
 import { useUser } from '../../context/UserContext';
 import { useMessagesStore } from '../../store/useMessagesStore';
 
@@ -32,6 +32,8 @@ const MobileFooterNav = ({
 }: MobileFooterNavProps) => {
   const insets = useSafeAreaInsets();
   const { user } = useUser();
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const unreadCount = useMessagesStore((s) => s.unreadCount);
   const refreshUnread = useMessagesStore((s) => s.refresh);
 
@@ -40,7 +42,7 @@ const MobileFooterNav = ({
   }, [user?.userId, refreshUnread]);
 
   const items: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string; badgeCount?: number }[] = [
-    { icon: 'th-large', label: 'Accueil', tab: 'dashboard' },
+    { icon: 'home', label: 'Accueil', tab: 'dashboard' },
     { icon: 'envelope', label: 'Messages', tab: 'messages', badgeCount: unreadCount },
   ];
   const trailingItems: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string }[] = [
@@ -88,7 +90,7 @@ const MobileFooterNav = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   bar: {
     position: 'absolute',
     bottom: 0,

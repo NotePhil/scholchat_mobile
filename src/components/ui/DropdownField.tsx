@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { radius, spacing, typography, useThemeColors } from '../../styles/theme';
 import BottomSheet from './BottomSheet';
 
 export interface DropdownOption {
@@ -32,6 +32,8 @@ interface DropdownFieldProps {
  * instead of the chip-picker pattern those forms used before.
  */
 const DropdownField = ({ label, value, options, onChange, placeholder = 'Sélectionner...', disabled, loading, error, sheetTitle }: DropdownFieldProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
 
@@ -75,7 +77,7 @@ const DropdownField = ({ label, value, options, onChange, placeholder = 'Sélect
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { marginBottom: spacing.md },
   label: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.xs },
   field: {

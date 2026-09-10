@@ -1,16 +1,18 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { Badge, EmptyState, LoadingSpinner } from "../../components/ui";
 import JoinClassSheet from "../shared/JoinClassSheet";
 import StudentClassDetailModal, { getLevelStyle } from "../shared/StudentClassDetailModal";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
 
 const StudentClassesBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const [classes, setClasses] = useState<ClassEntity[]>([]);
@@ -130,7 +132,7 @@ const StudentClassesBody = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",

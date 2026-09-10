@@ -1,12 +1,20 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Avatar, Button, Card, LoadingSpinner } from "../../components/ui";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../styles/theme";
 import { useAuthStore } from "../../store/useAuthStore";
 import { userService } from "../../services/api";
 import { authService } from "../../services/home/authService";
 import { confirmLogout } from "../../utils/confirmLogout";
+
+// LinearGradient with safe fallback
+let LinearGradient: any;
+try {
+  LinearGradient = require("expo-linear-gradient").LinearGradient;
+} catch {
+  LinearGradient = ({ children, style }: any) => <View style={style}>{children}</View>;
+}
 
 interface AccountSettingsBodyProps {
   onLogout: () => void;
@@ -24,12 +32,12 @@ const PASSWORD_RULES: { label: string; test: (v: string) => boolean }[] = [
 ];
 
 /**
- * One shared "Paramètres" screen for every role — matches web's SettingsContent.jsx,
- * which has zero role branching (same component for Admin/Professor/Parent/etc.,
- * only the data differs). Replaces the previous split where Admin got a bare
- * name+logout stub while other roles got inconsistent, partly-decorative screens.
+ * One shared "Paramètres" screen for every role — modernized with hero header,
+ * elevated profile card, sleek tab navigation, and crisp form styling.
  */
 const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
   const [tab, setTab] = useState<Tab>("profile");
@@ -51,42 +59,39 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
     setAdresse((user?.adresse as string) ?? "");
   }, [user]);
 
-  /**
-   * POST /auth/login's response (AuthResponse.java) never carries nom/prenom
-   * (only a combined `username` string), and has no telephone/adresse at
-   * all — there is no GET /auth/me on this backend either. So the cached
-   * login-derived `user` is always missing those fields; the only real
-   * source is GET /utilisateurs/{id}, fetched fresh here on mount.
-   */
+  const userId = user?.id;
+
   useEffect(() => {
-    const id = user?.userId ?? user?.id;
-    if (!id) {
+    let cancelled = false;
+    if (!userId) {
       setLoadingProfile(false);
       return;
     }
-    let cancelled = false;
     setLoadingProfile(true);
     userService
-      .getUserById(id as string)
-      .then((full) => {
-        if (cancelled) return;
-        const patch = {
-          nom: (full.nom as string) ?? user?.nom ?? "",
-          prenom: (full.prenom as string) ?? user?.prenom ?? "",
-          email: (full.email as string) ?? user?.email ?? "",
-          telephone: (full.telephone as string) ?? "",
-          adresse: (full.adresse as string) ?? "",
-        };
-        updateUser(patch);
-        setNom(patch.nom);
-        setPrenom(patch.prenom);
-        setEmail(patch.email);
-        setTelephone(patch.telephone);
-        setAdresse(patch.adresse);
+      .getUserById(String(userId))
+      .then((fresh) => {
+        if (cancelled || !fresh) return;
+        const freshNom = (fresh as any).nom ?? "";
+        const freshPrenom = (fresh as any).prenom ?? "";
+        const freshEmail = (fresh as any).email ?? "";
+        const freshTel = (fresh as any).telephone ?? "";
+        const freshAdr = (fresh as any).adresse ?? "";
+        setNom(freshNom);
+        setPrenom(freshPrenom);
+        setEmail(freshEmail);
+        setTelephone(freshTel);
+        setAdresse(freshAdr);
+        updateUser({
+          nom: freshNom || user?.nom,
+          prenom: freshPrenom || user?.prenom,
+          email: freshEmail || user?.email,
+          telephone: freshTel || user?.telephone,
+          adresse: freshAdr || (user?.adresse as string),
+        });
       })
       .catch(() => {
-        // Keep whatever the cached session already has — the fields that
-        // can't come from login (telephone/adresse) will just stay blank.
+        // Fall back gracefully to existing store values
       })
       .finally(() => {
         if (!cancelled) setLoadingProfile(false);
@@ -94,16 +99,14 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.userId, user?.id]);
+  }, [userId]);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
 
-  const displayName = `${prenom} ${nom}`.trim() || user?.username || roleLabel;
-  const userId = user?.userId ?? user?.id;
+  const displayName = [prenom, nom].filter(Boolean).join(" ") || user?.username || "Utilisateur";
 
   const handleCancelEdit = () => {
     setNom(user?.nom ?? "");
@@ -176,93 +179,211 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Paramètres</Text>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      {/* Hero Header */}
+      <LinearGradient
+        colors={[colors.heroStart, colors.heroMid]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.pageHeader}
+      >
+        <Text style={styles.pageTitle}>Paramètres</Text>
+        <Text style={styles.pageSubtitle}>Gérez vos informations de compte et sécurité</Text>
+      </LinearGradient>
+
+      {/* Profile Card */}
+      <View style={styles.profileCardWrapper}>
+        <View style={styles.profileCard}>
+          <LinearGradient
+            colors={["#4F46E5", "#06B6D4"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.profileTopAccent}
+          />
+          <View style={styles.profileContent}>
+            <View style={styles.avatarWrap}>
+              <Avatar name={displayName} size={76} />
+              <View style={styles.onlineBadge} />
+            </View>
+            <Text style={styles.profileName}>{displayName}</Text>
+            <Text style={styles.profileEmail}>{user.email}</Text>
+            <View style={styles.roleBadge}>
+              <FontAwesome5 name="shield-alt" size={10} color={colors.primary} />
+              <Text style={styles.roleBadgeText}>{roleLabel}</Text>
+            </View>
+          </View>
+        </View>
       </View>
 
-      <Card style={styles.profileCard}>
-        <Avatar name={displayName} size={72} />
-        <Text style={styles.name}>{displayName}</Text>
-        <Text style={styles.email}>{user.email}</Text>
-        <Text style={styles.role}>{roleLabel}</Text>
-      </Card>
-
-      <View style={styles.tabRow}>
-        <TouchableOpacity style={[styles.tabBtn, tab === "profile" && styles.tabBtnActive]} onPress={() => setTab("profile")}>
-          <FontAwesome5 name="user" size={13} color={tab === "profile" ? colors.white : colors.text} />
-          <Text style={[styles.tabText, tab === "profile" && styles.tabTextActive]}>Mon Profil</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabBtn, tab === "security" && styles.tabBtnActive]} onPress={() => setTab("security")}>
-          <FontAwesome5 name="lock" size={13} color={tab === "security" ? colors.white : colors.text} />
-          <Text style={[styles.tabText, tab === "security" && styles.tabTextActive]}>Sécurité</Text>
-        </TouchableOpacity>
+      {/* Tabs */}
+      <View style={styles.tabContainer}>
+        <View style={styles.tabRow}>
+          <TouchableOpacity
+            style={[styles.tabBtn, tab === "profile" && styles.tabBtnActive]}
+            onPress={() => setTab("profile")}
+            activeOpacity={0.7}
+          >
+            <FontAwesome5 name="user" size={12} color={tab === "profile" ? colors.white : colors.textMuted} />
+            <Text style={[styles.tabText, tab === "profile" && styles.tabTextActive]}>Mon Profil</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabBtn, tab === "security" && styles.tabBtnActive]}
+            onPress={() => setTab("security")}
+            activeOpacity={0.7}
+          >
+            <FontAwesome5 name="lock" size={12} color={tab === "security" ? colors.white : colors.textMuted} />
+            <Text style={[styles.tabText, tab === "security" && styles.tabTextActive]}>Sécurité</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {tab === "profile" ? (
-        <Card style={styles.section}>
+        <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Informations Personnelles</Text>
-            {!editMode && (
-              <TouchableOpacity onPress={() => setEditMode(true)}>
-                <FontAwesome5 name="edit" size={16} color={colors.primary} />
+            <View style={styles.sectionHeaderLeft}>
+              <View style={styles.sectionIconBox}>
+                <FontAwesome5 name="id-card" size={14} color={colors.primary} />
+              </View>
+              <Text style={styles.sectionTitle}>Informations Personnelles</Text>
+            </View>
+            {!editMode ? (
+              <TouchableOpacity onPress={() => setEditMode(true)} style={styles.editPill} activeOpacity={0.7}>
+                <FontAwesome5 name="pen" size={11} color={colors.primary} />
+                <Text style={styles.editPillText}>Modifier</Text>
               </TouchableOpacity>
-            )}
+            ) : null}
           </View>
 
-          <Field label="Prénom" value={prenom} onChangeText={setPrenom} editable={editMode} />
-          <Field label="Nom" value={nom} onChangeText={setNom} editable={editMode} />
-          <Field label="Email" value={email} onChangeText={setEmail} editable={editMode} keyboardType="email-address" />
-          <Field label="Téléphone" value={telephone} onChangeText={setTelephone} editable={editMode} keyboardType="phone-pad" />
-          <Field label="Adresse" value={adresse} onChangeText={setAdresse} editable={editMode} multiline />
+          <Field label="Prénom" value={prenom} onChangeText={setPrenom} editable={editMode} icon="user" />
+          <Field label="Nom" value={nom} onChangeText={setNom} editable={editMode} icon="signature" />
+          <Field
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            editable={editMode}
+            keyboardType="email-address"
+            icon="envelope"
+          />
+          <Field
+            label="Téléphone"
+            value={telephone}
+            onChangeText={setTelephone}
+            editable={editMode}
+            keyboardType="phone-pad"
+            icon="phone"
+          />
+          <Field
+            label="Adresse"
+            value={adresse}
+            onChangeText={setAdresse}
+            editable={editMode}
+            multiline
+            icon="map-marker-alt"
+          />
 
           {editMode && (
             <View style={styles.actionsRow}>
-              <Button label="Annuler" variant="secondary" onPress={handleCancelEdit} style={{ flex: 1, marginRight: spacing.sm }} />
+              <Button
+                label="Annuler"
+                variant="secondary"
+                onPress={handleCancelEdit}
+                style={{ flex: 1, marginRight: spacing.sm }}
+              />
               <Button label="Enregistrer" onPress={handleSaveProfile} loading={saving} style={{ flex: 1 }} />
             </View>
           )}
-        </Card>
+        </View>
       ) : (
-        <Card style={styles.section}>
-          <Text style={styles.sectionTitle}>Modifier le Mot de Passe</Text>
-          <Field label="Mot de passe actuel" value={currentPassword} onChangeText={setCurrentPassword} editable secure />
-          <Field label="Nouveau mot de passe" value={newPassword} onChangeText={setNewPassword} editable secure />
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderLeft}>
+              <View style={[styles.sectionIconBox, { backgroundColor: colors.warningLight }]}>
+                <FontAwesome5 name="shield-alt" size={14} color={colors.warning} />
+              </View>
+              <Text style={styles.sectionTitle}>Modifier le Mot de Passe</Text>
+            </View>
+          </View>
+
+          <Field
+            label="Mot de passe actuel"
+            value={currentPassword}
+            onChangeText={setCurrentPassword}
+            editable
+            secure
+            icon="key"
+          />
+          <Field
+            label="Nouveau mot de passe"
+            value={newPassword}
+            onChangeText={setNewPassword}
+            editable
+            secure
+            icon="lock"
+          />
+
           {newPassword.length > 0 && (
             <View style={styles.rulesBox}>
+              <Text style={styles.rulesHeading}>Critères requis :</Text>
               {passwordChecks.map((c) => (
                 <View key={c.label} style={styles.ruleRow}>
-                  <FontAwesome5 name={c.ok ? "check-circle" : "circle"} size={12} color={c.ok ? colors.success : colors.textMuted} solid={c.ok} />
-                  <Text style={[styles.ruleText, c.ok && { color: colors.success }]}>{c.label}</Text>
+                  <FontAwesome5
+                    name={c.ok ? "check-circle" : "circle"}
+                    size={12}
+                    color={c.ok ? colors.success : colors.textMuted}
+                    solid={c.ok}
+                  />
+                  <Text style={[styles.ruleText, c.ok && { color: colors.success, fontWeight: "600" }]}>
+                    {c.label}
+                  </Text>
                 </View>
               ))}
             </View>
           )}
-          <Field label="Confirmer le nouveau mot de passe" value={confirmPassword} onChangeText={setConfirmPassword} editable secure />
+
+          <Field
+            label="Confirmer le nouveau mot de passe"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            editable
+            secure
+            icon="check-double"
+          />
+
           {confirmPassword.length > 0 && !passwordsMatch && (
-            <Text style={styles.errorText}>Les mots de passe ne correspondent pas</Text>
+            <View style={styles.errorBanner}>
+              <FontAwesome5 name="exclamation-circle" size={12} color={colors.danger} />
+              <Text style={styles.errorBannerText}>Les mots de passe ne correspondent pas</Text>
+            </View>
           )}
+
           <Button
-            label="Modifier le Mot de Passe"
+            label="Mettre à jour le mot de passe"
             onPress={handleChangePassword}
             loading={changingPassword}
             disabled={!currentPassword || !passwordValid || !passwordsMatch}
             fullWidth
             style={{ marginTop: spacing.md }}
           />
-        </Card>
+        </View>
       )}
 
-      <Card style={styles.section} padded={false}>
-        <TouchableOpacity style={styles.settingItem} onPress={handleLogout}>
-          <View style={styles.settingLeft}>
-            <FontAwesome5 name="sign-out-alt" size={18} color={colors.danger} />
-            <Text style={[styles.settingText, { color: colors.danger }]}>Déconnexion</Text>
+      {/* Logout Card */}
+      <View style={styles.logoutWrapper}>
+        <TouchableOpacity style={styles.logoutCard} onPress={handleLogout} activeOpacity={0.8}>
+          <View style={styles.logoutLeft}>
+            <View style={styles.logoutIconBox}>
+              <FontAwesome5 name="sign-out-alt" size={16} color={colors.danger} />
+            </View>
+            <View>
+              <Text style={styles.logoutText}>Déconnexion</Text>
+              <Text style={styles.logoutSubtext}>Se déconnecter de votre session</Text>
+            </View>
           </View>
+          <FontAwesome5 name="chevron-right" size={13} color={colors.danger} />
         </TouchableOpacity>
-      </Card>
+      </View>
 
-      <View style={{ height: 100 }} />
+      <View style={{ height: 110 }} />
     </ScrollView>
   );
 };
@@ -275,71 +396,235 @@ interface FieldProps {
   keyboardType?: "email-address" | "phone-pad" | "default";
   multiline?: boolean;
   secure?: boolean;
+  icon?: string;
 }
 
-const Field = ({ label, value, onChangeText, editable, keyboardType, multiline, secure }: FieldProps) => (
+const Field = ({ label, value, onChangeText, editable, keyboardType, multiline, secure, icon }: FieldProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
   <View style={styles.fieldGroup}>
     <Text style={styles.fieldLabel}>{label}</Text>
-    <TextInput
-      style={[styles.fieldInput, !editable && styles.fieldInputDisabled, multiline && styles.fieldInputMultiline]}
-      value={value}
-      onChangeText={onChangeText}
-      editable={editable}
-      keyboardType={keyboardType}
-      multiline={multiline}
-      secureTextEntry={secure}
-      placeholderTextColor={colors.textMuted}
-    />
+    <View
+      style={[
+        styles.fieldInputWrapper,
+        !editable && styles.fieldInputDisabled,
+        multiline && styles.fieldInputWrapperMultiline,
+      ]}
+    >
+      {icon ? <FontAwesome5 name={icon as any} size={13} color={colors.textMuted} style={styles.fieldIcon} /> : null}
+      <TextInput
+        style={[styles.fieldInput, multiline && styles.fieldInputMultiline]}
+        value={value}
+        onChangeText={onChangeText}
+        editable={editable}
+        keyboardType={keyboardType}
+        multiline={multiline}
+        secureTextEntry={secure}
+        placeholderTextColor={colors.textMuted}
+      />
+    </View>
   </View>
-);
+  );
+};
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { paddingHorizontal: 16, marginTop: 20, marginBottom: spacing.md },
-  title: { ...typography.h1, color: colors.text },
-  profileCard: { marginHorizontal: 16, alignItems: "center", marginBottom: spacing.md },
-  name: { ...typography.h2, color: colors.text, marginTop: spacing.md },
-  email: { ...typography.body, color: colors.textMuted, marginTop: 2 },
-  role: { ...typography.caption, color: colors.primary, fontWeight: "700", marginTop: spacing.sm },
-  tabRow: { flexDirection: "row", paddingHorizontal: 16, marginBottom: spacing.md, gap: spacing.sm },
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  // Hero Header
+  pageHeader: {
+    // Fallback in case LinearGradient ever fails to render — without this,
+    // the white pageTitle/pageSubtitle text below becomes invisible against
+    // the page's light background instead of the intended dark gradient.
+    backgroundColor: colors.heroStart,
+    paddingTop: 52,
+    paddingBottom: 24,
+    paddingHorizontal: spacing.lg,
+    borderBottomLeftRadius: radius.xxl,
+    borderBottomRightRadius: radius.xxl,
+    ...shadow.hero,
+  },
+  pageTitle: { fontSize: 26, fontWeight: "800", color: colors.white, letterSpacing: -0.5 },
+  pageSubtitle: { fontSize: 13, color: "rgba(255,255,255,0.75)", marginTop: 4 },
+
+  // Profile Card
+  profileCardWrapper: { paddingHorizontal: 16, marginTop: -14 },
+  profileCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.card,
+  },
+  profileTopAccent: { height: 4 },
+  profileContent: { alignItems: "center", paddingVertical: spacing.lg, paddingHorizontal: spacing.md },
+  avatarWrap: { position: "relative", marginBottom: 10 },
+  onlineBadge: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#10B981",
+    borderWidth: 2,
+    borderColor: colors.white,
+  },
+  profileName: { ...typography.h2, color: colors.text, fontSize: 18 },
+  profileEmail: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  roleBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 8,
+  },
+  roleBadgeText: { fontSize: 11, fontWeight: "700", color: colors.primary },
+
+  // Tab
+  tabContainer: { paddingHorizontal: 16, marginTop: spacing.md, marginBottom: spacing.md },
+  tabRow: {
+    flexDirection: "row",
+    backgroundColor: colors.surface,
+    borderRadius: radius.full,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
   tabBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.sm,
-    backgroundColor: colors.grayLight,
+    paddingVertical: 8,
+    borderRadius: radius.full,
   },
   tabBtnActive: { backgroundColor: colors.primary },
-  tabText: { ...typography.caption, color: colors.text, fontWeight: "600" },
+  tabText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
   tabTextActive: { color: colors.white },
-  section: { marginHorizontal: 16, marginBottom: spacing.lg },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.md },
-  sectionTitle: { ...typography.h3, color: colors.text, marginBottom: spacing.md },
-  fieldGroup: { marginBottom: spacing.md },
-  fieldLabel: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.xs, fontSize: 13 },
-  fieldInput: {
+
+  // Sections
+  sectionCard: {
+    marginHorizontal: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: 14,
-    color: colors.text,
-    backgroundColor: colors.surface,
+    marginBottom: spacing.md,
+    ...shadow.card,
   },
-  fieldInputDisabled: { backgroundColor: colors.background, color: colors.textMuted },
-  fieldInputMultiline: { height: 70, textAlignVertical: "top" },
-  actionsRow: { flexDirection: "row", marginTop: spacing.sm },
-  rulesBox: { marginTop: -spacing.sm, marginBottom: spacing.md, gap: 4 },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.md,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+  },
+  sectionHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+  sectionIconBox: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionTitle: { ...typography.bodyBold, color: colors.text, fontSize: 15 },
+  editPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryLight,
+  },
+  editPillText: { fontSize: 11, fontWeight: "700", color: colors.primary },
+
+  // Form Fields
+  fieldGroup: { marginBottom: spacing.sm },
+  fieldLabel: { ...typography.captionBold, color: colors.textMuted, marginBottom: 5, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 },
+  fieldInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceElevated,
+    paddingHorizontal: 12,
+  },
+  fieldInputWrapperMultiline: { alignItems: "flex-start", paddingTop: 8 },
+  fieldIcon: { marginRight: 8, width: 16, textAlign: "center" },
+  fieldInput: {
+    flex: 1,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: colors.text,
+  },
+  fieldInputDisabled: {
+    backgroundColor: colors.background,
+    borderColor: colors.borderLight,
+    opacity: 0.85,
+  },
+  fieldInputMultiline: { height: 60, textAlignVertical: "top" },
+  actionsRow: { flexDirection: "row", marginTop: spacing.md },
+
+  // Password Rules
+  rulesBox: {
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  rulesHeading: { fontSize: 11, fontWeight: "700", color: colors.textMuted, marginBottom: 2 },
   ruleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  ruleText: { ...typography.caption, color: colors.textMuted },
-  errorText: { ...typography.caption, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.md },
-  settingItem: { flexDirection: "row", alignItems: "center", padding: spacing.lg },
-  settingLeft: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  settingText: { ...typography.body, color: colors.text },
+  ruleText: { ...typography.caption, color: colors.textMuted, fontSize: 11 },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.dangerLight,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  errorBannerText: { color: colors.danger, fontSize: 11, fontWeight: "600" },
+
+  // Logout Card
+  logoutWrapper: { paddingHorizontal: 16, marginBottom: spacing.md },
+  logoutCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.dangerLight,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.2)",
+    ...shadow.sm,
+  },
+  logoutLeft: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  logoutIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(239, 68, 68, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoutText: { fontSize: 14, fontWeight: "700", color: colors.danger },
+  logoutSubtext: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
 });
 
 export default AccountSettingsBody;

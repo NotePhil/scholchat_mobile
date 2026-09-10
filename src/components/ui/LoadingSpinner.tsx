@@ -1,20 +1,24 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing, typography } from '../../styles/theme';
+import { spacing, typography, useThemeColors } from '../../styles/theme';
 
 interface LoadingSpinnerProps {
   label?: string;
   fullScreen?: boolean;
 }
 
-const LoadingSpinner = ({ label, fullScreen = false }: LoadingSpinnerProps) => (
-  <View style={[styles.container, fullScreen && styles.fullScreen]}>
-    <ActivityIndicator size="large" color={colors.primary} />
-    {label ? <Text style={styles.label}>{label}</Text> : null}
-  </View>
-);
+const LoadingSpinner = ({ label, fullScreen = false }: LoadingSpinnerProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={[styles.container, fullScreen && styles.fullScreen]}>
+      <ActivityIndicator size="large" color={colors.primary} />
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+    </View>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',

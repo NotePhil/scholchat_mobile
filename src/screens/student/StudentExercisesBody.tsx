@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { colors, typography } from "../../styles/theme";
+import { colors, typography, useThemeColors } from "../../styles/theme";
 import { accederService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
@@ -14,6 +14,8 @@ import DevoirsBody from "../shared/DevoirsBody";
  * programmed exercises web does, via the shared DevoirsBody component.
  */
 const StudentExercisesBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
@@ -44,7 +46,7 @@ const StudentExercisesBody = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 16, marginTop: 20, marginBottom: 12 },
   title: { ...typography.h1, color: colors.text },

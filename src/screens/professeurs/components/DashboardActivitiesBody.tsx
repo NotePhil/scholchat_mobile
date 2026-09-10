@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ScrollView,
   View,
@@ -14,10 +14,16 @@ import {
 import { FontAwesome5 } from "@expo/vector-icons";
 import CreateActivityModal, { Activity, ActivityComment, ActivityMedia } from "./CreateActivityModal";
 import { activityFeedService } from "../../../services/api";
+import { classService } from "../../../services/classService";
 import { LoadingSpinner } from "../../../components/ui";
 import ActivityMediaImage from "../../../components/common/ActivityMediaImage";
 import ActivityMediaVideo from "../../../components/common/ActivityMediaVideo";
 import { useUser } from "../../../context/UserContext";
+import { useAuthStore } from "../../../store/useAuthStore";
+import { ActivityEvent } from "../../../types";
+
+/** Roles allowed to create an activity — mirrors web's canCreateEvent (ActivitiesContent.jsx:610-618). */
+const CREATOR_ROLES = ["admin", "professor", "tutor", "gestionnaire"];
 
 /**
  * Maps the backend's `Evenement` model to this screen's display shape.
@@ -63,6 +69,7 @@ const mapApiActivity = (raw: Record<string, any>, currentUserId?: string): Activ
     likes: likeCount,
     comments: commentCount,
     commentsList,
+    createurId: raw.createurId,
     medias: Array.isArray(raw.medias)
       ? raw.medias.map((m: any, i: number) => ({
           id: m.id ?? String(i),
@@ -302,11 +309,29 @@ const commentStyles = StyleSheet.create({
 
 const DashboardActivitiesBody = () => {
   const { user } = useUser();
-  const [activeFilter, setActiveFilter] = useState("tous");
+  const role = useAuthStore((s) => s.role);
+  // Only these roles may create an activity — mirrors web's canCreateEvent.
+  const canCreateEvent = CREATOR_ROLES.includes(role);
+
+  const [activeFilter, setActiveFilter] = useState("all");
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [activities, setActivities] = useState<Activity[]>([]);
+  const [editingActivity, setEditingActivity] = useState<ActivityEvent | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Raw backend events are the single source of truth; the display `Activity`
+  // shape is always derived via mapApiActivity so like/comment/participate
+  // updates only ever need to patch the raw `interactions`/`participantsIds`
+  // arrays, never duplicate derived counters by hand.
+  const [rawActivities, setRawActivities] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalElements, setTotalElements] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Classes the current user holds publication rights on — used only for the
+  // edit/delete permission check on other people's PRIVATE activities,
+  // mirrors web's userPublicationClassIds (ActivitiesContent.jsx:856-876).
+  const [userPublicationClassIds, setUserPublicationClassIds] = useState<string[]>([]);
   // Facebook-style inline comments — a post's thread expands in place below
   // it (matching web's `activity.showComments` toggle), not a separate
   // modal. Tracked as a Set of activity ids rather than one global boolean
@@ -315,6 +340,23 @@ const DashboardActivitiesBody = () => {
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [submittingCommentId, setSubmittingCommentId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ images: ActivityMedia[]; index: number } | null>(null);
+
+  const activities = useMemo(
+    () => sortActivitiesLikeWeb(rawActivities.map((raw) => mapApiActivity(raw, user?.userId))),
+    [rawActivities, user?.userId]
+  );
+
+  const patchRawActivity = (id: string | number, updater: (raw: ActivityEvent) => ActivityEvent) => {
+    setRawActivities((prev) => prev.map((r) => (String(r.id) === String(id) ? updater(r) : r)));
+  };
+
+  const canEditActivity = (activity: Activity) => {
+    if (role === "admin") return true;
+    if (activity.createurId && user?.userId && activity.createurId === user.userId) return true;
+    const raw = rawActivities.find((r) => String(r.id) === String(activity.id));
+    const classesIds = raw?.classesIds ?? [];
+    return classesIds.some((id) => userPublicationClassIds.includes(id));
+  };
 
   const toggleComments = (activityId: string | number) => {
     const key = String(activityId);
@@ -333,20 +375,19 @@ const DashboardActivitiesBody = () => {
     setSubmittingCommentId(key);
     try {
       const created = await activityFeedService.comment(key, content);
-      const newComment: ActivityComment = {
-        id: created?.id ?? `temp-${Date.now()}`,
-        content,
-        createdById: user?.userId,
-        creationDate: created?.creationDate ?? new Date().toISOString(),
-        isCurrentUser: true,
-      };
-      setActivities((prev) =>
-        prev.map((a) =>
-          a.id === activity.id
-            ? { ...a, comments: a.comments + 1, commentsList: [...(a.commentsList ?? []), newComment] }
-            : a
-        )
-      );
+      patchRawActivity(activity.id, (raw) => ({
+        ...raw,
+        interactions: [
+          ...(raw.interactions ?? []),
+          {
+            id: created?.id,
+            type: "COMMENT",
+            content,
+            createdById: user?.userId,
+            creationDate: created?.creationDate ?? new Date().toISOString(),
+          },
+        ],
+      }));
       setCommentDrafts((prev) => ({ ...prev, [key]: "" }));
     } catch (err) {
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du commentaire.");
@@ -355,51 +396,116 @@ const DashboardActivitiesBody = () => {
     }
   };
 
-  const loadActivities = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  const loadActivities = useCallback(async (pageToLoad = 0, append = false) => {
+    if (!append) {
+      setLoading(true);
+      setError("");
+    }
     try {
-      const data = await activityFeedService.getAll();
-      setActivities(sortActivitiesLikeWeb(data.map((raw) => mapApiActivity(raw, user?.userId))));
+      const result = await activityFeedService.getPaged(pageToLoad, 10);
+      const content = result.content ?? [];
+      setRawActivities((prev) => (append ? [...prev, ...content] : content));
+      setPage(pageToLoad);
+      setHasMore(!result.last);
+      setTotalElements(result.totalElements ?? 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Échec du chargement des activités.");
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
-  }, [user?.userId]);
+  }, []);
 
   useEffect(() => {
-    loadActivities();
+    loadActivities(0, false);
   }, [loadActivities]);
+
+  useEffect(() => {
+    if (!user?.userId) return;
+    classService
+      .getClassesForRole(role, user.userId)
+      .then((cls) => setUserPublicationClassIds(cls.map((c) => c.id)))
+      .catch(() => setUserPublicationClassIds([]));
+  }, [user?.userId, role]);
+
+  const handleLoadMore = () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    loadActivities(page + 1, true);
+  };
+
+  const handleCreateActivity = (created: ActivityEvent) => {
+    setRawActivities((prev) => [created, ...prev]);
+    setShowCreateModal(false);
+  };
+
+  const handleUpdateActivity = (updated: ActivityEvent) => {
+    setRawActivities((prev) => prev.map((r) => (String(r.id) === String(updated.id) ? updated : r)));
+    setEditingActivity(null);
+  };
+
+  const handleDeleteActivity = (activity: Activity) => {
+    Alert.alert("Supprimer l'activité", "Cette action est irréversible. Voulez-vous continuer ?", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: async () => {
+          const id = String(activity.id);
+          setDeletingId(id);
+          try {
+            await activityFeedService.remove(id);
+            setRawActivities((prev) => prev.filter((r) => String(r.id) !== id));
+          } catch (err) {
+            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
+          } finally {
+            setDeletingId(null);
+          }
+        },
+      },
+    ]);
+  };
 
   const handleLike = async (activity: Activity) => {
     const wasLiked = !!activity.isLiked;
-    setActivities((prev) =>
-      prev.map((a) => (a.id === activity.id ? { ...a, likes: wasLiked ? a.likes - 1 : a.likes + 1, isLiked: !wasLiked } : a))
-    );
+    const currentUserId = user?.userId;
+    patchRawActivity(activity.id, (raw) => {
+      const interactions = raw.interactions ?? [];
+      return {
+        ...raw,
+        interactions: wasLiked
+          ? interactions.filter((i) => !(i.type === "LIKE" && i.createdById === currentUserId))
+          : [...interactions, { type: "LIKE", createdById: currentUserId }],
+      };
+    });
     try {
       await activityFeedService.like(String(activity.id));
     } catch (err) {
-      setActivities((prev) =>
-        prev.map((a) => (a.id === activity.id ? { ...a, likes: wasLiked ? a.likes + 1 : a.likes - 1, isLiked: wasLiked } : a))
-      );
+      patchRawActivity(activity.id, (raw) => {
+        const interactions = raw.interactions ?? [];
+        return {
+          ...raw,
+          interactions: wasLiked
+            ? [...interactions, { type: "LIKE", createdById: currentUserId }]
+            : interactions.filter((i) => !(i.type === "LIKE" && i.createdById === currentUserId)),
+        };
+      });
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du like.");
     }
   };
 
   const handleParticipate = async (activity: Activity) => {
     const wasParticipating = !!activity.isParticipating;
-    setActivities((prev) =>
-      prev.map((a) =>
-        a.id === activity.id
-          ? {
-              ...a,
-              isParticipating: !wasParticipating,
-              participantsCount: (a.participantsCount ?? 0) + (wasParticipating ? -1 : 1),
-            }
-          : a
-      )
-    );
+    const currentUserId = user?.userId;
+    patchRawActivity(activity.id, (raw) => {
+      const participantsIds = raw.participantsIds ?? [];
+      return {
+        ...raw,
+        participantsIds: wasParticipating
+          ? participantsIds.filter((id) => id !== currentUserId)
+          : [...participantsIds, currentUserId as string],
+      };
+    });
     try {
       if (wasParticipating) {
         await activityFeedService.unjoin(String(activity.id));
@@ -407,43 +513,46 @@ const DashboardActivitiesBody = () => {
         await activityFeedService.join(String(activity.id));
       }
     } catch (err) {
-      setActivities((prev) =>
-        prev.map((a) =>
-          a.id === activity.id
-            ? {
-                ...a,
-                isParticipating: wasParticipating,
-                participantsCount: (a.participantsCount ?? 0) + (wasParticipating ? 1 : -1),
-              }
-            : a
-        )
-      );
+      patchRawActivity(activity.id, (raw) => {
+        const participantsIds = raw.participantsIds ?? [];
+        return {
+          ...raw,
+          participantsIds: wasParticipating
+            ? [...participantsIds, currentUserId as string]
+            : participantsIds.filter((id) => id !== currentUserId),
+        };
+      });
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la participation.");
     }
   };
 
+  // Tabs mirror web's role-aware sidebarTabs (ActivitiesContent.jsx:623-680):
+  // creators get "Mes publications", viewers get "Passés" in its place.
+  // "Populaires" is kept as a mobile-only extra on top of web's tab set.
   const filters = [
-    { id: "tous", label: "Tous" },
-    { id: "evenements", label: "Événements" },
-    { id: "publications", label: "Publications" },
+    { id: "all", label: "Tous" },
+    canCreateEvent ? { id: "mine", label: "Mes publications" } : { id: "past", label: "Passés" },
+    { id: "upcoming", label: "À venir" },
+    { id: "withMedia", label: "Avec médias" },
+    { id: "participating", label: "Participations" },
     { id: "populaires", label: "Populaires" },
-    { id: "recents", label: "Récents" },
   ];
 
   const filteredActivities = (() => {
+    const now = new Date();
     switch (activeFilter) {
-      case "evenements":
-        return activities.filter((a) => a.type === "event");
-      case "publications":
-        return activities.filter((a) => a.type === "publication");
+      case "mine":
+        return activities.filter((a) => a.createurId === user?.userId);
+      case "past":
+        return activities.filter((a) => a.type === "event" && a.rawDate && new Date(a.rawDate) <= now);
+      case "upcoming":
+        return activities.filter((a) => a.type === "event" && a.rawDate && new Date(a.rawDate) > now);
+      case "withMedia":
+        return activities.filter((a) => (a.medias?.length ?? 0) > 0);
+      case "participating":
+        return activities.filter((a) => a.isParticipating);
       case "populaires":
         return [...activities].sort((a, b) => b.likes - a.likes);
-      case "recents":
-        return [...activities].sort((a, b) => {
-          const dateA = a.rawDate ? new Date(a.rawDate).getTime() : 0;
-          const dateB = b.rawDate ? new Date(b.rawDate).getTime() : 0;
-          return dateB - dateA;
-        });
       default:
         return activities;
     }
@@ -485,11 +594,6 @@ const DashboardActivitiesBody = () => {
 
   const handleAddActivity = () => {
     setShowCreateModal(true);
-  };
-
-  const handleCreateActivity = (newActivity: Activity) => {
-    setActivities(sortActivitiesLikeWeb([newActivity, ...activities]));
-    setShowCreateModal(false);
   };
 
   return (
@@ -574,6 +678,27 @@ const DashboardActivitiesBody = () => {
                     </View>
                   </View>
                 </View>
+                {canEditActivity(activity) && (
+                  <View style={activitiesStyles.cardActions}>
+                    <TouchableOpacity
+                      style={activitiesStyles.cardActionButton}
+                      onPress={() => setEditingActivity(rawActivities.find((r) => String(r.id) === String(activity.id)) ?? null)}
+                    >
+                      <FontAwesome5 name="pencil-alt" size={14} color="#6B7280" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={activitiesStyles.cardActionButton}
+                      disabled={deletingId === String(activity.id)}
+                      onPress={() => handleDeleteActivity(activity)}
+                    >
+                      <FontAwesome5
+                        name={deletingId === String(activity.id) ? "spinner" : "trash-alt"}
+                        size={14}
+                        color="#EF4444"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
 
               {/* Activity Content */}
@@ -742,23 +867,46 @@ const DashboardActivitiesBody = () => {
           ))}
         </View>
 
+        {/* Pagination — "Voir plus" mirrors web's load-more button (ActivitiesContent.jsx:2906-2933) */}
+        {!loading && hasMore && (
+          <TouchableOpacity style={activitiesStyles.loadMoreButton} onPress={handleLoadMore} disabled={loadingMore}>
+            {loadingMore ? (
+              <FontAwesome5 name="spinner" size={14} color="#4F46E5" />
+            ) : (
+              <Text style={activitiesStyles.loadMoreText}>
+                Voir plus{totalElements > activities.length ? ` (${totalElements - activities.length} restant${totalElements - activities.length > 1 ? "s" : ""})` : ""}
+              </Text>
+            )}
+          </TouchableOpacity>
+        )}
+        {!loading && !hasMore && activities.length > 0 && (
+          <Text style={activitiesStyles.upToDateText}>Vous êtes à jour</Text>
+        )}
+
         {/* Extra space for bottom navigation */}
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity
-        style={activitiesStyles.floatingButton}
-        onPress={handleAddActivity}
-      >
-        <FontAwesome5 name="plus" size={24} color="#FFFFFF" />
-      </TouchableOpacity>
+      {/* Floating Action Button — only roles that can create an activity see it */}
+      {canCreateEvent && (
+        <TouchableOpacity
+          style={activitiesStyles.floatingButton}
+          onPress={handleAddActivity}
+        >
+          <FontAwesome5 name="plus" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      )}
 
-      {/* Create Activity Modal Overlay */}
-      {showCreateModal && (
+      {/* Create/Edit Activity Modal Overlay */}
+      {(showCreateModal || editingActivity) && (
         <CreateActivityModal
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => {
+            setShowCreateModal(false);
+            setEditingActivity(null);
+          }}
           onCreateActivity={handleCreateActivity}
+          activityToEdit={editingActivity}
+          onUpdateActivity={handleUpdateActivity}
         />
       )}
 
@@ -849,6 +997,38 @@ const activitiesStyles = StyleSheet.create({
   creatorSection: {
     flexDirection: "row",
     alignItems: "flex-start",
+    marginBottom: 12,
+  },
+  cardActions: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  cardActionButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+    marginLeft: 4,
+  },
+  loadMoreButton: {
+    alignSelf: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: "#EEF2FF",
+    marginBottom: 12,
+  },
+  loadMoreText: {
+    color: "#4F46E5",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  upToDateText: {
+    textAlign: "center",
+    color: "#9CA3AF",
+    fontSize: 12,
     marginBottom: 12,
   },
   creatorAvatar: {

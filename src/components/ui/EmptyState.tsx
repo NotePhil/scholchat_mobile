@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, spacing, typography } from '../../styles/theme';
+import { spacing, typography, useThemeColors } from '../../styles/theme';
 import Button from './Button';
 
 interface EmptyStateProps {
@@ -12,18 +12,22 @@ interface EmptyStateProps {
   onAction?: () => void;
 }
 
-const EmptyState = ({ icon = 'inbox', title, message, actionLabel, onAction }: EmptyStateProps) => (
-  <View style={styles.container}>
-    <FontAwesome5 name={icon} size={40} color={colors.grayLight} />
-    <Text style={styles.title}>{title}</Text>
-    {message ? <Text style={styles.message}>{message}</Text> : null}
-    {actionLabel && onAction ? (
-      <Button label={actionLabel} onPress={onAction} style={styles.action} />
-    ) : null}
-  </View>
-);
+const EmptyState = ({ icon = 'inbox', title, message, actionLabel, onAction }: EmptyStateProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.container}>
+      <FontAwesome5 name={icon} size={40} color={colors.grayLight} />
+      <Text style={styles.title}>{title}</Text>
+      {message ? <Text style={styles.message}>{message}</Text> : null}
+      {actionLabel && onAction ? (
+        <Button label={actionLabel} onPress={onAction} style={styles.action} />
+      ) : null}
+    </View>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',

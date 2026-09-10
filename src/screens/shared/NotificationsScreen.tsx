@@ -1,14 +1,16 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { EmptyState, LoadingSpinner } from '../../components/ui';
-import { colors, spacing, typography } from '../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { notificationService } from '../../services/api';
 import { useNotificationsStore, NotificationItem } from '../../store/useNotificationsStore';
 import { useUiStore } from '../../store/useUiStore';
 
 const NotificationsScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation();
   const { items, setItems, setUnreadCount, markReadLocally } = useNotificationsStore();
   const [loading, setLoading] = useState(true);
@@ -152,7 +154,7 @@ const NotificationsScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -6,13 +6,15 @@ import { Badge, EmptyState, LoadingSpinner } from "../../components/ui";
 import JoinClassSheet from "../shared/JoinClassSheet";
 import StudentClassDetailModal, { getLevelStyle } from "../shared/StudentClassDetailModal";
 import ChildSelectorRow from "./ChildSelectorRow";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { parentService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 
 const ParentClassesBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const { children, selectedChildId, loadChildren } = useSelectedChildStore();
@@ -147,7 +149,7 @@ const ParentClassesBody = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",

@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BottomSheet, Badge, Button } from '../ui';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
 import { contratService, PaymentInfo } from '../../services/api/contratService';
 import { offerService } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
@@ -24,6 +24,8 @@ type ActionMode = 'prolonger' | 'changer' | 'admin' | null;
  * using the exact same component in both places.
  */
 const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const role = useAuthStore((s) => s.role);
   const isAdmin = role === 'admin';
 
@@ -320,14 +322,18 @@ const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
   );
 };
 
-const Row = ({ label, value, danger }: { label: string; value?: string; danger?: boolean }) => (
-  <View style={styles.row}>
-    <Text style={styles.rowLabel}>{label}</Text>
-    <Text style={[styles.rowValue, danger && { color: colors.danger }]}>{value}</Text>
-  </View>
-);
+const Row = ({ label, value, danger }: { label: string; value?: string; danger?: boolean }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={[styles.rowValue, danger && { color: colors.danger }]}>{value}</Text>
+    </View>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   card: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.lg },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
   title: { ...typography.bodyBold, color: colors.text, fontSize: 15 },

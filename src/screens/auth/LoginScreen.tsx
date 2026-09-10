@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors } from '../../styles/theme';
+import { colors, useThemeColors } from '../../styles/theme';
 import { authService } from '../../services/home/authService';
 import { useUser } from '../../context/UserContext';
 import RoleSelectorSheet from '../shared/RoleSelectorSheet';
@@ -30,6 +30,8 @@ const logo = require('../../../assets/logo.png');
  * no loss of focus when typing password or email on Android/iOS).
  */
 const LoginScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { login } = useUser();
@@ -254,7 +256,7 @@ const LoginScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#F8FAFC',

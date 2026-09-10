@@ -18,6 +18,19 @@ export const activityFeedService = {
     }
   },
 
+  /** Paginated fetch — mirrors web's ActivityFeedService.js getActivitiesPaged(). */
+  getPaged: async (
+    page = 0,
+    size = 10
+  ): Promise<{ content: ActivityEvent[]; totalElements: number; totalPages: number; last: boolean }> => {
+    try {
+      const { data } = await apiClient.get('/evenements/pagines', { params: { page, size } });
+      return data;
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec du chargement des activités.'));
+    }
+  },
+
   getById: async (id: string): Promise<ActivityEvent> => {
     try {
       const { data } = await apiClient.get<ActivityEvent>(`/evenements/${id}`);

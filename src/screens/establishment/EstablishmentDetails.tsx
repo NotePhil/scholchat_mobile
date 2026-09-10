@@ -15,7 +15,7 @@ import CreateEstablishmentSheet from "../admin/components/CreateEstablishmentShe
 import CreateClassSheet from "../admin/components/CreateClassSheet";
 import ClassDetails from "../professeurs/components/classes/ClassDetails";
 import { UIClass, enrichClassForDetails } from "../professeurs/components/classes/DashboardClassesBody";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { classAdminService, establishmentService } from "../../services/api";
 import { classService } from "../../services/classService";
 import { ClassEntity, Etablissement, Gestionnaire } from "../../types";
@@ -46,6 +46,8 @@ interface EstablishmentDetailsProps {
  * - Informations Système tab
  */
 const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [establishment, setEstablishment] = useState<Etablissement | null>(null);
   const [gestionnaire, setGestionnaire] = useState<Gestionnaire | null>(null);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
@@ -608,27 +610,35 @@ const Row = ({
   label: string;
   value?: string;
   mono?: boolean;
-}) => (
-  <View style={styles.row}>
-    <View style={styles.rowIcon}>
-      <FontAwesome5 name={icon} size={12} color={colors.textMuted} />
+}) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowIcon}>
+        <FontAwesome5 name={icon} size={12} color={colors.textMuted} />
+      </View>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={[styles.rowValue, mono && { fontFamily: "monospace" }]} numberOfLines={1}>
+        {value}
+      </Text>
     </View>
-    <Text style={styles.rowLabel}>{label}</Text>
-    <Text style={[styles.rowValue, mono && { fontFamily: "monospace" }]} numberOfLines={1}>
-      {value}
-    </Text>
-  </View>
-);
+  );
+};
 
-const TabButton = ({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) => (
-  <TouchableOpacity style={[styles.tabButton, active && styles.tabButtonActive]} onPress={onPress}>
-    <Text style={[styles.tabButtonText, active && styles.tabButtonTextActive]} numberOfLines={1}>
-      {label}
-    </Text>
-  </TouchableOpacity>
-);
+const TabButton = ({ active, label, onPress }: { active: boolean; label: string; onPress: () => void }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <TouchableOpacity style={[styles.tabButton, active && styles.tabButtonActive]} onPress={onPress}>
+      <Text style={[styles.tabButtonText, active && styles.tabButtonTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,

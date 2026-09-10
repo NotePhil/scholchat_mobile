@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, StyleSheet } from "react-native";
 import AppHeader from "./AppHeader";
 import AccountSettingsBody from "./AccountSettingsBody";
@@ -6,7 +6,7 @@ import MobileFooterNav from "./MobileFooterNav";
 import QuickActionsSheet, { QuickAction } from "./QuickActionsSheet";
 import { useUiStore } from "../../store/useUiStore";
 import { useAuthStore } from "../../store/useAuthStore";
-import { colors } from "../../styles/theme";
+import { colors, useThemeColors } from "../../styles/theme";
 import { AppRole } from "../../types";
 import { userService } from "../../services/api";
 import CompleteProfileModal, { MissingDoc } from "../../components/modals/CompleteProfileModal";
@@ -54,7 +54,7 @@ interface DashboardShellProps {
 // Mirrors scholchat_front's Sidebar.jsx admin menu: order, labels, and the
 // Classes/Établissements dropdown grouping (Créer/Gérer sub-items each).
 const ADMIN_QUICK_ACTIONS: QuickAction[] = [
-  { icon: "th-large", label: "Tableau de Bord", color: "#6366F1", tab: "dashboard" },
+  { icon: "home", label: "Accueil", color: "#6366F1", tab: "dashboard" },
   { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "users", label: "Gérer Utilisateur", color: "#7C3AED", submenu: "users" },
   { icon: "user-tie", label: "Gestionnaires", color: "#0D9488", tab: "gestionnaires" },
@@ -88,7 +88,7 @@ const ADMIN_QUICK_ACTION_SUBMENUS: Record<string, QuickAction[]> = {
 };
 
 const PROFESSOR_QUICK_ACTIONS: QuickAction[] = [
-  { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
+  { icon: "home", label: "Accueil", color: "#6366F1", tab: "dashboard" },
   { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "book-open", label: "Cours", color: "#10B981", tab: "cours" },
   { icon: "graduation-cap", label: "Matières", color: "#A855F7", tab: "matieres" },
@@ -100,7 +100,7 @@ const PROFESSOR_QUICK_ACTIONS: QuickAction[] = [
 ];
 
 const PARENT_QUICK_ACTIONS: QuickAction[] = [
-  { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
+  { icon: "home", label: "Accueil", color: "#6366F1", tab: "dashboard" },
   { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "clipboard-list", label: "Devoirs", color: "#F59E0B", tab: "exercises" },
   { icon: "chalkboard", label: "Classes", color: "#10B981", tab: "classes" },
@@ -111,7 +111,7 @@ const PARENT_QUICK_ACTIONS: QuickAction[] = [
 ];
 
 const STUDENT_QUICK_ACTIONS: QuickAction[] = [
-  { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
+  { icon: "home", label: "Accueil", color: "#6366F1", tab: "dashboard" },
   { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "clipboard-list", label: "Devoirs", color: "#F59E0B", tab: "exercises" },
   { icon: "chalkboard", label: "Classes", color: "#10B981", tab: "classes" },
@@ -121,7 +121,7 @@ const STUDENT_QUICK_ACTIONS: QuickAction[] = [
 ];
 
 const ESTABLISHMENT_QUICK_ACTIONS: QuickAction[] = [
-  { icon: "th-large", label: "Dashboard", color: "#6366F1", tab: "dashboard" },
+  { icon: "home", label: "Accueil", color: "#6366F1", tab: "dashboard" },
   { icon: "heartbeat", label: "Activités", color: "#3B82F6", tab: "activities" },
   { icon: "school", label: "Écoles", color: "#0D9488", tab: "establishments" },
   { icon: "chalkboard", label: "Classes", color: "#10B981", tab: "classes" },
@@ -154,10 +154,12 @@ const ROLE_CONFIG: Partial<Record<AppRole, RoleConfig>> = {
  * near-identical shell file per role.
  */
 const DashboardShell = ({ onLogout }: DashboardShellProps) => {
+  const themeColors = useThemeColors();
+  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const role = useAuthStore((s) => s.role);
   const user = useAuthStore((s) => s.user);
-  // Lands on Activités first after login, per product requirement — every role.
-  const [activeTab, setActiveTabState] = useState("activities");
+  // Lands on Tableau de Bord (Accueil) by default so the user immediately sees their dashboard.
+  const [activeTab, setActiveTabState] = useState("dashboard");
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [coursViewMode, setCoursViewMode] = useState<"list" | "create">("list");
   const [editingCours, setEditingCours] = useState<Cours | null>(null);
@@ -204,6 +206,17 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
     }
   };
 
+  // Handles a tap on the home screen's inline QuickActionGrid — same
+  // branching QuickActionsSheet does internally, centralized here since this
+  // is also where `showQuickActions` already lives.
+  const handleQuickAction = (item: QuickAction) => {
+    if (item.submenu) {
+      setShowQuickActions(true);
+    } else if (item.tab) {
+      setActiveTab(item.tab);
+    }
+  };
+
   // Picks up a tab switch requested from outside this instance (e.g. tapping a
   // message notification on the separate stack-pushed NotificationsScreen).
   useEffect(() => {
@@ -215,6 +228,10 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   }, [pendingTab, clearPendingTab]);
 
   const config: RoleConfig = ROLE_CONFIG[role] ?? (ROLE_CONFIG.professor as RoleConfig);
+  // Drop the self-referencing "Accueil" tile from the inline home-screen
+  // grid — it still makes sense in the full QuickActionsSheet (jump home
+  // from anywhere), but is redundant while already on the home screen.
+  const homeQuickActions = config.quickActions.filter((a) => a.tab !== "dashboard");
 
   const handleNavigateToCreateCours = () => {
     setEditingCours(null);
@@ -238,7 +255,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
       case "admin":
         switch (activeTab) {
           case "dashboard":
-            return <DashboardContentBody />;
+            return <DashboardContentBody accentColor={config.accentColor} quickActions={homeQuickActions} onQuickAction={handleQuickAction} onNavigate={setActiveTab} />;
           case "users":
             return <AdminUsersBody />;
           case "users-admins":
@@ -280,13 +297,21 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
           default:
-            return <DashboardContentBody />;
+            return <DashboardContentBody accentColor={config.accentColor} quickActions={homeQuickActions} onQuickAction={handleQuickAction} onNavigate={setActiveTab} />;
         }
 
       case "parent":
         switch (activeTab) {
           case "dashboard":
-            return <StudentParentStatsBody userRole="parent" onNavigate={setActiveTab} />;
+            return (
+              <StudentParentStatsBody
+                userRole="parent"
+                onNavigate={setActiveTab}
+                accentColor={config.accentColor}
+                quickActions={homeQuickActions}
+                onQuickAction={handleQuickAction}
+              />
+            );
           case "children":
           case "my-children":
             return <ParentChildrenBody />;
@@ -307,13 +332,29 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
           default:
-            return <StudentParentStatsBody userRole="parent" onNavigate={setActiveTab} />;
+            return (
+              <StudentParentStatsBody
+                userRole="parent"
+                onNavigate={setActiveTab}
+                accentColor={config.accentColor}
+                quickActions={homeQuickActions}
+                onQuickAction={handleQuickAction}
+              />
+            );
         }
 
       case "student":
         switch (activeTab) {
           case "dashboard":
-            return <StudentParentStatsBody userRole="student" onNavigate={setActiveTab} />;
+            return (
+              <StudentParentStatsBody
+                userRole="student"
+                onNavigate={setActiveTab}
+                accentColor={config.accentColor}
+                quickActions={homeQuickActions}
+                onQuickAction={handleQuickAction}
+              />
+            );
           case "classes":
           case "class":
             return <StudentClassesBody />;
@@ -331,14 +372,29 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
           default:
-            return <StudentParentStatsBody userRole="student" onNavigate={setActiveTab} />;
+            return (
+              <StudentParentStatsBody
+                userRole="student"
+                onNavigate={setActiveTab}
+                accentColor={config.accentColor}
+                quickActions={homeQuickActions}
+                onQuickAction={handleQuickAction}
+              />
+            );
         }
 
       case "establishment":
       case "gestionnaire":
         switch (activeTab) {
           case "dashboard":
-            return <EstablishmentOverviewBody onNavigate={setActiveTab} />;
+            return (
+              <EstablishmentOverviewBody
+                onNavigate={setActiveTab}
+                accentColor={config.accentColor}
+                quickActions={homeQuickActions}
+                onQuickAction={handleQuickAction}
+              />
+            );
           case "establishments":
             return <EstablishmentListBody />;
           case "classes":
@@ -350,7 +406,14 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "settings":
             return <AccountSettingsBody onLogout={onLogout} roleLabel={config.roleLabel} />;
           default:
-            return <EstablishmentOverviewBody />;
+            return (
+              <EstablishmentOverviewBody
+                onNavigate={setActiveTab}
+                accentColor={config.accentColor}
+                quickActions={homeQuickActions}
+                onQuickAction={handleQuickAction}
+              />
+            );
         }
 
       case "professor":
@@ -358,7 +421,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
       default:
         switch (activeTab) {
           case "dashboard":
-            return <DashboardContentBody />;
+            return <DashboardContentBody accentColor={config.accentColor} quickActions={homeQuickActions} onQuickAction={handleQuickAction} onNavigate={setActiveTab} />;
           case "messages":
             return <DashboardMessagesBody onBack={() => setActiveTab("dashboard")} />;
           case "activities":
@@ -389,7 +452,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
           case "matieres":
             return <MatieresBody />;
           default:
-            return <DashboardContentBody />;
+            return <DashboardContentBody accentColor={config.accentColor} quickActions={homeQuickActions} onQuickAction={handleQuickAction} onNavigate={setActiveTab} />;
         }
     }
   };
@@ -435,7 +498,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
 });
 

@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Input, LoadingSpinner } from '../../components/ui';
-import { colors, spacing, typography } from '../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { authService } from '../../services/home/authService';
 import { userService } from '../../services/api';
 import { decodeToken } from '../../utils/tokenUtils';
@@ -12,6 +12,8 @@ type Status = 'loading' | 'success' | 'error';
 
 /** Reached via the emailed activation link (?activationToken=...). */
 const AccountActivationScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const activationToken: string | undefined = route.params?.activationToken;
@@ -103,7 +105,7 @@ const AccountActivationScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { flex: 1, justifyContent: 'center', padding: spacing.xl },
   center: { alignItems: 'center' },

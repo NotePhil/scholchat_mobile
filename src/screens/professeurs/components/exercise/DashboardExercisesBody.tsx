@@ -503,8 +503,8 @@ const DashboardExercisesBody = () => {
             onPress={handleProgramExercise}
             activeOpacity={0.85}
           >
-            <View style={[exercisesStyles.speedDialIconBadge, { backgroundColor: "#F5F3FF", borderColor: "#DDD6FE" }]}>
-              <FontAwesome5 name="calendar-alt" size={14} color="#7C3AED" />
+            <View style={[exercisesStyles.speedDialIconBadge, { backgroundColor: "#F3F4F6", borderColor: "#E5E7EB" }]}>
+              <FontAwesome5 name="calendar-alt" size={14} color="#0D9488" />
             </View>
             <View style={exercisesStyles.speedDialTextContainer}>
               <Text style={exercisesStyles.speedDialTitle}>Programmer un exercice</Text>

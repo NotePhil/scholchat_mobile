@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { NavigationContainer, LinkingOptions } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useAuthStore } from '../store/useAuthStore';
+import { useThemeStore } from '../store/useThemeStore';
 import { AppRole } from '../types';
 import AuthNavigator from './AuthNavigator';
 import DashboardShell from '../screens/shared/DashboardShell';
@@ -87,10 +88,14 @@ const linking: LinkingOptions<Record<string, unknown>> = {
  */
 const RootNavigator = () => {
   const hydrate = useAuthStore((state) => state.hydrate);
+  const loadThemeMode = useThemeStore((state) => state.loadMode);
 
   useEffect(() => {
     hydrate();
-  }, [hydrate]);
+    // Loaded here (not just in AppHeader) so pre-login screens also reflect
+    // a previously-saved choice or the phone's system setting immediately.
+    loadThemeMode();
+  }, [hydrate, loadThemeMode]);
 
   return (
     <NavigationContainer linking={linking}>

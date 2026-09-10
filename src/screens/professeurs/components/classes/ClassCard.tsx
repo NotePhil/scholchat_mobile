@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Alert, Platform } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { colors, useThemeColors } from "../../../../styles/theme";
 import { UIClass } from "./DashboardClassesBody";
 
 interface ClassCardProps {
@@ -10,6 +11,8 @@ interface ClassCardProps {
 }
 
 const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const isActif = classItem.state === "ACTIVE" || classItem.state === "ACTIF";
 
   const handleCopyCode = () => {
@@ -142,7 +145,7 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   classCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
@@ -214,9 +217,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: "#DDD6FE",
+    borderColor: colors.border,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
@@ -224,7 +227,7 @@ const styles = StyleSheet.create({
   majeureBadgeText: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#6D28D9",
+    color: colors.text,
   },
   standardBadge: {
     backgroundColor: "#F1F5F9",

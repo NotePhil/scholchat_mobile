@@ -600,7 +600,7 @@ const ClassDetails = ({
                   <Text
                     style={[
                       styles.accesMajeurBadgeText,
-                      { color: selectedClass.accesMajeur ? "#7C3AED" : "#94A3B8" },
+                      { color: selectedClass.accesMajeur ? "#1F2937" : "#64748B" },
                     ]}
                   >
                     {selectedClass.accesMajeur ? "Classe Majeure — email" : "Accès standard"}
@@ -1669,9 +1669,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   accesMajeurBadgeOn: {
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F3F4F6",
     borderWidth: 1,
-    borderColor: "#DDD6FE",
+    borderColor: "#E5E7EB",
   },
   accesMajeurBadgeOff: {
     backgroundColor: "#F1F5F9",

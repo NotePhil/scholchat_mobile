@@ -1,7 +1,7 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, spacing, typography } from '../../styles/theme';
+import { spacing, typography, useThemeColors } from '../../styles/theme';
 
 interface ListItemProps {
   title: string;
@@ -13,6 +13,8 @@ interface ListItemProps {
 }
 
 const ListItem = ({ title, subtitle, leading, trailing, onPress, showChevron = !!onPress }: ListItemProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const Wrapper = onPress ? TouchableOpacity : View;
 
   return (
@@ -36,7 +38,7 @@ const ListItem = ({ title, subtitle, leading, trailing, onPress, showChevron = !
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',

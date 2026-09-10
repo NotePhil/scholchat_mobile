@@ -1,15 +1,16 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { BarChart, PieChart } from "react-native-chart-kit";
-import { Badge, Card, EmptyState, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { Badge, Card, EmptyState, HeroCard, LoadingSpinner, QuickActionGrid } from "../../components/ui";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService, coursProgrammerService, notificationService, parentService } from "../../services/api";
 import { ClassEntity, CoursProgramme } from "../../types";
 import { NotificationItem } from "../../store/useNotificationsStore";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 import ChildSelectorRow from "../parent/ChildSelectorRow";
+import type { QuickAction } from "./QuickActionsSheet";
 
 const CHART_WIDTH = Dimensions.get("window").width - 32;
 const chartConfig = {
@@ -24,6 +25,9 @@ const chartConfig = {
 interface StudentParentStatsBodyProps {
   userRole: "parent" | "student";
   onNavigate?: (tab: string) => void;
+  accentColor?: string;
+  quickActions?: QuickAction[];
+  onQuickAction?: (item: QuickAction) => void;
 }
 
 /**
@@ -36,7 +40,9 @@ interface StudentParentStatsBodyProps {
  * stat cards, the same two charts, and the same Classes/Cours à
  * Venir/Notifications three-column bottom section.
  */
-const StudentParentStatsBody = ({ userRole, onNavigate }: StudentParentStatsBodyProps) => {
+const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.primary, quickActions = [], onQuickAction }: StudentParentStatsBodyProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const isParent = userRole === "parent";
   const { children, selectedChildId, loading: childrenLoading, loadChildren } = useSelectedChildStore();
@@ -154,22 +160,28 @@ const StudentParentStatsBody = ({ userRole, onNavigate }: StudentParentStatsBody
       : { label: "En Cours", value: inProgressCourses.length, icon: "clock" as const, color: "#F97316", subtitle: "Cours en cours" },
   ];
 
+  const firstName = user?.prenom || user?.username || "";
+  const heroSubtitle = isParent
+    ? children.find((c) => c.id === selectedChildId)
+      ? `Suivi de ${children.find((c) => c.id === selectedChildId)?.prenom} ${children.find((c) => c.id === selectedChildId)?.nom ?? ""}`
+      : "Sélectionnez un enfant pour voir ses données"
+    : "Suivez vos progrès et activités scolaires";
+
   return (
     <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>{isParent ? "Suivi Scolaire" : "Mon Tableau de Bord"}</Text>
-          <Text style={styles.subtitle}>
-            {isParent
-              ? children.find((c) => c.id === selectedChildId)
-                ? `Suivi de ${children.find((c) => c.id === selectedChildId)?.prenom} ${children.find((c) => c.id === selectedChildId)?.nom ?? ""}`
-                : "Sélectionnez un enfant pour voir ses données"
-              : "Suivez vos progrès et activités scolaires"}
-          </Text>
-        </View>
-        <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-          <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
-        </TouchableOpacity>
+        <HeroCard
+          title={`Bonjour${firstName ? `, ${firstName}` : ""} 👋`}
+          subtitle={heroSubtitle}
+          accentColor={accentColor}
+          topRight={
+            <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+              <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          }
+        >
+          {quickActions.length > 0 && onQuickAction ? <QuickActionGrid items={quickActions} onSelect={onQuickAction} /> : null}
+        </HeroCard>
       </View>
 
       {isParent ? <ChildSelectorRow /> : null}
@@ -358,7 +370,7 @@ const StudentParentStatsBody = ({ userRole, onNavigate }: StudentParentStatsBody
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 16 },
   header: { flexDirection: "row", alignItems: "flex-start", marginTop: 20, marginBottom: spacing.md },
   title: { ...typography.h1, color: colors.text, marginBottom: 4 },

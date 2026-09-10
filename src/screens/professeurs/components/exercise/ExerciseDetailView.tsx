@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Badge, Button, LoadingSpinner } from '../../../../components/ui';
-import { colors, radius, spacing, typography } from '../../../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { questionService } from '../../../../services/api';
 import { Question } from '../../../../types';
 
@@ -31,6 +31,8 @@ export const ExerciseDetailView = ({
   onSchedule,
   onDelete,
 }: ExerciseDetailViewProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -166,7 +168,7 @@ export const ExerciseDetailView = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,

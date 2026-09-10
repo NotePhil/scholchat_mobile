@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Badge, Button, EmptyState, Input, LoadingSpinner } from '../../../../components/ui';
-import { colors, radius, spacing, typography } from '../../../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { participationService, reponseService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
 import { Participation, Reponse } from '../../../../types';
@@ -22,6 +22,8 @@ export interface ExerciseCorrectionsViewProps {
  * Full page Exercise Corrections / Grading screen (Page seule et non modale).
  */
 export const ExerciseCorrectionsView = ({ onBack }: ExerciseCorrectionsViewProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const [participations, setParticipations] = useState<Participation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -233,7 +235,7 @@ export const ExerciseCorrectionsView = ({ onBack }: ExerciseCorrectionsViewProps
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,

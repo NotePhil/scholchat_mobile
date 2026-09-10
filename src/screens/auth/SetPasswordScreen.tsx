@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Input } from '../../components/ui';
-import { colors, spacing, typography } from '../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { authService } from '../../services/home/authService';
 
 const PASSWORD_RULES: { test: (v: string) => boolean; label: string }[] = [
@@ -15,6 +15,8 @@ const PASSWORD_RULES: { test: (v: string) => boolean; label: string }[] = [
 
 /** The equivalent of scholchat_front's PasswordPage — sets the initial password right after activation. */
 const SetPasswordScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const email: string = route.params?.email ?? '';
@@ -94,7 +96,7 @@ const SetPasswordScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: spacing.xl },

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Badge, Button } from '../../../../components/ui';
-import { colors, radius, spacing, typography } from '../../../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { Cours } from './DashboardCoursBody';
 
 export interface CourseDetailViewProps {
@@ -31,6 +31,8 @@ export const CourseDetailView = ({
   onDelete,
   onProgram,
 }: CourseDetailViewProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState<'details' | 'chapitres' | 'docs'>('details');
 
   const handleShare = async () => {
@@ -208,14 +210,18 @@ export const CourseDetailView = ({
   );
 };
 
-const DetailLine = ({ label, value }: { label: string; value: string }) => (
+const DetailLine = ({ label, value }: { label: string; value: string }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
   <View style={styles.detailLine}>
     <Text style={styles.detailLabel}>{label}</Text>
     <Text style={styles.detailValue}>{value}</Text>
   </View>
-);
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,

@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Badge, BottomSheet, LoadingSpinner } from "../../components/ui";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService, coursProgrammerService } from "../../services/api";
 import { ClassEntity, ClassUser, CoursProgramme } from "../../types";
 
@@ -40,6 +40,8 @@ export const StudentClassDetailModal = ({
   onClose,
   onOpenLiveSession,
 }: StudentClassDetailModalProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [activeTab, setActiveTab] = useState<TabType>("info");
   const [users, setUsers] = useState<ClassUser[]>([]);
   const [courses, setCourses] = useState<CoursProgramme[]>([]);
@@ -257,7 +259,7 @@ export const StudentClassDetailModal = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   tabRow: {
     flexDirection: "row",
     gap: 6,

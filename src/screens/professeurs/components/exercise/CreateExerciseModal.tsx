@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BottomSheet, Button, Input, LoadingSpinner } from '../../../../components/ui';
-import { colors, spacing, typography } from '../../../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { exerciseService, matiereService, questionService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
 import { Exercise, Matiere } from '../../../../types';
@@ -48,6 +48,8 @@ const emptyQuestion = (): QuestionDraft => ({
 });
 
 const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: CreateExerciseModalProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const isEditing = !!editingExercise;
   const [nom, setNom] = useState('');
@@ -351,7 +353,7 @@ const CreateExerciseModal = ({ visible, onClose, onCreated, editingExercise }: C
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   scroll: { maxHeight: 500 },
   label: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.sm },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },

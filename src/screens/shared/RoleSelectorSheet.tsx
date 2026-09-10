@@ -1,8 +1,8 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { BottomSheet } from "../../components/ui";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 
 export interface RoleOptionConfig {
   label: string;
@@ -52,8 +52,8 @@ const ROLE_DISPLAY: Record<string, RoleOptionConfig> = {
     label: "Répétiteur",
     subtitle: "Accompagnement et soutien scolaire",
     icon: "chalkboard-teacher",
-    color: "#7C3AED",
-    bgColor: "#F5F3FF",
+    color: "#0284C7",
+    bgColor: "#F0F9FF",
   },
 };
 
@@ -84,6 +84,8 @@ export const RoleSelectorSheet = ({
   title = "Changer de profil",
   subtitle = "Choisissez le profil vers lequel vous souhaitez basculer.",
 }: RoleSelectorSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   if (roles.length === 0) return null;
 
   const normCurrent = currentRole ? normalizeRoleKey(currentRole) : null;
@@ -139,7 +141,7 @@ export const RoleSelectorSheet = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   subtitle: {
     ...typography.caption,
     color: colors.textMuted,

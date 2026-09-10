@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -9,8 +9,9 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { useLanguageStore } from "../../store/useLanguageStore";
 import { useNotificationsStore } from "../../store/useNotificationsStore";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
+import { useThemeStore } from "../../store/useThemeStore";
 import { useUiStore } from "../../store/useUiStore";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { confirmLogout } from "../../utils/confirmLogout";
 import RoleSelectorSheet from "./RoleSelectorSheet";
 import { BottomSheet } from "../../components/ui";
@@ -29,6 +30,12 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
   const [showRoleSheet, setShowRoleSheet] = useState(false);
   const [showChildSheet, setShowChildSheet] = useState(false);
   const [switchingRole, setSwitchingRole] = useState(false);
+
+  const themeColors = useThemeColors();
+  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+  const themeMode = useThemeStore((s) => s.mode);
+  const toggleThemeMode = useThemeStore((s) => s.toggleMode);
+  const loadThemeMode = useThemeStore((s) => s.loadMode);
 
   const { items: notifications, unreadCount, setItems, setUnreadCount, markReadLocally } = useNotificationsStore();
   const currentRole = useAuthStore((s) => s.role);
@@ -64,7 +71,8 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
   useEffect(() => {
     loadNotifications();
     loadLanguage();
-  }, [loadNotifications, loadLanguage]);
+    loadThemeMode();
+  }, [loadNotifications, loadLanguage, loadThemeMode]);
 
   useEffect(() => {
     if (isParent && user?.userId) {
@@ -132,6 +140,19 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
             </TouchableOpacity>
           )}
 
+          {/* Dark mode toggle */}
+          <TouchableOpacity
+            style={styles.themeBtn}
+            onPress={toggleThemeMode}
+            activeOpacity={0.7}
+          >
+            <FontAwesome5
+              name={themeMode === "dark" ? "sun" : "moon"}
+              size={13}
+              color={themeMode === "dark" ? themeColors.warning : themeColors.primary}
+            />
+          </TouchableOpacity>
+
           {/* Language Toggle */}
           <TouchableOpacity
             style={styles.langBtn}
@@ -144,7 +165,7 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
 
           {/* Notifications */}
           <TouchableOpacity style={styles.iconButton} onPress={() => setShowNotifications((v) => !v)}>
-            <FontAwesome5 name="bell" size={17} color={colors.textMuted} />
+            <FontAwesome5 name="bell" size={17} color={themeColors.textMuted} />
             {unreadCount > 0 && (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
@@ -154,7 +175,7 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
 
           {/* Logout */}
           <TouchableOpacity style={styles.iconButton} onPress={() => confirmLogout(onLogout)}>
-            <FontAwesome5 name="sign-out-alt" size={18} color={colors.danger} />
+            <FontAwesome5 name="sign-out-alt" size={18} color={themeColors.danger} />
           </TouchableOpacity>
         </View>
 
@@ -236,7 +257,7 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
                   activeOpacity={0.7}
                 >
                   <View style={[styles.childAvatar, isSelected && { backgroundColor: "#9333EA" }]}>
-                    <Text style={[styles.childAvatarText, isSelected && { color: colors.white }]}>
+                    <Text style={[styles.childAvatarText, isSelected && { color: themeColors.white }]}>
                       {(c.prenom || "?").charAt(0).toUpperCase()}
                     </Text>
                   </View>
@@ -255,7 +276,7 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 },
   header: {
     flexDirection: "row",
@@ -317,6 +338,11 @@ const styles = StyleSheet.create({
     maxWidth: 90,
   },
   childSwitchText: { fontSize: 11, fontWeight: "700", color: "#9333EA" },
+  themeBtn: {
+    padding: 6,
+    borderRadius: radius.sm,
+    backgroundColor: colors.background,
+  },
   langBtn: {
     flexDirection: "row",
     alignItems: "center",

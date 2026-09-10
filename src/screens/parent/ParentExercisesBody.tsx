@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { colors, typography } from "../../styles/theme";
+import { colors, typography, useThemeColors } from "../../styles/theme";
 import { parentService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
@@ -10,6 +10,8 @@ import DevoirsBody from "../shared/DevoirsBody";
 
 /** "Mes Devoirs" for the selected child — shares the exact same tracker/attempt flow as the student's own screen. */
 const ParentExercisesBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const { children, selectedChildId, loadChildren } = useSelectedChildStore();
   const [classes, setClasses] = useState<ClassEntity[]>([]);
@@ -55,7 +57,7 @@ const ParentExercisesBody = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   header: { paddingHorizontal: 16, marginTop: 20, marginBottom: 12 },
   title: { ...typography.h1, color: colors.text },

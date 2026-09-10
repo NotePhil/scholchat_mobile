@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { classAdminService, establishmentService } from "../../services/api";
 import { classService } from "../../services/classService";
 import ClassDetails from "../professeurs/components/classes/ClassDetails";
@@ -25,6 +25,8 @@ const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> 
  * role's class list.
  */
 const EstablishmentClassesBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
@@ -191,6 +193,8 @@ interface CreateClassSheetProps {
 const NIVEAUX = ["CP", "CE1", "CE2", "CM1", "CM2", "6ème", "5ème", "4ème", "3ème", "2nde", "1ère", "Terminale", "Autre"];
 
 const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creatorId }: CreateClassSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [nom, setNom] = useState("");
   const [niveau, setNiveau] = useState("");
   const [accesMajeur, setAccesMajeur] = useState(false);
@@ -309,7 +313,7 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",
@@ -339,15 +343,15 @@ const styles = StyleSheet.create({
   accesMajeurBox: {
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "#F5F3FF",
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: "#DDD6FE",
-    borderRadius: 12,
+    borderColor: colors.border,
+    borderRadius: 14,
     padding: spacing.md,
     marginBottom: spacing.md,
   },
-  accesMajeurTitle: { ...typography.bodyBold, color: "#6D28D9" },
-  accesMajeurSub: { ...typography.caption, color: "#7C3AED" },
+  accesMajeurTitle: { ...typography.bodyBold, color: colors.text },
+  accesMajeurSub: { ...typography.caption, color: colors.textMuted },
 });
 
 export default EstablishmentClassesBody;

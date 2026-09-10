@@ -6,6 +6,8 @@ export { default as Card } from './Card';
 export { default as DropdownField } from './DropdownField';
 export type { DropdownOption } from './DropdownField';
 export { default as EmptyState } from './EmptyState';
+export { default as HeroCard } from './HeroCard';
 export { default as Input } from './Input';
 export { default as ListItem } from './ListItem';
 export { default as LoadingSpinner } from './LoadingSpinner';
+export { default as QuickActionGrid } from './QuickActionGrid';

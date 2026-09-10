@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { Badge, BottomSheet, Button, LoadingSpinner } from "../../components/ui";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { coursService } from "../../services/api";
 import { Cours, CoursProgramme } from "../../types";
 
@@ -18,6 +18,8 @@ export const CourseContentSheet = ({
   coursProgramme,
   onClose,
 }: CourseContentSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation<any>();
   const [courseDetails, setCourseDetails] = useState<Cours | null>(null);
   const [loading, setLoading] = useState(false);
@@ -213,7 +215,7 @@ export const CourseContentSheet = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { gap: spacing.md, paddingBottom: spacing.xl },
   liveBanner: {
     flexDirection: "row",

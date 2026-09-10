@@ -1,10 +1,12 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity } from "react-native";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 
 /** Shared child-switcher chip row — every parent screen renders the same one, backed by the same store. */
 const ChildSelectorRow = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { children, selectedChildId, setSelectedChildId } = useSelectedChildStore();
 
   if (children.length === 0) return null;
@@ -26,7 +28,7 @@ const ChildSelectorRow = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   row: { paddingHorizontal: 16, marginBottom: spacing.md, flexGrow: 0 },
   chip: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 20, backgroundColor: colors.grayLight, marginRight: spacing.sm },
   chipActive: { backgroundColor: colors.primary },

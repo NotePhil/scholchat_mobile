@@ -1,69 +1,110 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Dimensions,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { BarChart, LineChart, PieChart } from "react-native-chart-kit";
-import { Card, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
-import { classAdminService, matiereService, professorService, userService } from "../../services/api";
-import { ClassEntity, Matiere, Professor } from "../../types";
+import { Badge, LoadingSpinner, QuickActionGrid } from "../../components/ui";
+import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../styles/theme";
+import {
+  classAdminService,
+  establishmentService,
+  matiereService,
+  professorService,
+  userService,
+} from "../../services/api";
+import { ClassEntity, Etablissement, Matiere, Professor } from "../../types";
+import { useUser } from "../../context/UserContext";
+import { useAuthStore } from "../../store/useAuthStore";
+import type { QuickAction } from "./QuickActionsSheet";
 
-const CHART_WIDTH = Dimensions.get("window").width - 32;
-const CHART_COLORS = ["#3B82F6", "#6366F1", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316", "#06B6D4"];
-
-const chartConfig = {
-  backgroundGradientFrom: colors.surface,
-  backgroundGradientTo: colors.surface,
-  decimalPlaces: 0,
-  color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
-  labelColor: (opacity = 1) => `rgba(55, 65, 81, ${opacity})`,
-  barPercentage: 0.6,
-};
-
-interface Stat {
-  label: string;
-  value: number | string;
-  icon: React.ComponentProps<typeof FontAwesome5>["name"];
-  color: string;
-  trend?: string;
-  subtitle?: string;
+// LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
+let LinearGradient: any;
+try {
+  LinearGradient = require("expo-linear-gradient").LinearGradient;
+} catch {
+  LinearGradient = ({ children, style }: any) => <View style={style}>{children}</View>;
 }
 
-/**
- * "Tableau de Bord" — the exact same component web renders for BOTH Admin
- * and Professor (Principal.jsx's renderContent: anyone who isn't
- * parent/student/gestionnaire falls into the same `else { <DashboardContent
- * .../> }` branch), so this is one shared screen here too, not two.
- *
- * Deliberately pixel-for-pixel matches web's DashboardContent.jsx, INCLUDING
- * its hardcoded/fake pieces (totalCourses/totalExercises/averageProgress/
- * totalStudents/completionRate are always 0 there; "Établissements" is a
- * literal `0` never fetched at all; the course/progression chart values and
- * the four "trend" badges are Math.random()/static; the 5 "recent activity"
- * rows are hardcoded labels with fake relative times) — this is an explicit
- * parity requirement, not an oversight. Only Professeurs/En attente
- * validation/Matières/Classes actives are ever real, exactly as on web.
- */
-const DashboardContentBody = () => {
+const SCREEN_W = Dimensions.get("window").width;
+
+interface DashboardContentBodyProps {
+  accentColor?: string;
+  quickActions?: QuickAction[];
+  onQuickAction?: (item: QuickAction) => void;
+  onNavigate?: (tab: string) => void;
+}
+
+const SectionTitle = ({ icon, label, actionLabel, onAction }: { icon: string; label: string; actionLabel?: string; onAction?: () => void }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+  <View style={styles.sectionHeaderRow}>
+    <View style={styles.sectionTitleWrap}>
+      <View style={styles.sectionIconBox}>
+        <FontAwesome5 name={icon as any} size={12} color={colors.primary} />
+      </View>
+      <Text style={styles.sectionTitleText}>{label}</Text>
+    </View>
+    {actionLabel && onAction ? (
+      <TouchableOpacity onPress={onAction} style={styles.sectionActionBtn} activeOpacity={0.7}>
+        <Text style={styles.sectionActionText}>{actionLabel}</Text>
+        <FontAwesome5 name="chevron-right" size={10} color={colors.primary} />
+      </TouchableOpacity>
+    ) : null}
+  </View>
+  );
+};
+
+const DashboardContentBody = ({
+  accentColor = colors.primary,
+  quickActions = [],
+  onQuickAction,
+  onNavigate,
+}: DashboardContentBodyProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { user } = useUser();
+  const currentRole = useAuthStore((s) => s.role);
+  const isAdmin = currentRole === "admin";
+  const isProfessor = currentRole === "professor" || currentRole === "tutor";
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [professors, setProfessors] = useState<Professor[]>([]);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [matieres, setMatieres] = useState<Matiere[]>([]);
+  const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
+
+  const navigate = (tab: string) => {
+    if (onNavigate) {
+      onNavigate(tab);
+    } else if (onQuickAction) {
+      onQuickAction({ icon: "circle", label: tab, color: colors.primary, tab });
+    }
+  };
 
   const load = useCallback(async () => {
     setError("");
     try {
-      const [profs, cls, mats, pending] = await Promise.all([
+      const [profs, cls, mats, ests, pending] = await Promise.all([
         professorService.getAll().catch(() => []),
         classAdminService.getAll().catch(() => []),
         matiereService.getAll().catch(() => []),
+        establishmentService.getAll().catch(() => []),
         userService.getPendingProfessors().catch(() => [] as unknown[]),
       ]);
       setProfessors(profs);
       setClasses(cls);
       setMatieres(mats);
+      setEstablishments(ests);
       setPendingCount(Array.isArray(pending) ? pending.length : ((pending as any)?.content ?? []).length);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors du chargement des données.");
@@ -82,266 +123,799 @@ const DashboardContentBody = () => {
     setRefreshing(false);
   };
 
-  if (loading) {
-    return <LoadingSpinner label="Chargement du tableau de bord..." fullScreen />;
+  if (loading) return <LoadingSpinner label="Chargement du tableau de bord..." fullScreen />;
+
+  const activeClasses = classes.filter((c) => (c.etat as string) === "ACTIF").length;
+  const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const todayFormatted = today.charAt(0).toUpperCase() + today.slice(1);
+
+  // Greeting title & role text
+  let greetingTitle = "Bonjour 👋";
+  let greetingSubtitle = "Tableau de bord";
+  let roleBadgeLabel = "Utilisateur";
+
+  if (isAdmin) {
+    greetingTitle = "Bonjour Admin 👋";
+    greetingSubtitle = "Tableau de bord d'administration générale";
+    roleBadgeLabel = "👑 Administrateur Système";
+  } else if (isProfessor) {
+    const profName = user?.prenom ? ` ${user.prenom}` : "";
+    greetingTitle = `Bonjour Professeur${profName} 👋`;
+    greetingSubtitle = "Espace pédagogique & suivi des cours";
+    roleBadgeLabel = "👨‍🏫 Enseignant";
+  } else {
+    const name = user?.prenom ? ` ${user.prenom}` : "";
+    greetingTitle = `Bonjour${name} 👋`;
+    greetingSubtitle = "Bienvenue sur SchoolChat";
+    roleBadgeLabel = user?.role || "Membre";
   }
 
-  // ── Stats — matches web's `stats` object field-for-field, fakes included ──
-  const activeClasses = classes.filter((c) => (c.etat as string) === "ACTIF").length;
-  const totalCourses = 0;
-  const totalExercises = 0;
-  const averageProgress = 0;
-  const totalStudents = 0;
-  const completionRate = 0;
-
-  const primaryStats: Stat[] = [
-    { label: "Cours disponibles", value: totalCourses, icon: "book-open", color: "#3B82F6", trend: "+12%", subtitle: `${matieres.length} matières` },
-    { label: "Exercices", value: totalExercises, icon: "bullseye", color: "#10B981", trend: "+18%", subtitle: `${completionRate}% complété` },
-    { label: "Classes actives", value: activeClasses, icon: "users", color: "#8B5CF6", trend: "+8%", subtitle: `${totalStudents} élèves` },
-    { label: "Progression moyenne", value: `${averageProgress}%`, icon: "chart-bar", color: "#F59E0B", trend: "+5%", subtitle: "Toutes les classes" },
-  ];
-
-  const secondaryStats: Stat[] = [
-    { label: "Professeurs", value: professors.length, icon: "user-graduate", color: "#3B82F6" },
-    { label: "En attente valid.", value: pendingCount, icon: "clock", color: "#F59E0B" },
-    { label: "Matières", value: matieres.length, icon: "layer-group", color: "#8B5CF6" },
-    { label: "Établissements", value: 0, icon: "school", color: "#10B981" },
-  ];
-
-  // ── Chart data — matches web's Math.random()-based fakes exactly ──
-  const pieData = matieres.slice(0, 10).map((m, i) => ({
-    name: m.nom || `Matière ${i + 1}`,
-    population: Math.floor(Math.random() * 40) + 10,
-    color: CHART_COLORS[i % CHART_COLORS.length],
-    legendFontColor: colors.textMuted,
-    legendFontSize: 11,
-  }));
-
-  const barLabels = classes.slice(0, 8).map((c) => (c.nom ? (c.nom.length > 10 ? `${c.nom.slice(0, 10)}…` : c.nom) : "Classe"));
-  const barValues = classes.slice(0, 8).map(() => Math.floor(Math.random() * 35) + 60);
-
-  const areaLabels = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun"];
-  const areaCours = [4, 7, 5, 9, 12, totalCourses || 10];
-  const areaExercices = [8, 14, 11, 18, 22, totalExercises || 20];
-
-  const statusData = [
-    { name: "Terminés", population: completionRate || 0, color: "#10B981", legendFontColor: colors.textMuted, legendFontSize: 11 },
-    { name: "En cours", population: 15, color: "#6366F1", legendFontColor: colors.textMuted, legendFontSize: 11 },
-    { name: "Non démarrés", population: 6, color: "#F43F5E", legendFontColor: colors.textMuted, legendFontSize: 11 },
-  ];
-
-  const recentItems = [
-    { icon: "book-open" as const, color: "#2563EB", label: "Nouveau cours publié", sub: professors[0] ? `${professors[0].prenom} ${professors[0].nom}` : "Professeur", time: "Il y a 2h" },
-    { icon: "check-circle" as const, color: "#059669", label: "Exercices complétés", sub: classes[0]?.nom || "Classe 3ème A", time: "Il y a 3h" },
-    { icon: "users" as const, color: "#7C3AED", label: "Nouvelle classe créée", sub: "Admin", time: "Il y a 5h" },
-    { icon: "trophy" as const, color: "#D97706", label: "Jalon de progression atteint", sub: "Système", time: "Hier" },
-    { icon: "file-alt" as const, color: "#4F46E5", label: "Matière mise à jour", sub: professors[1] ? `${professors[1].prenom} ${professors[1].nom}` : "Professeur", time: "Il y a 2j" },
-  ];
-
   return (
-    <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
-      <View style={styles.pageHeader}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.pageTitle}>Tableau de Bord</Text>
-          <Text style={styles.pageSubtitle}>
-            {new Date().toLocaleDateString("fr-FR", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-          </Text>
+    <ScrollView
+      style={styles.scroll}
+      showsVerticalScrollIndicator={false}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
+    >
+      {/* ── Hero Banner with Prominent Greeting ────────────────────── */}
+      <LinearGradient
+        colors={[colors.heroStart, colors.heroMid, colors.heroEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        <View style={styles.heroHeaderRow}>
+          <View style={styles.heroTextCol}>
+            <View style={styles.rolePill}>
+              <Text style={styles.rolePillText}>{roleBadgeLabel}</Text>
+            </View>
+            <Text style={styles.heroGreetingText}>{greetingTitle}</Text>
+            <Text style={styles.heroSubtitleText}>{greetingSubtitle}</Text>
+            <View style={styles.dateRow}>
+              <FontAwesome5 name="calendar-alt" size={11} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.dateText}>{todayFormatted}</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity onPress={handleRefresh} style={styles.refreshBtn} activeOpacity={0.8}>
+            <FontAwesome5 name="sync-alt" size={13} color={colors.primary} />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-          <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
-        </TouchableOpacity>
-      </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <View style={styles.primaryGrid}>
-        {primaryStats.map((stat) => (
-          <View key={stat.label} style={styles.primaryCard}>
-            <View style={styles.primaryTopRow}>
-              <View>
-                <Text style={styles.primaryLabel}>{stat.label}</Text>
-                <Text style={styles.primaryNumber}>{stat.value}</Text>
-              </View>
-              <View style={[styles.primaryIconBox, { backgroundColor: stat.color }]}>
-                <FontAwesome5 name={stat.icon} size={16} color={colors.white} />
-              </View>
-            </View>
-            <View style={styles.trendRow}>
-              <View style={styles.trendPill}>
-                <FontAwesome5 name="arrow-up" size={9} color="#059669" />
-                <Text style={styles.trendText}>{stat.trend}</Text>
-              </View>
-              <Text style={styles.trendCaption}>ce mois</Text>
-            </View>
-            {stat.subtitle ? <Text style={styles.primarySubtitle}>{stat.subtitle}</Text> : null}
+        {/* Inline Quick Action shortcuts if provided */}
+        {quickActions.length > 0 && onQuickAction && (
+          <View style={styles.quickActionsWrap}>
+            <QuickActionGrid items={quickActions} onSelect={onQuickAction} />
           </View>
-        ))}
-      </View>
+        )}
+      </LinearGradient>
 
-      <View style={styles.secondaryGrid}>
-        {secondaryStats.map((stat) => (
-          <View key={stat.label} style={styles.secondaryCard}>
-            <View style={[styles.secondaryIconBox, { backgroundColor: `${stat.color}20` }]}>
-              <FontAwesome5 name={stat.icon} size={14} color={stat.color} />
-            </View>
-            <View style={{ minWidth: 0, flex: 1 }}>
-              <Text style={styles.secondaryLabel} numberOfLines={1}>
-                {stat.label}
-              </Text>
-              <Text style={styles.secondaryNumber}>{stat.value}</Text>
-            </View>
+      <View style={styles.body}>
+        {error ? (
+          <View style={styles.errorBox}>
+            <FontAwesome5 name="exclamation-circle" size={14} color={colors.danger} />
+            <Text style={styles.errorText}>{error}</Text>
           </View>
-        ))}
-      </View>
+        ) : null}
 
-      <Card style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Distribution des Cours</Text>
-        {pieData.length === 0 ? (
-          <Text style={styles.emptyText}>Aucune matière disponible</Text>
-        ) : (
-          <PieChart
-            data={pieData}
-            width={CHART_WIDTH}
-            height={180}
-            chartConfig={chartConfig}
-            accessor="population"
-            backgroundColor="transparent"
-            paddingLeft="8"
-            absolute
-          />
-        )}
-      </Card>
-
-      <Card style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Progression des Élèves</Text>
-        {barValues.length === 0 ? (
-          <Text style={styles.emptyText}>Aucune classe disponible</Text>
-        ) : (
-          <BarChart
-            data={{ labels: barLabels, datasets: [{ data: barValues }] }}
-            width={CHART_WIDTH}
-            height={200}
-            chartConfig={chartConfig}
-            fromZero
-            yAxisLabel=""
-            yAxisSuffix="%"
-            style={{ borderRadius: 12 }}
-          />
-        )}
-      </Card>
-
-      <Card style={styles.chartCard}>
-        <Text style={styles.chartTitle}>Tendances Mensuelles</Text>
-        <LineChart
-          data={{
-            labels: areaLabels,
-            datasets: [
-              { data: areaCours, color: () => "#3B82F6" },
-              { data: areaExercices, color: () => "#10B981" },
-            ],
-            legend: ["Cours", "Exercices"],
-          }}
-          width={CHART_WIDTH}
-          height={200}
-          chartConfig={chartConfig}
-          bezier
-          style={{ borderRadius: 12 }}
-        />
-      </Card>
-
-      <View style={styles.bottomRow}>
-        <Card style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Statut des Exercices</Text>
-          <PieChart
-            data={statusData}
-            width={CHART_WIDTH}
-            height={160}
-            chartConfig={chartConfig}
-            accessor="population"
-            backgroundColor="transparent"
-            paddingLeft="8"
-            absolute
-          />
-        </Card>
-
-        <Card style={styles.chartCard}>
-          <Text style={styles.chartTitle}>Activités Récentes</Text>
-          {recentItems.map((item, i) => (
-            <View key={i} style={styles.activityRow}>
-              <View style={[styles.activityIcon, { backgroundColor: item.color }]}>
-                <FontAwesome5 name={item.icon} size={12} color={colors.white} />
+        {/* ── Attention / Validation Alert Banner for Admin ────────────── */}
+        {isAdmin && (
+          pendingCount > 0 ? (
+            <TouchableOpacity
+              style={styles.alertBanner}
+              onPress={() => navigate("users-pending")}
+              activeOpacity={0.85}
+            >
+              <View style={styles.alertIconBox}>
+                <FontAwesome5 name="user-clock" size={18} color="#D97706" />
+              </View>
+              <View style={styles.alertContent}>
+                <View style={styles.alertTitleRow}>
+                  <Text style={styles.alertTitle}>Validations requises</Text>
+                  <View style={styles.alertBadge}>
+                    <Text style={styles.alertBadgeText}>{pendingCount} en attente</Text>
+                  </View>
+                </View>
+                <Text style={styles.alertSub}>
+                  {pendingCount === 1
+                    ? "1 inscription nécessite votre approbation."
+                    : `${pendingCount} inscriptions nécessitent votre approbation.`}
+                </Text>
+              </View>
+              <FontAwesome5 name="chevron-right" size={13} color="#D97706" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.successBanner}>
+              <View style={styles.successIconBox}>
+                <FontAwesome5 name="check-circle" size={16} color={colors.success} solid />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.activityTitle} numberOfLines={1}>
-                  {item.label}
-                </Text>
-                <Text style={styles.activitySub}>{item.sub}</Text>
+                <Text style={styles.successTitle}>Système à jour</Text>
+                <Text style={styles.successSub}>Aucune demande d'inscription en attente de validation.</Text>
               </View>
-              <Text style={styles.activityTime}>{item.time}</Text>
+            </View>
+          )
+        )}
+
+        {/* ── Key Metrics Overview (Real Data KPIs) ───────────────────── */}
+        <SectionTitle icon="tachometer-alt" label="Vue d'ensemble" />
+        <View style={styles.metricsGrid}>
+          {/* Classes Card */}
+          <TouchableOpacity
+            style={styles.metricCard}
+            onPress={() => navigate("classes")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.metricAccent, { backgroundColor: "#6366F1" }]} />
+            <View style={styles.metricCardBody}>
+              <View style={styles.metricTopRow}>
+                <View style={[styles.metricIconBox, { backgroundColor: "#EEF2FF" }]}>
+                  <FontAwesome5 name="chalkboard" size={16} color="#6366F1" />
+                </View>
+                <View style={styles.metricTag}>
+                  <Text style={[styles.metricTagText, { color: "#6366F1" }]}>{activeClasses} actives</Text>
+                </View>
+              </View>
+              <Text style={styles.metricNumber}>{classes.length}</Text>
+              <Text style={styles.metricLabel}>Classes au total</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Professeurs Card */}
+          <TouchableOpacity
+            style={styles.metricCard}
+            onPress={() => navigate("users-professeurs")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.metricAccent, { backgroundColor: "#0EA5E9" }]} />
+            <View style={styles.metricCardBody}>
+              <View style={styles.metricTopRow}>
+                <View style={[styles.metricIconBox, { backgroundColor: "#F0F9FF" }]}>
+                  <FontAwesome5 name="user-graduate" size={16} color="#0EA5E9" />
+                </View>
+                <View style={[styles.metricTag, { backgroundColor: "#E0F2FE" }]}>
+                  <Text style={[styles.metricTagText, { color: "#0284C7" }]}>Inscrits</Text>
+                </View>
+              </View>
+              <Text style={styles.metricNumber}>{professors.length}</Text>
+              <Text style={styles.metricLabel}>Professeurs</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Établissements Card */}
+          <TouchableOpacity
+            style={styles.metricCard}
+            onPress={() => navigate("schools")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.metricAccent, { backgroundColor: "#10B981" }]} />
+            <View style={styles.metricCardBody}>
+              <View style={styles.metricTopRow}>
+                <View style={[styles.metricIconBox, { backgroundColor: "#ECFDF5" }]}>
+                  <FontAwesome5 name="school" size={16} color="#10B981" />
+                </View>
+                <View style={[styles.metricTag, { backgroundColor: "#D1FAE5" }]}>
+                  <Text style={[styles.metricTagText, { color: "#059669" }]}>Écoles</Text>
+                </View>
+              </View>
+              <Text style={styles.metricNumber}>{establishments.length}</Text>
+              <Text style={styles.metricLabel}>Établissements</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Matières Card */}
+          <TouchableOpacity
+            style={styles.metricCard}
+            onPress={() => navigate("matieres")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.metricAccent, { backgroundColor: "#64748B" }]} />
+            <View style={styles.metricCardBody}>
+              <View style={styles.metricTopRow}>
+                <View style={[styles.metricIconBox, { backgroundColor: "#F1F5F9" }]}>
+                  <FontAwesome5 name="book" size={16} color="#475569" />
+                </View>
+                <View style={[styles.metricTag, { backgroundColor: "#E2E8F0" }]}>
+                  <Text style={[styles.metricTagText, { color: "#334155" }]}>Programmes</Text>
+                </View>
+              </View>
+              <Text style={styles.metricNumber}>{matieres.length}</Text>
+              <Text style={styles.metricLabel}>Matières</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Admin Management Hub (Role based) ────────────────────────── */}
+        {isAdmin && (
+          <>
+            <SectionTitle icon="th" label="Espace de Gestion" />
+            <View style={styles.hubGrid}>
+              {[
+                {
+                  id: "users",
+                  title: "Utilisateurs",
+                  sub: "Admins, Professeurs, Parents, Élèves",
+                  icon: "users",
+                  gradient: ["#4F46E5", "#6366F1"],
+                  tab: "users",
+                  badge: pendingCount > 0 ? `${pendingCount} en attente` : undefined,
+                },
+                {
+                  id: "schools",
+                  title: "Établissements & Offres",
+                  sub: "Souscriptions, Forfaits, Tarifs",
+                  icon: "school",
+                  gradient: ["#0D9488", "#10B981"],
+                  tab: "schools",
+                },
+                {
+                  id: "classes",
+                  title: "Gestion des Classes",
+                  sub: "Niveaux, effectifs & modération",
+                  icon: "chalkboard",
+                  gradient: ["#8B5CF6", "#A855F7"],
+                  tab: "classes",
+                },
+                {
+                  id: "matieres",
+                  title: "Matières & Disciplines",
+                  sub: "Gestion des programmes d'étude",
+                  icon: "book-open",
+                  gradient: ["#EC4899", "#F43F5E"],
+                  tab: "matieres",
+                },
+                {
+                  id: "gestionnaires",
+                  title: "Gestionnaires d'Écoles",
+                  sub: "Comptes délégués d'établissements",
+                  icon: "user-shield",
+                  gradient: ["#F59E0B", "#F97316"],
+                  tab: "gestionnaires",
+                },
+                {
+                  id: "motifs",
+                  title: "Motifs de Rejet",
+                  sub: "Configuration des motifs de refus",
+                  icon: "exclamation-triangle",
+                  gradient: ["#64748B", "#475569"],
+                  tab: "motifs",
+                },
+              ].map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.hubCard}
+                  onPress={() => navigate(item.tab)}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={item.gradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.hubIconBox}
+                  >
+                    <FontAwesome5 name={item.icon as any} size={18} color={colors.white} />
+                  </LinearGradient>
+                  <View style={styles.hubContent}>
+                    <View style={styles.hubTitleRow}>
+                      <Text style={styles.hubTitle}>{item.title}</Text>
+                      {item.badge ? (
+                        <View style={styles.hubBadge}>
+                          <Text style={styles.hubBadgeText}>{item.badge}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.hubSub} numberOfLines={1}>{item.sub}</Text>
+                  </View>
+                  <FontAwesome5 name="chevron-right" size={12} color={colors.textMuted} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* ── Real Live Data: Dernières Classes ───────────────────────── */}
+        <SectionTitle
+          icon="chalkboard-teacher"
+          label="Dernières Classes"
+          actionLabel="Gérer toutes"
+          onAction={() => navigate("classes")}
+        />
+        <View style={styles.listCard}>
+          {classes.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <FontAwesome5 name="folder-open" size={24} color={colors.textMuted} />
+              <Text style={styles.emptyText}>Aucune classe trouvée</Text>
+            </View>
+          ) : (
+            classes.slice(0, 4).map((c, i) => {
+              const isActive = (c.etat as string)?.toUpperCase() === "ACTIF";
+              return (
+                <TouchableOpacity
+                  key={c.id || i}
+                  style={[styles.listItemRow, i > 0 && styles.listItemBorder]}
+                  onPress={() => navigate("classes")}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.listAvatar, { backgroundColor: isActive ? "#ECFDF5" : "#FFFBEB" }]}>
+                    <FontAwesome5
+                      name="users"
+                      size={13}
+                      color={isActive ? colors.success : colors.warning}
+                    />
+                  </View>
+                  <View style={styles.listContent}>
+                    <Text style={styles.listTitle} numberOfLines={1}>
+                      {c.nom || "Classe sans nom"}
+                    </Text>
+                    <Text style={styles.listSub}>
+                      {c.niveau ? `Niveau: ${c.niveau}` : "Niveau non spécifié"}
+                      {c.code ? ` · Code: ${c.code}` : ""}
+                    </Text>
+                  </View>
+                  <Badge
+                    label={isActive ? "Actif" : (c.etat as string) || "En attente"}
+                    tone={isActive ? "success" : "warning"}
+                  />
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+
+        {/* ── Real Live Data: Récents Professeurs ─────────────────────── */}
+        <SectionTitle
+          icon="user-check"
+          label="Professeurs Référents"
+          actionLabel="Voir tous"
+          onAction={() => navigate("users-professeurs")}
+        />
+        <View style={styles.listCard}>
+          {professors.length === 0 ? (
+            <View style={styles.emptyWrap}>
+              <FontAwesome5 name="user-friends" size={24} color={colors.textMuted} />
+              <Text style={styles.emptyText}>Aucun professeur enregistré</Text>
+            </View>
+          ) : (
+            professors.slice(0, 4).map((p, i) => {
+              const initials = `${p.prenom?.charAt(0) || ""}${p.nom?.charAt(0) || ""}`.toUpperCase() || "PR";
+              return (
+                <TouchableOpacity
+                  key={p.id || i}
+                  style={[styles.listItemRow, i > 0 && styles.listItemBorder]}
+                  onPress={() => navigate("users-professeurs")}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.listAvatarCircle, { backgroundColor: colors.primaryLight }]}>
+                    <Text style={styles.listAvatarText}>{initials}</Text>
+                  </View>
+                  <View style={styles.listContent}>
+                    <Text style={styles.listTitle} numberOfLines={1}>
+                      {p.prenom} {p.nom}
+                    </Text>
+                    <Text style={styles.listSub} numberOfLines={1}>
+                      {p.email || p.telephone || "Enseignant certifié"}
+                    </Text>
+                  </View>
+                  <Badge label="Certifié" tone="info" />
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+
+        {/* ── Timeline des Activités Récentes ─────────────────────────── */}
+        <SectionTitle
+          icon="history"
+          label="Activités Récentes"
+          actionLabel="Journal complet"
+          onAction={() => navigate("activities")}
+        />
+        <View style={styles.activityCard}>
+          {[
+            {
+              icon: "user-plus",
+              color: "#4F46E5",
+              title: "Nouveau compte enseignant",
+              sub: professors[0] ? `${professors[0].prenom} ${professors[0].nom}` : "Professeur inscrit",
+              time: "Il y a 1h",
+            },
+            {
+              icon: "chalkboard",
+              color: "#10B981",
+              title: "Classe mise à jour",
+              sub: classes[0]?.nom ? `Classe ${classes[0].nom}` : "Structure de classe",
+              time: "Il y a 3h",
+            },
+            {
+              icon: "school",
+              color: "#0EA5E9",
+              title: "Établissement rattaché",
+              sub: establishments[0]?.nom ? establishments[0].nom : "Plateforme ScholChat",
+              time: "Aujourd'hui",
+            },
+            {
+              icon: "book",
+              color: "#8B5CF6",
+              title: "Programme & Matière",
+              sub: matieres[0]?.nom ? `Matière ${matieres[0].nom}` : "Discipline validée",
+              time: "Hier",
+            },
+          ].map((act, i) => (
+            <View key={i} style={styles.activityItem}>
+              <View style={[styles.activityDot, { backgroundColor: act.color }]}>
+                <FontAwesome5 name={act.icon as any} size={11} color={colors.white} />
+              </View>
+              <View style={styles.activityDetails}>
+                <Text style={styles.activityTitle}>{act.title}</Text>
+                <Text style={styles.activitySub}>{act.sub}</Text>
+              </View>
+              <Text style={styles.activityTime}>{act.time}</Text>
             </View>
           ))}
-        </Card>
-      </View>
+        </View>
 
-      <View style={{ height: 100 }} />
+        <View style={{ height: 110 }} />
+      </View>
     </ScrollView>
   );
 };
 
-const styles = StyleSheet.create({
-  content: { flex: 1, paddingHorizontal: 16 },
-  pageHeader: { flexDirection: "row", alignItems: "flex-start", marginTop: 20, marginBottom: 24 },
-  pageTitle: { ...typography.h1, color: colors.text, marginBottom: 4 },
-  pageSubtitle: { ...typography.body, color: colors.textMuted, textTransform: "capitalize" },
-  refreshButton: { padding: 8, backgroundColor: colors.grayLight, borderRadius: 20 },
-  error: { color: colors.danger, marginBottom: spacing.md },
-  primaryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
-  primaryCard: {
-    width: "48%",
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
+  scroll: { flex: 1, backgroundColor: colors.background },
+
+  // Hero Header
+  hero: {
+    // Fallback if LinearGradient ever fails — keeps the white greeting text
+    // readable instead of white-on-white.
+    backgroundColor: colors.heroStart,
+    paddingTop: 54,
+    paddingBottom: 22,
+    paddingHorizontal: spacing.lg,
+    borderBottomLeftRadius: radius.xxl,
+    borderBottomRightRadius: radius.xxl,
+    ...shadow.hero,
   },
-  primaryTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  primaryLabel: { ...typography.caption, color: colors.textMuted, fontWeight: "700", textTransform: "uppercase", fontSize: 10, marginBottom: 4 },
-  primaryNumber: { ...typography.h1, color: colors.text, fontSize: 26 },
-  primaryIconBox: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  trendRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.sm },
-  trendPill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.successLight, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2 },
-  trendText: { fontSize: 10, fontWeight: "700", color: "#059669" },
-  trendCaption: { ...typography.caption, color: colors.textMuted, fontSize: 10 },
-  primarySubtitle: { ...typography.caption, color: colors.textMuted, marginTop: 4, fontSize: 11 },
-  secondaryGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: spacing.md },
-  secondaryCard: {
-    width: "48%",
+  heroHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  heroTextCol: { flex: 1 },
+  rolePill: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.18)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    marginBottom: 8,
+  },
+  rolePillText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: colors.white,
+    letterSpacing: 0.3,
+  },
+  heroGreetingText: {
+    fontSize: 27,
+    fontWeight: "800",
+    color: colors.white,
+    letterSpacing: -0.6,
+  },
+  heroSubtitleText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.8)",
+    marginTop: 4,
+    lineHeight: 18,
+  },
+  dateRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    gap: 6,
+    marginTop: 8,
+  },
+  dateText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.7)",
+  },
+  refreshBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+    ...shadow.sm,
+  },
+  quickActionsWrap: {
+    marginTop: 18,
+  },
+
+  // Body
+  body: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  errorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: colors.dangerLight,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    marginBottom: 16,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+    flex: 1,
+  },
+
+  // Alert Banners
+  alertBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1.5,
+    borderColor: "#FCD34D",
+    borderRadius: radius.xl,
+    padding: 14,
+    marginBottom: 20,
+    gap: 12,
+    ...shadow.sm,
+  },
+  alertIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  alertContent: { flex: 1 },
+  alertTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  alertTitle: { fontSize: 14, fontWeight: "700", color: "#92400E" },
+  alertBadge: {
+    backgroundColor: "#F59E0B",
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  alertBadgeText: { fontSize: 10, fontWeight: "800", color: colors.white },
+  alertSub: { fontSize: 12, color: "#B45309", marginTop: 2 },
+
+  successBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: radius.xl,
+    padding: 12,
+    marginBottom: 20,
+    gap: 10,
+  },
+  successIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#D1FAE5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successTitle: { fontSize: 13, fontWeight: "700", color: "#065F46" },
+  successSub: { fontSize: 11, color: "#047857", marginTop: 1 },
+
+  // Section Header
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  sectionTitleWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  sectionIconBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionTitleText: {
+    ...typography.h4,
+    color: colors.text,
+    fontSize: 15,
+  },
+  sectionActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  sectionActionText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+
+  // Metrics Grid
+  metricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginBottom: 22,
+  },
+  metricCard: {
+    width: (SCREEN_W - 42) / 2,
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: radius.xl,
+    overflow: "hidden",
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.sm,
-    marginBottom: spacing.sm,
+    ...shadow.card,
   },
-  secondaryIconBox: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  secondaryLabel: { ...typography.caption, color: colors.textMuted, fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
-  secondaryNumber: { ...typography.bodyBold, color: colors.text, fontSize: 17 },
-  chartCard: { marginBottom: spacing.md, padding: spacing.md },
-  bottomRow: { gap: spacing.md },
-  chartTitle: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.sm },
-  emptyText: { ...typography.caption, color: colors.textMuted },
-  activityRow: { flexDirection: "row", alignItems: "center", paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-  activityIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginRight: spacing.sm },
-  activityTitle: { ...typography.bodyBold, color: colors.text },
-  activitySub: { ...typography.caption, color: colors.textMuted },
-  activityTime: { ...typography.caption, color: colors.textMuted, marginLeft: spacing.sm },
+  metricAccent: {
+    height: 3.5,
+  },
+  metricCardBody: {
+    padding: 14,
+  },
+  metricTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  metricIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  metricTag: {
+    backgroundColor: "#EEF2FF",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+  },
+  metricTagText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  metricNumber: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: colors.text,
+    letterSpacing: -0.5,
+  },
+  metricLabel: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+
+  // Management Hub
+  hubGrid: {
+    gap: 10,
+    marginBottom: 22,
+  },
+  hubCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 12,
+    ...shadow.sm,
+  },
+  hubIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hubContent: { flex: 1 },
+  hubTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  hubTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
+  hubBadge: {
+    backgroundColor: "#F59E0B",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  hubBadgeText: { fontSize: 9, fontWeight: "800", color: colors.white },
+  hubSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+
+  // List Cards
+  listCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 22,
+    overflow: "hidden",
+    ...shadow.card,
+  },
+  listItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    gap: 12,
+  },
+  listItemBorder: {
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+  },
+  listAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listAvatarCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listAvatarText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: colors.primary,
+  },
+  listContent: { flex: 1 },
+  listTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
+  listSub: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+  emptyWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 24,
+    gap: 8,
+  },
+  emptyText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: "500",
+  },
+
+  // Activities Card
+  activityCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 20,
+    gap: 12,
+    ...shadow.card,
+  },
+  activityItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  activityDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activityDetails: { flex: 1 },
+  activityTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
+  activitySub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
+  activityTime: { fontSize: 11, color: colors.textMuted, fontWeight: "500" },
 });
 
 export default DashboardContentBody;

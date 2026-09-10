@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, ImageStyle, StyleProp, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors } from '../../styles/theme';
+import { colors, useThemeColors } from '../../styles/theme';
 import { mediaService } from '../../services/api';
 import { storageService } from '../../services/storageService';
 
@@ -30,6 +30,8 @@ interface ActivityMediaImageProps {
  * the presigned URL fails to actually load.
  */
 const ActivityMediaImage = ({ mediaId, presignedUrl, style, onPress, resizeMode = 'cover' }: ActivityMediaImageProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [url, setUrl] = useState<string | null>(presignedUrl ?? null);
   // The /media/{id}/content proxy is auth-gated — unlike a presigned S3 url,
   // a request to it with no Authorization header 401s and Image just shows
@@ -112,7 +114,7 @@ const ActivityMediaImage = ({ mediaId, presignedUrl, style, onPress, resizeMode 
   return <TouchableOpacity onPress={onPress}>{content}</TouchableOpacity>;
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   image: { backgroundColor: colors.grayLight },
   placeholder: { backgroundColor: colors.grayLight, alignItems: 'center', justifyContent: 'center' },
 });

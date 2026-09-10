@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BottomSheet, Button } from '../../components/ui';
-import { colors, spacing, typography } from '../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { confirmLogout } from '../../utils/confirmLogout';
 
 export interface QuickAction {
@@ -34,6 +34,8 @@ interface QuickActionsSheetProps {
  * into a second-level grid via a "Retour" back button, exactly like web.
  */
 const QuickActionsSheet = ({ visible, onClose, onSelectTab, onLogout, items, submenus = {}, accentColor = colors.primary }: QuickActionsSheetProps) => {
+  const themeColors = useThemeColors();
+  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const [submenuKey, setSubmenuKey] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,7 +61,7 @@ const QuickActionsSheet = ({ visible, onClose, onSelectTab, onLogout, items, sub
         {activeItems.map((item, index) => (
           <TouchableOpacity key={`${item.label}-${index}`} style={styles.cell} onPress={() => handlePress(item)}>
             <View style={[styles.iconChip, { backgroundColor: item.color }]}>
-              <FontAwesome5 name={item.icon} size={16} color={colors.white} />
+              <FontAwesome5 name={item.icon} size={16} color={themeColors.white} />
             </View>
             <Text style={styles.cellLabel} numberOfLines={1}>
               {item.label}
@@ -68,8 +70,8 @@ const QuickActionsSheet = ({ visible, onClose, onSelectTab, onLogout, items, sub
         ))}
         {submenuKey ? (
           <TouchableOpacity style={styles.cell} onPress={() => setSubmenuKey(null)}>
-            <View style={[styles.iconChip, { backgroundColor: colors.gray }]}>
-              <FontAwesome5 name="arrow-left" size={16} color={colors.white} />
+            <View style={[styles.iconChip, { backgroundColor: themeColors.gray }]}>
+              <FontAwesome5 name="arrow-left" size={16} color={themeColors.white} />
             </View>
             <Text style={styles.cellLabel}>Retour</Text>
           </TouchableOpacity>
@@ -83,7 +85,7 @@ const QuickActionsSheet = ({ visible, onClose, onSelectTab, onLogout, items, sub
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   cell: {
     width: '30%',

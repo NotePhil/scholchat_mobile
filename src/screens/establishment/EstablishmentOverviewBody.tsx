@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Dimensions, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { BarChart, PieChart } from "react-native-chart-kit";
-import { Card, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { Card, HeroCard, LoadingSpinner, QuickActionGrid } from "../../components/ui";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { classAdminService, establishmentService } from "../../services/api";
 import { useUser } from "../../context/UserContext";
+import type { QuickAction } from "../shared/QuickActionsSheet";
 
 const CHART_WIDTH = Dimensions.get("window").width - 32;
 const DIST_COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
@@ -21,6 +22,9 @@ const chartConfig = {
 
 interface EstablishmentOverviewBodyProps {
   onNavigate?: (tab: "classes" | "establishments") => void;
+  accentColor?: string;
+  quickActions?: QuickAction[];
+  onQuickAction?: (item: QuickAction) => void;
 }
 
 /**
@@ -33,7 +37,9 @@ interface EstablishmentOverviewBodyProps {
  * "Actions Prioritaires" 4 buttons. Used to show only a single
  * établissement-count card with none of this.
  */
-const EstablishmentOverviewBody = ({ onNavigate }: EstablishmentOverviewBodyProps) => {
+const EstablishmentOverviewBody = ({ onNavigate, accentColor = colors.primary, quickActions = [], onQuickAction }: EstablishmentOverviewBodyProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -101,15 +107,18 @@ const EstablishmentOverviewBody = ({ onNavigate }: EstablishmentOverviewBodyProp
   return (
     <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Hello, {name}</Text>
-          <Text style={styles.subtitle}>
-            Gérez vos {establishments.length} établissements et supervisez vos classes en temps réel.
-          </Text>
-        </View>
-        <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
-          <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
-        </TouchableOpacity>
+        <HeroCard
+          title={`Bonjour, ${name}`}
+          subtitle={`Gérez vos ${establishments.length} établissements et supervisez vos classes en temps réel.`}
+          accentColor={accentColor}
+          topRight={
+            <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton}>
+              <FontAwesome5 name="sync-alt" size={16} color={colors.primary} />
+            </TouchableOpacity>
+          }
+        >
+          {quickActions.length > 0 && onQuickAction ? <QuickActionGrid items={quickActions} onSelect={onQuickAction} /> : null}
+        </HeroCard>
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -258,7 +267,7 @@ const EstablishmentOverviewBody = ({ onNavigate }: EstablishmentOverviewBodyProp
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   content: { flex: 1, paddingHorizontal: 16 },
   header: { flexDirection: "row", alignItems: "flex-start", marginTop: 20, marginBottom: spacing.lg },
   title: { ...typography.h1, color: colors.text, marginBottom: 4 },

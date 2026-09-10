@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -12,7 +12,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { FontAwesome5 } from '@expo/vector-icons';
 import BottomSheet from '../ui/BottomSheet';
 import Button from '../ui/Button';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
 import { mediaService, userService } from '../../services/api';
 
 export interface MissingDoc {
@@ -47,6 +47,8 @@ const CompleteProfileModal: React.FC<CompleteProfileModalProps> = ({
   onClose,
   onCompleted,
 }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [pickedFiles, setPickedFiles] = useState<Record<string, PickedFile>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -186,7 +188,7 @@ const CompleteProfileModal: React.FC<CompleteProfileModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   scroll: {
     maxHeight: 520,
   },

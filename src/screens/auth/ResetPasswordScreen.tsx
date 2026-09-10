@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Input } from '../../components/ui';
-import { colors, spacing, typography } from '../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { forgotPasswordService } from '../../services/api';
 
 /** Reached via the emailed reset link (?token=...). */
 const ResetPasswordScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const token: string | undefined = route.params?.token;
@@ -82,7 +84,7 @@ const ResetPasswordScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   content: { flex: 1, justifyContent: 'center', padding: spacing.xl },

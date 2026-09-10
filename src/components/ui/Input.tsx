@@ -1,25 +1,29 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { radius, spacing, typography, useThemeColors } from '../../styles/theme';
 
 interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
 }
 
-const Input = ({ label, error, style, ...rest }: InputProps) => (
-  <View style={styles.container}>
-    {label ? <Text style={styles.label}>{label}</Text> : null}
-    <TextInput
-      style={[styles.input, error ? styles.inputError : null, style]}
-      placeholderTextColor={colors.textMuted}
-      {...rest}
-    />
-    {error ? <Text style={styles.error}>{error}</Text> : null}
-  </View>
-);
+const Input = ({ label, error, style, ...rest }: InputProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.container}>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+      <TextInput
+        style={[styles.input, error ? styles.inputError : null, style]}
+        placeholderTextColor={colors.textMuted}
+        {...rest}
+      />
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+    </View>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     marginBottom: spacing.md,
   },

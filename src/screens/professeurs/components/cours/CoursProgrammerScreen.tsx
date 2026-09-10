@@ -20,7 +20,7 @@ import {
 } from '../../../../components/ui';
 import DateTimeField from '../../../../components/common/DateTimeField';
 import PromptSheet from '../../../../components/common/PromptSheet';
-import { colors, radius, spacing, typography } from '../../../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { classService } from '../../../../services/classService';
 import { coursProgrammerService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
@@ -80,6 +80,8 @@ export const CoursProgrammerScreen = ({
   coursList,
   initialView = 'list',
 }: CoursProgrammerScreenProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const [view, setView] = useState<ViewMode>(initialView);
@@ -768,21 +770,29 @@ const QuickAction = ({
   color: string;
   onPress: () => void;
   busy?: boolean;
-}) => (
+}) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
   <TouchableOpacity style={styles.quickAction} onPress={onPress} disabled={busy}>
     <FontAwesome5 name={busy ? 'spinner' : icon} size={12} color={color} />
     <Text style={[styles.quickActionText, { color }]}>{label}</Text>
   </TouchableOpacity>
-);
+  );
+};
 
-const DetailRow = ({ label, value }: { label: string; value: string }) => (
+const DetailRow = ({ label, value }: { label: string; value: string }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
   <View style={styles.detailRow}>
     <Text style={styles.detailLabel}>{label}</Text>
     <Text style={styles.detailValue}>{value}</Text>
   </View>
-);
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,

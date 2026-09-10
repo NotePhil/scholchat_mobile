@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BottomSheet, Button, Input } from '../ui';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
 import { PaymentInfo } from '../../services/api/contratService';
 
 type MethodKey = 'orange' | 'mtn' | 'card';
@@ -30,6 +30,8 @@ interface PaymentModalProps {
  * /contrats endpoints.
  */
 const PaymentModal = ({ visible, onClose, onSuccess, montant, label, subLabel }: PaymentModalProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [method, setMethod] = useState<MethodKey | null>(null);
   const [phone, setPhone] = useState('');
@@ -265,7 +267,7 @@ const PaymentModal = ({ visible, onClose, onSuccess, montant, label, subLabel }:
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   summary: {
     flexDirection: 'row',
     alignItems: 'center',

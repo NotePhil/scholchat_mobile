@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { storageService } from '../services/storageService';
-import { decodeToken, getAppRole, getUserRoles, normalizeRole } from '../utils/tokenUtils';
+import { decodeToken, getAppRole, getUserRoles, isTokenExpired, normalizeRole } from '../utils/tokenUtils';
 import { AppRole, AuthUser, LoginResponse } from '../types';
 
 interface AuthState {
@@ -53,7 +53,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         storageService.getUserData(),
       ]);
 
-      if (token && userData) {
+      if (token && userData && !isTokenExpired(token)) {
         const role = getAppRole(token);
         const roles = getUserRoles(token).map(normalizeRole);
         set({
@@ -65,6 +65,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isLoading: false,
         });
       } else {
+        if (token) {
+          // A token was found but has already expired — matches web's
+          // clearAuthData() path in loadUserFromStorage(): don't leave a
+          // stale session sitting in storage for the next boot to trip over.
+          await storageService.clearUserData().catch(() => {});
+        }
         set({ isLoading: false, isAuthenticated: false });
       }
     } catch (error) {

@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Card, Input, LoadingSpinner } from '../../components/ui';
-import { colors, spacing, typography } from '../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { contratService } from '../../services/api';
 import { PaymentInfo } from '../../services/api/contratService';
 import PaymentModal from '../../components/common/PaymentModal';
@@ -13,6 +13,8 @@ type EntityType = 'CLASSE' | 'ETABLISSEMENT';
 
 /** Public (no-login) subscription-renewal flow, reached via an emailed link (?token=). */
 const RenewalScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const token: string | undefined = route.params?.token;
@@ -28,6 +30,8 @@ const RenewalScreen = () => {
 };
 
 const RenewalRequestForm = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [email, setEmail] = useState('');
   const [entityType, setEntityType] = useState<EntityType>('CLASSE');
   const [entityId, setEntityId] = useState('');
@@ -104,6 +108,8 @@ const RenewalRequestForm = () => {
 };
 
 const RenewalWithToken = ({ token }: { token: string }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [statut, setStatut] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -301,7 +307,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, gap: spacing.md },
   center: { alignItems: 'center', gap: spacing.sm },

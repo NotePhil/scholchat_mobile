@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Badge, BottomSheet, Button, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { exerciseProgrammerService, participationService, questionService, reponseService } from "../../services/api";
 import { ChoixReponse, Question, Reponse } from "../../types";
 
@@ -38,6 +38,8 @@ const autoCorrect = (question: Question, value: string): { isCorrect: boolean; c
  * silent resubmission/duplicate participation.
  */
 const DevoirAttemptSheet = ({ visible, exerciseProgrammerId, title, userId, onClose, onComplete }: DevoirAttemptSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -203,6 +205,8 @@ interface QuestionInputProps {
 }
 
 const QuestionInput = ({ question, value, onChange }: QuestionInputProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const type = question.typeQuestion;
 
   if (type === "QCM") {
@@ -265,7 +269,7 @@ const QuestionInput = ({ question, value, onChange }: QuestionInputProps) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   scroll: { maxHeight: 520 },
   emptyText: { ...typography.body, color: colors.textMuted },
   questionCard: { backgroundColor: colors.background, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md },

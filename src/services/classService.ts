@@ -1,5 +1,7 @@
 import { apiClient, extractErrorMessage } from './api/client';
-import { AccessRequest, ApiSuccess, ClassEntity, ClassUser, Etablissement, Professor } from '../types';
+import { accederService } from './api/accederService';
+import { classAdminService } from './api/classAdminService';
+import { AccessRequest, ApiSuccess, AppRole, ClassEntity, ClassUser, Etablissement, Professor } from '../types';
 
 /**
  * Class management API calls. Migrated to the shared axios client
@@ -7,6 +9,24 @@ import { AccessRequest, ApiSuccess, ClassEntity, ClassUser, Etablissement, Profe
  * centralized instead of repeated per-call.
  */
 export const classService = {
+  /**
+   * Resolves the class list a user can scope a PRIVATE activity/post to,
+   * branching by role exactly like web's ActivitiesContent.jsx loadClasses():
+   * admin sees every class, professor/tutor see classes they hold publication
+   * rights on, everyone else falls back to classes they merely have access to.
+   */
+  getClassesForRole: async (role: AppRole, userId: string): Promise<ClassEntity[]> => {
+    let data: ClassEntity[] = [];
+    if (role === 'admin') {
+      data = await classAdminService.getAll();
+    } else if (role === 'professor' || role === 'tutor') {
+      data = await classService.getClassesWithPublicationRights(userId);
+    } else {
+      data = await accederService.getAccessibleClasses(userId);
+    }
+    return data.filter((c) => c.etat === 'ACTIF' || !c.etat);
+  },
+
   getClasses: async (userId: string): Promise<ClassEntity[]> => {
     try {
       const { data } = await apiClient.get<ClassEntity[]>(`/classes/user/${userId}`);

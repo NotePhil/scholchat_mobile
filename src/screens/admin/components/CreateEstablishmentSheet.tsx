@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { BottomSheet, Button, DropdownField, Input } from "../../../components/ui";
 import PaymentModal from "../../../components/common/PaymentModal";
-import { colors, spacing, typography } from "../../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../../styles/theme";
 import { establishmentService, gestionnaireService, offerService } from "../../../services/api";
 import { PaymentInfo } from "../../../services/api/contratService";
 import { Etablissement, Gestionnaire, Offre } from "../../../types";
@@ -47,6 +47,8 @@ export interface CreateEstablishmentSheetProps {
  * button can all import it without a circular import between screens.
  */
 export const CreateEstablishmentSheet = ({ visible, onClose, onCreated, editingEstablishment, defaultGestionnaireId }: CreateEstablishmentSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const isEditMode = !!editingEstablishment;
   const [nom, setNom] = useState("");
   const [localisation, setLocalisation] = useState("");
@@ -278,7 +280,7 @@ export const CreateEstablishmentSheet = ({ visible, onClose, onCreated, editingE
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   fieldError: { ...typography.caption, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.sm },
   fieldLabel: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.sm },
   optionsBox: {

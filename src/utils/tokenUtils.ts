@@ -10,6 +10,18 @@ export const decodeToken = (token: string): DecodedToken | null => {
   }
 };
 
+/**
+ * Matches web's AuthContext.js `isTokenValid()`: a stored token is only
+ * trusted on app boot if its `exp` claim is still in the future. Without
+ * this, a token that expired while the app was closed would still be
+ * treated as a valid session until the first real API call 401s.
+ */
+export const isTokenExpired = (token: string): boolean => {
+  const decoded = decodeToken(token);
+  if (!decoded?.exp) return true;
+  return decoded.exp <= Date.now() / 1000;
+};
+
 /** All roles on the token except the generic ROLE_USER, in token order. */
 export const getUserRoles = (token: string): string[] => {
   const decoded = decodeToken(token);

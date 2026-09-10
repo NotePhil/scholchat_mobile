@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Badge, EmptyState, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { ClassEntity } from "../../types";
 import { DEVOIR_STATUS_LABEL, DevoirItem, loadDevoirs } from "../../utils/devoirs";
 import DevoirAttemptSheet from "./DevoirAttemptSheet";
@@ -35,6 +35,8 @@ interface DevoirsBodyProps {
  * due date, or grade.
  */
 const DevoirsBody = ({ userId, classes, classesLoading, emptyMessage }: DevoirsBodyProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [devoirs, setDevoirs] = useState<DevoirItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterId>("all");
@@ -152,7 +154,7 @@ const DevoirsBody = ({ userId, classes, classesLoading, emptyMessage }: DevoirsB
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   filterRow: { paddingHorizontal: 16, marginBottom: spacing.md, flexGrow: 0 },
   filterChip: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: 20, backgroundColor: colors.grayLight, marginRight: spacing.sm },

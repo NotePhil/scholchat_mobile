@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { BottomSheet, Button, Input } from "../../components/ui";
-import { colors, radius, spacing, typography } from "../../styles/theme";
+import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService, classAdminService } from "../../services/api";
 import { ClassEntity } from "../../types";
 
@@ -23,6 +23,8 @@ interface JoinClassSheetProps {
  * be approved by a professor/admin, never originated by a parent/student.
  */
 const JoinClassSheet = ({ visible, onClose, onSubmitted, utilisateurId, estParent }: JoinClassSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [code, setCode] = useState("");
   const [searching, setSearching] = useState(false);
   const [foundClass, setFoundClass] = useState<ClassEntity | null>(null);
@@ -123,7 +125,7 @@ const JoinClassSheet = ({ visible, onClose, onSubmitted, utilisateurId, estParen
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   hint: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.md },
   error: { ...typography.caption, color: colors.danger, marginBottom: spacing.md },
   previewCard: {

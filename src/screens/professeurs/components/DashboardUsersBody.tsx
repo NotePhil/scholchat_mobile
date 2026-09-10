@@ -4,7 +4,7 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { useUser } from "../../../context/UserContext";
 import { parentService, professorService, studentService } from "../../../services/api";
 import { Badge, BottomSheet, Card, EmptyState, LoadingSpinner } from "../../../components/ui";
-import { colors, spacing, typography } from "../../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../../styles/theme";
 
 type Role = "eleve" | "parent" | "professeur";
 
@@ -37,6 +37,8 @@ const ROLE_META: Record<Role, { label: string; icon: React.ComponentProps<typeof
  * none on web.
  */
 const DashboardUsersBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user: currentUser } = useUser();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<"all" | Role>("all");
@@ -232,7 +234,7 @@ const DashboardUsersBody = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, paddingHorizontal: spacing.lg },
   pageHeader: { marginTop: 20, marginBottom: spacing.lg },

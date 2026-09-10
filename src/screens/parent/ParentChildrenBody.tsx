@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Avatar, Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { parentService, studentService } from "../../services/api";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 
 const ParentChildrenBody = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const { children, loading, selectedChildId, setSelectedChildId, loadChildren } = useSelectedChildStore();
   const [showAdd, setShowAdd] = useState(false);
@@ -148,7 +150,7 @@ const AddChildSheet = ({ visible, onClose, onAdded, parentId }: AddChildSheetPro
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",

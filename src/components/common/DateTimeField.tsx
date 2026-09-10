@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
 
 interface DateTimeFieldProps {
   label: string;
@@ -17,6 +17,8 @@ interface DateTimeFieldProps {
  * routinely produced unparsable dates sent straight to the API.
  */
 const DateTimeField = ({ label, value, onChange, required }: DateTimeFieldProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [stage, setStage] = useState<'none' | 'date' | 'time'>('none');
   const [pendingDate, setPendingDate] = useState<Date | null>(null);
 
@@ -79,7 +81,7 @@ const DateTimeField = ({ label, value, onChange, required }: DateTimeFieldProps)
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { marginBottom: spacing.md },
   label: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.xs },
   field: {

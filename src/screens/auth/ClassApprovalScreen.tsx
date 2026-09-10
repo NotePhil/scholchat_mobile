@@ -1,15 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { LoadingSpinner } from '../../components/ui';
-import { colors, spacing, typography } from '../../styles/theme';
+import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { establishmentService } from '../../services/api';
 
 type Status = 'loading' | 'success' | 'error';
 
 /** Reached via the emailed class-approval link (no login required). */
 const ClassApprovalScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const route = useRoute<any>();
   const classeId: string | undefined = route.params?.classeId;
   const etablissementId: string | undefined = route.params?.etablissementId;
@@ -59,7 +61,7 @@ const ClassApprovalScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background, justifyContent: 'center', padding: spacing.xl },
   card: { backgroundColor: colors.surface, borderRadius: 16, padding: spacing.xl },
   center: { alignItems: 'center' },

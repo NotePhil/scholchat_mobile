@@ -5,7 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from '../../../../components/ui';
 import DateTimeField from '../../../../components/common/DateTimeField';
 import PromptSheet from '../../../../components/common/PromptSheet';
-import { colors, radius, spacing, typography } from '../../../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { classService } from '../../../../services/classService';
 import { accederService, coursProgrammerService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
@@ -39,6 +39,8 @@ const fmtDateTime = (d?: string | null) => (d ? new Date(d).toLocaleString('fr-F
  * on mobile before.
  */
 const CoursProgrammerModal = ({ visible, onClose, onScheduled, coursList, initialView = 'list' }: CoursProgrammerModalProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const [view, setView] = useState<ViewMode>(initialView);
@@ -478,29 +480,41 @@ const CoursProgrammerModal = ({ visible, onClose, onScheduled, coursList, initia
   );
 };
 
-const FilterChip = ({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) => (
-  <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}>
-    <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
-      {label}
-    </Text>
-  </TouchableOpacity>
-);
+const FilterChip = ({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <TouchableOpacity style={[styles.filterChip, active && styles.filterChipActive]} onPress={onPress}>
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
-const QuickAction = ({ icon, label, color, onPress, busy }: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; color: string; onPress: () => void; busy?: boolean }) => (
-  <TouchableOpacity style={styles.quickAction} onPress={onPress} disabled={busy}>
-    <FontAwesome5 name={busy ? 'spinner' : icon} size={12} color={color} />
-    <Text style={[styles.quickActionText, { color }]}>{label}</Text>
-  </TouchableOpacity>
-);
+const QuickAction = ({ icon, label, color, onPress, busy }: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; color: string; onPress: () => void; busy?: boolean }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <TouchableOpacity style={styles.quickAction} onPress={onPress} disabled={busy}>
+      <FontAwesome5 name={busy ? 'spinner' : icon} size={12} color={color} />
+      <Text style={[styles.quickActionText, { color }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+};
 
-const DetailRow = ({ label, value }: { label: string; value: string }) => (
-  <View style={styles.detailRow}>
-    <Text style={styles.detailLabel}>{label}</Text>
-    <Text style={styles.detailValue}>{value}</Text>
-  </View>
-);
+const DetailRow = ({ label, value }: { label: string; value: string }) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   scroll: { maxHeight: 560 },
   backRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.md },
   backText: { ...typography.bodyBold, color: colors.primary, fontSize: 13 },

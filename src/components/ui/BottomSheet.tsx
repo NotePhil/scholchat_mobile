@@ -1,7 +1,7 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useMemo } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { radius, spacing, typography, useThemeColors } from '../../styles/theme';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -15,27 +15,31 @@ interface BottomSheetProps {
  * (ProfessorModal, StudentModal, ParentModal, etc.) — slides up from the
  * bottom instead of overlaying a desktop-style dialog box.
  */
-const BottomSheet = ({ visible, onClose, title, children }: BottomSheetProps) => (
-  <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-    <View style={styles.overlay}>
-      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        {title ? (
-          <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <FontAwesome5 name="times" size={18} color={colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-        ) : null}
-        {children}
+const BottomSheet = ({ visible, onClose, title, children }: BottomSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+          {title ? (
+            <View style={styles.header}>
+              <Text style={styles.title}>{title}</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <FontAwesome5 name="times" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {children}
+        </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',

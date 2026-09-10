@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, radius, spacing, typography } from '../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
 import { authService } from '../../services/home/authService';
 import { userService } from '../../services/api';
 
@@ -73,6 +73,8 @@ const COUNTRY_CODES = [
  * Multi-step flow: 1. Personal info -> 2. Role selection -> 3. Documents (Professeur only)
  */
 const SignUpScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [currentStep, setCurrentStep] = useState(1);
@@ -699,7 +701,7 @@ const SignUpScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#F8FAFC',

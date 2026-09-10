@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, DropdownField, Input, LoadingSpinner } from '../../../../components/ui';
-import { colors, radius, spacing, typography } from '../../../../styles/theme';
+import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { exerciseService, matiereService, questionService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
 import { Exercise, Matiere } from '../../../../types';
@@ -64,6 +64,8 @@ export const CreateExerciseView = ({
   onCreated,
   editingExercise,
 }: CreateExerciseViewProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const isEditing = !!editingExercise;
   const [nom, setNom] = useState('');
@@ -452,7 +454,7 @@ export const CreateExerciseView = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,

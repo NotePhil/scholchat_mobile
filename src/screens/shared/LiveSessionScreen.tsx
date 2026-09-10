@@ -4,7 +4,7 @@ import { WebView } from "react-native-webview";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Button, EmptyState, LoadingSpinner } from "../../components/ui";
-import { colors, spacing, typography } from "../../styles/theme";
+import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { liveSessionService } from "../../services/api";
 import { LiveSessionInfo } from "../../types";
 
@@ -45,6 +45,8 @@ const buildJitsiUrl = (session: LiveSessionInfo, isModerator: boolean): string |
  * WebView, since React Native has no native Jitsi Meet iframe equivalent.
  */
 const LiveSessionScreen = () => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation();
   const route = useRoute<any>();
   const coursId: string | undefined = route.params?.coursId;
@@ -180,7 +182,7 @@ const LiveSessionScreen = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     flexDirection: "row",
