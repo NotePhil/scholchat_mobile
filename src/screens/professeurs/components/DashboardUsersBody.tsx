@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { ScrollView, View, Text, TouchableOpacity, TextInput, StyleSheet } from "react-native";
+import { ScrollView, View, Text, TouchableOpacity, TextInput, StyleSheet, RefreshControl } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useUser } from "../../../context/UserContext";
 import { parentService, professorService, studentService } from "../../../services/api";
@@ -44,6 +44,7 @@ const DashboardUsersBody = () => {
   const [activeFilter, setActiveFilter] = useState<"all" | Role>("all");
   const [users, setUsers] = useState<RosterUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<RosterUser | null>(null);
 
@@ -118,9 +119,18 @@ const DashboardUsersBody = () => {
     return matchesSearch && matchesFilter;
   });
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadUsers();
+    setRefreshing(false);
+  };
+
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
+      >
         <View style={styles.pageHeader}>
           <Text style={styles.pageTitle}>Mes élèves, parents & collaborateurs</Text>
         </View>

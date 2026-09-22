@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Input } from '../../components/ui';
@@ -48,8 +48,8 @@ const ResetPasswordScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
-        <View style={styles.content}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <FontAwesome5 name="lock" size={40} color={colors.primary} style={styles.icon} />
           <Text style={styles.title}>Réinitialiser le mot de passe</Text>
 
@@ -78,7 +78,7 @@ const ResetPasswordScreen = () => {
               <Button label="Réinitialiser" onPress={handleSubmit} loading={loading} fullWidth />
             </>
           )}
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -87,7 +87,7 @@ const ResetPasswordScreen = () => {
 const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
-  content: { flex: 1, justifyContent: 'center', padding: spacing.xl },
+  content: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
   icon: { alignSelf: 'center', marginBottom: spacing.lg },
   title: { ...typography.h1, color: colors.text, textAlign: 'center', marginBottom: spacing.xl },
   successBox: { alignItems: 'center', gap: spacing.md },

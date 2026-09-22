@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   ScrollView,
   View,
@@ -9,11 +9,13 @@ import {
   TouchableWithoutFeedback,
   TextInput,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useUser } from "../../../../context/UserContext";
 import { exerciseService } from "../../../../services/api";
 import { LoadingSpinner } from "../../../../components/ui";
+import { useThemeColors } from "../../../../styles/theme";
 import CreateExerciseView from "./CreateExerciseView";
 import ScheduleExerciseView from "./ScheduleExerciseView";
 import ExerciseCorrectionsView from "./ExerciseCorrectionsView";
@@ -45,11 +47,14 @@ const mapApiExercise = (raw: Record<string, any>): Exercise => ({
 
 const DashboardExercisesBody = () => {
   const { user } = useUser();
+  const themeColors = useThemeColors();
+  const exercisesStyles = useMemo(() => createExercisesStyles(themeColors), [themeColors]);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("tous");
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   type ViewMode = "list" | "create" | "schedule" | "corrections" | "detail";
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -282,12 +287,19 @@ const DashboardExercisesBody = () => {
     );
   }
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadExercises();
+    setRefreshing(false);
+  };
+
   return (
     <View style={exercisesStyles.container}>
       <ScrollView
         style={exercisesStyles.content}
         contentContainerStyle={{ paddingBottom: 160 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
       >
           {/* Header Section */}
           <View style={exercisesStyles.pageHeader}>
@@ -302,7 +314,7 @@ const DashboardExercisesBody = () => {
                 onPress={() => setViewMode("corrections")}
                 style={{ padding: 8, backgroundColor: "#EEF2FF", borderRadius: 20 }}
               >
-                <FontAwesome5 name="clipboard-check" size={18} color="#4F46E5" />
+                <FontAwesome5 name="clipboard-check" size={18} color="#3B82F6" />
               </TouchableOpacity>
             </View>
           </View>
@@ -339,7 +351,7 @@ const DashboardExercisesBody = () => {
             <FontAwesome5
               name="search"
               size={16}
-              color="#6B7280"
+              color={themeColors.textMuted}
               style={exercisesStyles.searchIcon}
             />
             <TextInput
@@ -391,7 +403,7 @@ const DashboardExercisesBody = () => {
                     <FontAwesome5
                       name="calendar-alt"
                       size={14}
-                      color="#6B7280"
+                      color={themeColors.textMuted}
                     />
                     <Text style={exercisesStyles.detailText}>
                       Créé le {exercise.dateCreation}
@@ -402,7 +414,7 @@ const DashboardExercisesBody = () => {
                     <FontAwesome5
                       name="graduation-cap"
                       size={14}
-                      color="#6B7280"
+                      color={themeColors.textMuted}
                     />
                     <Text style={exercisesStyles.detailText}>
                       Niveau: {exercise.niveau}
@@ -410,7 +422,7 @@ const DashboardExercisesBody = () => {
                   </View>
 
                   <View style={exercisesStyles.detailRow}>
-                    <FontAwesome5 name="lock" size={14} color="#6B7280" />
+                    <FontAwesome5 name="lock" size={14} color={themeColors.textMuted} />
                     <Text style={exercisesStyles.detailText}>
                       {exercise.restriction}
                     </Text>
@@ -426,7 +438,7 @@ const DashboardExercisesBody = () => {
                       setViewMode("create");
                     }}
                   >
-                    <FontAwesome5 name="edit" size={16} color="#4F46E5" />
+                    <FontAwesome5 name="edit" size={16} color="#3B82F6" />
                     <Text style={exercisesStyles.actionButtonText}>
                       Modifier
                     </Text>
@@ -460,7 +472,7 @@ const DashboardExercisesBody = () => {
           {/* Empty State */}
           {!loading && filteredExercises.length === 0 && (
             <View style={exercisesStyles.emptyState}>
-              <FontAwesome5 name="clipboard-list" size={48} color="#D1D5DB" />
+              <FontAwesome5 name="clipboard-list" size={48} color={themeColors.textLight} />
               <Text style={exercisesStyles.emptyTitle}>
                 Aucun exercice trouvé
               </Text>
@@ -503,14 +515,14 @@ const DashboardExercisesBody = () => {
             onPress={handleProgramExercise}
             activeOpacity={0.85}
           >
-            <View style={[exercisesStyles.speedDialIconBadge, { backgroundColor: "#F3F4F6", borderColor: "#E5E7EB" }]}>
+            <View style={[exercisesStyles.speedDialIconBadge, { backgroundColor: themeColors.surfaceElevated, borderColor: themeColors.border }]}>
               <FontAwesome5 name="calendar-alt" size={14} color="#0D9488" />
             </View>
             <View style={exercisesStyles.speedDialTextContainer}>
               <Text style={exercisesStyles.speedDialTitle}>Programmer un exercice</Text>
               <Text style={exercisesStyles.speedDialSubtitle}>Assigner à une classe</Text>
             </View>
-            <FontAwesome5 name="chevron-right" size={10} color="#CBD5E1" />
+            <FontAwesome5 name="chevron-right" size={10} color={themeColors.textLight} />
           </TouchableOpacity>
         </Animated.View>
 
@@ -540,7 +552,7 @@ const DashboardExercisesBody = () => {
               <Text style={exercisesStyles.speedDialTitle}>Créer un exercice</Text>
               <Text style={exercisesStyles.speedDialSubtitle}>QCM ou devoir à faire</Text>
             </View>
-            <FontAwesome5 name="chevron-right" size={10} color="#CBD5E1" />
+            <FontAwesome5 name="chevron-right" size={10} color={themeColors.textLight} />
           </TouchableOpacity>
         </Animated.View>
 
@@ -566,10 +578,11 @@ const DashboardExercisesBody = () => {
   );
 };
 
-const exercisesStyles = StyleSheet.create({
+const createExercisesStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
     position: "relative",
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
@@ -582,12 +595,12 @@ const exercisesStyles = StyleSheet.create({
   pageTitle: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 4,
   },
   pageSubtitle: {
     fontSize: 16,
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   filterContainer: {
     marginBottom: 16,
@@ -597,15 +610,15 @@ const exercisesStyles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 25,
     marginRight: 12,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
   },
   activeFilterTab: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
   },
   filterTabText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   activeFilterTabText: {
     color: "#FFFFFF",
@@ -613,7 +626,7 @@ const exercisesStyles = StyleSheet.create({
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -630,13 +643,13 @@ const exercisesStyles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: "#111827",
+    color: colors.text,
   },
   exercisesList: {
     marginBottom: 20,
   },
   exerciseCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
@@ -655,7 +668,7 @@ const exercisesStyles = StyleSheet.create({
   exerciseName: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     flex: 1,
     marginRight: 12,
   },
@@ -670,7 +683,7 @@ const exercisesStyles = StyleSheet.create({
   },
   exerciseDescription: {
     fontSize: 14,
-    color: "#374151",
+    color: colors.text,
     lineHeight: 20,
     marginBottom: 16,
   },
@@ -684,7 +697,7 @@ const exercisesStyles = StyleSheet.create({
   },
   detailText: {
     fontSize: 13,
-    color: "#6B7280",
+    color: colors.textMuted,
     marginLeft: 8,
   },
   exerciseActions: {
@@ -692,7 +705,7 @@ const exercisesStyles = StyleSheet.create({
     justifyContent: "space-around",
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
+    borderTopColor: colors.border,
   },
   actionButton: {
     flexDirection: "row",
@@ -700,13 +713,13 @@ const exercisesStyles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 6,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
   },
   actionButtonText: {
     fontSize: 12,
     fontWeight: "500",
     marginLeft: 6,
-    color: "#374151",
+    color: colors.text,
   },
   emptyState: {
     alignItems: "center",
@@ -715,18 +728,18 @@ const exercisesStyles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#6B7280",
+    color: colors.textMuted,
     marginTop: 16,
     marginBottom: 8,
   },
   emptyText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: colors.textLight,
     textAlign: "center",
     paddingHorizontal: 32,
   },
   fabBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(15, 23, 42, 0.4)",
     zIndex: 10,
   },
@@ -745,12 +758,12 @@ const exercisesStyles = StyleSheet.create({
   speedDialCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
@@ -773,19 +786,19 @@ const exercisesStyles = StyleSheet.create({
   speedDialTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#0F172A",
+    color: colors.text,
   },
   speedDialSubtitle: {
     fontSize: 10,
-    color: "#64748B",
+    color: colors.textMuted,
     marginTop: 1,
   },
   floatingButton: {
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "#4F46E5",
-    shadowColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 8,

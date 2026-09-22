@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -14,6 +14,7 @@ import CourseContentSheet from "../shared/CourseContentSheet";
 import { coursProgrammerService } from "../../services/api";
 import { CoursProgramme } from "../../types";
 import { useUser } from "../../context/UserContext";
+import { useThemeColors } from "../../styles/theme";
 
 const STATUS_CONFIG: Record<
   string,
@@ -60,6 +61,8 @@ const getInitials = (title: string): string => {
 
 const StudentCoursesBody = () => {
   const { user } = useUser();
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const navigation = useNavigation<any>();
   const [courses, setCourses] = useState<CoursProgramme[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,17 +132,17 @@ const StudentCoursesBody = () => {
 
         {/* Search Bar */}
         <View style={styles.searchContainer}>
-          <FontAwesome5 name="search" size={15} color="#94A3B8" style={styles.searchIcon} />
+          <FontAwesome5 name="search" size={15} color={colors.textLight} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Rechercher par titre ou lieu..."
             value={searchTerm}
             onChangeText={setSearchTerm}
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textLight}
           />
           {searchTerm.length > 0 && (
             <TouchableOpacity onPress={() => setSearchTerm("")} style={styles.clearSearchBtn}>
-              <FontAwesome5 name="times-circle" size={16} color="#94A3B8" />
+              <FontAwesome5 name="times-circle" size={16} color={colors.textLight} />
             </TouchableOpacity>
           )}
         </View>
@@ -273,12 +276,12 @@ const StudentCoursesBody = () => {
                         {courseTitle}
                       </Text>
                       <View style={styles.timeRow}>
-                        <FontAwesome5 name="calendar-alt" size={11} color="#64748B" />
+                        <FontAwesome5 name="calendar-alt" size={11} color={colors.textMuted} />
                         <Text style={styles.timeText}>{formattedDate}</Text>
                         {formattedTime ? (
                           <>
                             <Text style={styles.timeDot}>•</Text>
-                            <FontAwesome5 name="clock" size={11} color="#64748B" />
+                            <FontAwesome5 name="clock" size={11} color={colors.textMuted} />
                             <Text style={styles.timeText}>{formattedTime}</Text>
                           </>
                         ) : null}
@@ -302,7 +305,7 @@ const StudentCoursesBody = () => {
                   {/* Metadata: Location / Room */}
                   {course.lieu ? (
                     <View style={styles.locationRow}>
-                      <FontAwesome5 name="map-marker-alt" size={12} color="#64748B" />
+                      <FontAwesome5 name="map-marker-alt" size={12} color={colors.textMuted} />
                       <Text style={styles.locationText} numberOfLines={1}>
                         {course.lieu}
                       </Text>
@@ -331,7 +334,7 @@ const StudentCoursesBody = () => {
                         onPress={() => setSelectedCourse(course)}
                         activeOpacity={0.75}
                       >
-                        <FontAwesome5 name="book-open" size={13} color="#4F46E5" />
+                        <FontAwesome5 name="book-open" size={13} color="#3B82F6" />
                         <Text style={styles.viewCourseButtonText}>Consulter les supports</Text>
                       </TouchableOpacity>
                     )}
@@ -365,15 +368,16 @@ const StudentCoursesBody = () => {
         visible={!!selectedCourse}
         coursProgramme={selectedCourse}
         onClose={() => setSelectedCourse(null)}
+        userId={user?.userId}
       />
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
@@ -394,11 +398,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -410,21 +414,21 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#0F172A",
+    color: colors.text,
     letterSpacing: -0.5,
   },
   pageSubtitle: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.textMuted,
     marginTop: 2,
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     paddingHorizontal: 14,
     height: 46,
     marginBottom: 14,
@@ -440,7 +444,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: "#0F172A",
+    color: colors.text,
     paddingVertical: 0,
   },
   clearSearchBtn: {
@@ -455,13 +459,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
   },
   activeFilterTab: {
-    backgroundColor: "#4F46E5",
-    borderColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
+    borderColor: "#3B82F6",
   },
   activeFilterTabLive: {
     backgroundColor: "#059669",
@@ -470,7 +474,7 @@ const styles = StyleSheet.create({
   filterTabText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#64748B",
+    color: colors.textMuted,
     marginRight: 6,
   },
   activeFilterTabText: {
@@ -485,7 +489,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.25)",
   },
   filterBadgeInactive: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surfaceElevated,
   },
   filterBadgeLive: {
     backgroundColor: "rgba(255, 255, 255, 0.3)",
@@ -498,7 +502,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   filterBadgeTextInactive: {
-    color: "#64748B",
+    color: colors.textMuted,
   },
   livePulseDot: {
     width: 8,
@@ -527,10 +531,10 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   courseCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -547,11 +551,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -569,7 +573,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#0F172A",
+    color: colors.text,
     lineHeight: 20,
     marginBottom: 4,
   },
@@ -580,7 +584,7 @@ const styles = StyleSheet.create({
   },
   timeText: {
     fontSize: 12,
-    color: "#64748B",
+    color: colors.textMuted,
   },
   timeDot: {
     fontSize: 12,
@@ -603,7 +607,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginBottom: 14,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.background,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
@@ -652,7 +656,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   viewCourseButtonText: {
-    color: "#4F46E5",
+    color: "#3B82F6",
     fontSize: 13,
     fontWeight: "700",
   },
@@ -661,10 +665,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 48,
     paddingHorizontal: 24,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     marginTop: 10,
   },
   emptyIconCircle: {
@@ -679,13 +683,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#0F172A",
+    color: colors.text,
     marginBottom: 6,
     textAlign: "center",
   },
   emptySubtitle: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.textMuted,
     textAlign: "center",
     lineHeight: 19,
   },

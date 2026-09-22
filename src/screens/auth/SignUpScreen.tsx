@@ -2,10 +2,10 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FocusEvent,
   Image,
   KeyboardAvoidingView,
   Platform,
-
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -21,8 +21,9 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
 import { authService } from '../../services/home/authService';
 import { userService } from '../../services/api';
+import { useKeyboardAwareScroll } from '../../hooks/useKeyboardAwareScroll';
 
-const logo = require('../../../assets/logo.png');
+const logo = require('../../../assets/logo-mark.png');
 
 type DocumentAsset = DocumentPicker.DocumentPickerAsset;
 
@@ -93,9 +94,16 @@ const SignUpScreen = () => {
   const totalSteps = selectedRole === 'professeur' ? 3 : 2;
   const topPadding = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
 
+  const { scrollRef, scrollToFocusedInput } = useKeyboardAwareScroll();
+
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (errorMessage) setErrorMessage('');
+  };
+
+  const handleFieldFocus = (field: string) => (event: FocusEvent) => {
+    setFocusedField(field);
+    scrollToFocusedInput(event);
   };
 
   const handleFileUpload = async (fieldName: 'cniRecto' | 'cniVerso' | 'profilePhoto') => {
@@ -241,7 +249,8 @@ const SignUpScreen = () => {
     <View style={[styles.safeArea, { paddingTop: topPadding }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? topPadding : 0}
         style={styles.flex}
       >
         {/* Navigation Bar */}
@@ -254,10 +263,13 @@ const SignUpScreen = () => {
             <FontAwesome5 name="arrow-left" size={16} color="#334155" />
           </TouchableOpacity>
           <Text style={styles.navTitle}>Création de compte</Text>
-          <View style={{ width: 36 }} />
+          <View style={styles.navLogoBadge}>
+            <Image source={logo} style={styles.navLogo} resizeMode="contain" />
+          </View>
         </View>
 
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -349,7 +361,7 @@ const SignUpScreen = () => {
                     placeholderTextColor="#94A3B8"
                     value={formData.firstName}
                     onChangeText={(val) => handleInputChange('firstName', val)}
-                    onFocus={() => setFocusedField('firstName')}
+                    onFocus={handleFieldFocus('firstName')}
                     onBlur={() => setFocusedField(null)}
                   />
                 </View>
@@ -378,7 +390,7 @@ const SignUpScreen = () => {
                     placeholderTextColor="#94A3B8"
                     value={formData.lastName}
                     onChangeText={(val) => handleInputChange('lastName', val)}
-                    onFocus={() => setFocusedField('lastName')}
+                    onFocus={handleFieldFocus('lastName')}
                     onBlur={() => setFocusedField(null)}
                   />
                 </View>
@@ -410,7 +422,7 @@ const SignUpScreen = () => {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
-                    onFocus={() => setFocusedField('email')}
+                    onFocus={handleFieldFocus('email')}
                     onBlur={() => setFocusedField(null)}
                   />
                 </View>
@@ -449,7 +461,7 @@ const SignUpScreen = () => {
                       value={formData.phone}
                       onChangeText={(val) => handleInputChange('phone', val)}
                       keyboardType="phone-pad"
-                      onFocus={() => setFocusedField('phone')}
+                      onFocus={handleFieldFocus('phone')}
                       onBlur={() => setFocusedField(null)}
                     />
                   </View>
@@ -495,7 +507,7 @@ const SignUpScreen = () => {
                     placeholderTextColor="#94A3B8"
                     value={formData.address}
                     onChangeText={(val) => handleInputChange('address', val)}
-                    onFocus={() => setFocusedField('address')}
+                    onFocus={handleFieldFocus('address')}
                     onBlur={() => setFocusedField(null)}
                   />
                 </View>
@@ -616,7 +628,7 @@ const SignUpScreen = () => {
                     placeholderTextColor="#94A3B8"
                     value={formData.teacherMatricule}
                     onChangeText={(val) => handleInputChange('teacherMatricule', val)}
-                    onFocus={() => setFocusedField('teacherMatricule')}
+                    onFocus={handleFieldFocus('teacherMatricule')}
                     onBlur={() => setFocusedField(null)}
                   />
                 </View>
@@ -726,6 +738,18 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
+  },
+  navLogoBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F5F1FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navLogo: {
+    width: 24,
+    height: 24,
   },
   scrollContent: {
     paddingHorizontal: 16,

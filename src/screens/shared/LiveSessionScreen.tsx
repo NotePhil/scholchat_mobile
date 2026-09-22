@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { Camera } from "expo-camera";
 import { Button, EmptyState, LoadingSpinner } from "../../components/ui";
 import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { liveSessionService } from "../../services/api";
@@ -56,8 +58,35 @@ const LiveSessionScreen = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
+  const [webviewError, setWebviewError] = useState(false);
+  const [permissionWarning, setPermissionWarning] = useState("");
 
   const jitsiUrl = useMemo(() => (session ? buildJitsiUrl(session, isHost) : null), [session, isHost]);
+
+  // Android's WebView silently DENIES any getUserMedia() request from the
+  // page it hosts unless the app itself already holds the OS-level CAMERA/
+  // RECORD_AUDIO permission at that exact moment (react-native-webview's
+  // native onPermissionRequest checks ContextCompat.checkSelfPermission and
+  // just refuses if it isn't granted yet — there's no in-page retry). Jitsi
+  // then hangs on a black/blank prejoin screen with no visible error. So the
+  // OS prompt has to be resolved *before* the WebView ever loads the room.
+  useEffect(() => {
+    (async () => {
+      try {
+        const [cam, mic] = await Promise.all([
+          Camera.requestCameraPermissionsAsync(),
+          Camera.requestMicrophonePermissionsAsync(),
+        ]);
+        if (!cam.granted || !mic.granted) {
+          setPermissionWarning(
+            "Accès caméra/microphone refusé — la session risque de rester sur un écran noir. Autorisez-les dans les réglages du téléphone."
+          );
+        }
+      } catch {
+        // best-effort — Jitsi will still show its own in-page prompt
+      }
+    })();
+  }, []);
 
   // getActiveSession() only confirms a session exists and hands back its id —
   // its response isn't directly connectable. Every client (host included,
@@ -68,6 +97,7 @@ const LiveSessionScreen = () => {
     if (!coursId) return;
     setLoading(true);
     setError("");
+    setWebviewError(false);
     try {
       const active = await liveSessionService.getActiveSession(coursId);
       if (!active) {
@@ -94,6 +124,7 @@ const LiveSessionScreen = () => {
       // The host calling startSession already gets back a JWT scoped to
       // them as moderator — no separate join step needed here.
       const started = await liveSessionService.startSession(coursId);
+      setWebviewError(false);
       setSession(started);
     } catch (err) {
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du démarrage de la session.");
@@ -150,16 +181,52 @@ const LiveSessionScreen = () => {
           <Text style={styles.contentOnlyTitle}>Mode Contenu Seul</Text>
           <Text style={styles.contentOnlySubtitle}>Cette session n'utilise pas la caméra ni le micro.</Text>
         </View>
-      ) : session && jitsiUrl ? (
-        <WebView
-          source={{ uri: jitsiUrl }}
-          style={styles.webview}
-          mediaPlaybackRequiresUserAction={false}
-          allowsInlineMediaPlayback
-          javaScriptEnabled
-          domStorageEnabled
-          originWhitelist={["*"]}
-        />
+      ) : session && jitsiUrl && !webviewError ? (
+        <>
+          {permissionWarning ? (
+            <View style={styles.permissionBanner}>
+              <FontAwesome5 name="exclamation-triangle" size={12} color="#92400E" />
+              <Text style={styles.permissionBannerText}>{permissionWarning}</Text>
+            </View>
+          ) : null}
+          <WebView
+            key={jitsiUrl}
+            source={{ uri: jitsiUrl }}
+            style={styles.webview}
+            mediaPlaybackRequiresUserAction={false}
+            allowsInlineMediaPlayback
+            javaScriptEnabled
+            domStorageEnabled
+            originWhitelist={["*"]}
+            mixedContentMode="always"
+            allowsFullscreenVideo
+            mediaCapturePermissionGrantType={Platform.OS === "ios" ? "grant" : undefined}
+            startInLoadingState
+            renderLoading={() => <LoadingSpinner fullScreen label="Connexion à la session..." />}
+            onError={(e) => {
+              console.warn("Jitsi WebView error:", e.nativeEvent);
+              setWebviewError(true);
+            }}
+            onHttpError={(e) => {
+              console.warn("Jitsi WebView HTTP error:", e.nativeEvent);
+              setWebviewError(true);
+            }}
+          />
+        </>
+      ) : session && jitsiUrl && webviewError ? (
+        <View style={styles.emptyWrap}>
+          <EmptyState
+            icon="exclamation-triangle"
+            title="La session n'a pas pu s'afficher"
+            message="Vérifiez votre connexion et l'autorisation caméra/microphone, puis réessayez."
+          />
+          <Button
+            label="Réessayer"
+            onPress={() => setWebviewError(false)}
+            fullWidth
+            variant="secondary"
+          />
+        </View>
       ) : (
         <View style={styles.emptyWrap}>
           <EmptyState
@@ -199,6 +266,17 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   endButton: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, backgroundColor: colors.dangerLight, borderRadius: 8 },
   endButtonText: { color: colors.danger, fontWeight: "700" },
   webview: { flex: 1 },
+  permissionBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "#FFFBEB",
+    borderBottomWidth: 1,
+    borderBottomColor: "#FCD34D",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  permissionBannerText: { flex: 1, fontSize: 11, color: "#92400E", lineHeight: 15 },
   emptyWrap: { flex: 1, justifyContent: "center", paddingHorizontal: spacing.xl },
   contentOnlyWrap: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#111827", paddingHorizontal: spacing.xl },
   contentOnlyIcon: {

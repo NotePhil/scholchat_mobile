@@ -29,7 +29,6 @@ const ActiveVideo = ({ source, style, onError }: { source: VideoSource; style?: 
     <VideoView
       player={player}
       style={StyleSheet.flatten([styles.video, style]) as ViewStyle}
-      allowsFullscreen
       allowsPictureInPicture
       nativeControls
       // Android defaults to SurfaceView, which expo-video's own docs flag as

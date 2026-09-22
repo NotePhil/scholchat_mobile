@@ -1,34 +1,72 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { Badge, EmptyState, LoadingSpinner } from "../../components/ui";
 import JoinClassSheet from "../shared/JoinClassSheet";
 import StudentClassDetailModal, { getLevelStyle } from "../shared/StudentClassDetailModal";
 import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { accederService } from "../../services/api";
+import { accederService, classAdminService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
+
+type AccessState = "APPROVED" | "EN_ATTENTE" | "REJETEE" | "NONE";
+
+interface ClassWithAccess {
+  cls: ClassEntity;
+  access: AccessState;
+  motifRejet?: string;
+}
 
 const StudentClassesBody = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
   const navigation = useNavigation<any>();
-  const [classes, setClasses] = useState<ClassEntity[]>([]);
+  const [rows, setRows] = useState<ClassWithAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [showJoin, setShowJoin] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassEntity | null>(null);
 
+  // Mirrors web's StudentClassList.jsx (isParentView=false, same component
+  // web serves to both students and parents): every class is shown, not just
+  // the ones already joined, with a per-class access status — mobile
+  // previously only fetched the approved subset (same fix already applied
+  // to ParentClassesBody.tsx for the parent role).
   const load = useCallback(async () => {
     if (!user?.userId) return;
     setLoading(true);
     setError("");
     try {
-      const data = await accederService.getAccessibleClasses(user.userId);
-      setClasses(data);
+      const [approved, all] = await Promise.all([
+        accederService.getAccessibleClasses(user.userId),
+        classAdminService.getAll(),
+      ]);
+      const approvedIds = new Set(approved.map((c) => c.id));
+      const pending = all.filter((c) => !approvedIds.has(c.id));
+
+      const requestResults = await Promise.all(
+        pending.map((c) => accederService.getRequestsForClass(c.id).catch(() => []))
+      );
+
+      const built: ClassWithAccess[] = all.map((cls) => {
+        if (approvedIds.has(cls.id)) {
+          return { cls, access: "APPROVED" as const };
+        }
+        const idx = pending.findIndex((c) => c.id === cls.id);
+        const requests = idx >= 0 ? requestResults[idx] : [];
+        const mine = requests
+          .filter((r) => r.utilisateurId === user.userId)
+          .sort((a, b) => new Date(b.dateDemande ?? 0).getTime() - new Date(a.dateDemande ?? 0).getTime())[0];
+        if (!mine) return { cls, access: "NONE" as const };
+        if (mine.etat === "APPROUVEE") return { cls, access: "APPROVED" as const };
+        if (mine.etat === "REJETEE") return { cls, access: "REJETEE" as const, motifRejet: mine.motifRejet };
+        return { cls, access: "EN_ATTENTE" as const };
+      });
+
+      setRows(built);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Échec du chargement des classes.");
     } finally {
@@ -44,6 +82,23 @@ const StudentClassesBody = () => {
     setRefreshing(true);
     await load();
     setRefreshing(false);
+  };
+
+  const handleRowPress = (row: ClassWithAccess) => {
+    if (row.access === "APPROVED") {
+      setSelectedClass(row.cls);
+    } else if (row.access === "EN_ATTENTE") {
+      Alert.alert("Demande en attente", `Votre demande d'accès à "${row.cls.nom}" est en attente de validation par le modérateur.`);
+    } else if (row.access === "REJETEE") {
+      Alert.alert(
+        "Demande refusée",
+        row.motifRejet
+          ? `Votre demande d'accès à "${row.cls.nom}" a été refusée : ${row.motifRejet}`
+          : `Votre demande d'accès à "${row.cls.nom}" a été refusée.`
+      );
+    } else {
+      setShowJoin(true);
+    }
   };
 
   return (
@@ -62,22 +117,40 @@ const StudentClassesBody = () => {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {loading && !refreshing ? (
           <LoadingSpinner label="Chargement des classes..." />
-        ) : classes.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState
             icon="chalkboard"
             title="Aucune classe"
-            message="Vous n'êtes inscrit à aucune classe pour le moment."
+            message="Aucune classe n'est disponible pour le moment."
             actionLabel="Rejoindre une classe"
             onAction={() => setShowJoin(true)}
           />
         ) : (
-          classes.map((cls) => {
+          rows.map(({ cls, access, motifRejet }) => {
             const levelStyle = getLevelStyle(cls.niveau);
+            const badge =
+              access === "APPROVED"
+                ? { label: "Inscrit", tone: "success" as const }
+                : access === "EN_ATTENTE"
+                ? { label: "Demande en attente", tone: "warning" as const }
+                : access === "REJETEE"
+                ? { label: "Demande refusée", tone: "danger" as const }
+                : null;
+            const actionLabel =
+              access === "APPROVED"
+                ? "Voir les détails"
+                : access === "EN_ATTENTE"
+                ? "Demande en attente"
+                : access === "REJETEE"
+                ? "Voir le motif"
+                : "Demander l'accès";
+            const actionIcon =
+              access === "APPROVED" ? "eye" : access === "EN_ATTENTE" ? "clock" : access === "REJETEE" ? "info-circle" : "paper-plane";
             return (
               <TouchableOpacity
                 key={cls.id}
                 style={styles.card}
-                onPress={() => setSelectedClass(cls)}
+                onPress={() => handleRowPress({ cls, access, motifRejet })}
                 activeOpacity={0.7}
               >
                 <View style={styles.cardTop}>
@@ -92,7 +165,7 @@ const StudentClassesBody = () => {
                       </View>
                     )}
                   </View>
-                  <Badge label="Inscrit" tone="success" />
+                  {badge ? <Badge label={badge.label} tone={badge.tone} /> : null}
                 </View>
 
                 {cls.etablissement?.nom ? (
@@ -103,9 +176,9 @@ const StudentClassesBody = () => {
                 ) : null}
 
                 <View style={styles.cardActions}>
-                  <TouchableOpacity style={styles.actionBtn} onPress={() => setSelectedClass(cls)}>
-                    <FontAwesome5 name="eye" size={12} color={colors.primary} />
-                    <Text style={styles.actionBtnText}>Voir les détails</Text>
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleRowPress({ cls, access, motifRejet })}>
+                    <FontAwesome5 name={actionIcon} size={12} color={colors.primary} />
+                    <Text style={styles.actionBtnText}>{actionLabel}</Text>
                   </TouchableOpacity>
                 </View>
               </TouchableOpacity>

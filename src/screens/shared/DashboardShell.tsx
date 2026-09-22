@@ -158,8 +158,9 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const role = useAuthStore((s) => s.role);
   const user = useAuthStore((s) => s.user);
-  // Lands on Tableau de Bord (Accueil) by default so the user immediately sees their dashboard.
-  const [activeTab, setActiveTabState] = useState("dashboard");
+  // Mirrors web's post-login redirect (Login.jsx → `/…Dashboard/activities`): every
+  // role lands on Activités first, not the home dashboard tab.
+  const [activeTab, setActiveTabState] = useState("activities");
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [coursViewMode, setCoursViewMode] = useState<"list" | "create">("list");
   const [editingCours, setEditingCours] = useState<Cours | null>(null);
@@ -433,7 +434,6 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
             ) : (
               <DashboardCoursBody
                 onNavigateToCreate={handleNavigateToCreateCours}
-                onCreateCours={handleCreateCours}
                 onEditCours={handleEditCours}
               />
             );

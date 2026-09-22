@@ -4,9 +4,10 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { Avatar, Button, Card, LoadingSpinner } from "../../components/ui";
 import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../styles/theme";
 import { useAuthStore } from "../../store/useAuthStore";
-import { userService } from "../../services/api";
+import { userService, mediaService } from "../../services/api";
 import { authService } from "../../services/home/authService";
 import { confirmLogout } from "../../utils/confirmLogout";
+import DocumentPreview, { toRelativePath } from "../../components/common/DocumentPreview";
 
 // LinearGradient with safe fallback
 let LinearGradient: any;
@@ -40,6 +41,8 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
   const styles = useMemo(() => createStyles(colors), [colors]);
   const user = useAuthStore((s) => s.user);
   const updateUser = useAuthStore((s) => s.updateUser);
+  const role = useAuthStore((s) => s.role);
+  const isProfessor = role === "professor" || role === "tutor";
   const [tab, setTab] = useState<Tab>("profile");
   const [loadingProfile, setLoadingProfile] = useState(true);
 
@@ -50,6 +53,10 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
   const [email, setEmail] = useState(user?.email ?? "");
   const [telephone, setTelephone] = useState(user?.telephone ?? "");
   const [adresse, setAdresse] = useState((user?.adresse as string) ?? "");
+  const [selfieUrl, setSelfieUrl] = useState("");
+  const [cniUrlRecto, setCniUrlRecto] = useState("");
+  const [cniUrlVerso, setCniUrlVerso] = useState("");
+  const [photoUri, setPhotoUri] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     setNom(user?.nom ?? "");
@@ -82,6 +89,9 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
         setEmail(freshEmail);
         setTelephone(freshTel);
         setAdresse(freshAdr);
+        setSelfieUrl((fresh as any).selfieUrl ?? "");
+        setCniUrlRecto((fresh as any).cniUrlRecto ?? "");
+        setCniUrlVerso((fresh as any).cniUrlVerso ?? "");
         updateUser({
           nom: freshNom || user?.nom,
           prenom: freshPrenom || user?.prenom,
@@ -100,6 +110,28 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
       cancelled = true;
     };
   }, [userId]);
+
+  // Resolves the stored selfie path into a real loadable URL, same as
+  // DocumentPreview does for the CNI thumbnails below — a raw stored path
+  // (often a full Wasabi/MinIO URL) isn't directly fetchable as-is.
+  useEffect(() => {
+    if (!selfieUrl) {
+      setPhotoUri(undefined);
+      return;
+    }
+    let cancelled = false;
+    mediaService
+      .getDownloadUrlByPath(toRelativePath(selfieUrl))
+      .then((resolved) => {
+        if (!cancelled && resolved) setPhotoUri(resolved);
+      })
+      .catch(() => {
+        // Falls back to initials — handled by Avatar when photoUri stays undefined
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selfieUrl]);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -202,7 +234,7 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
           />
           <View style={styles.profileContent}>
             <View style={styles.avatarWrap}>
-              <Avatar name={displayName} size={76} />
+              <Avatar name={displayName} uri={photoUri} size={76} />
               <View style={styles.onlineBadge} />
             </View>
             <Text style={styles.profileName}>{displayName}</Text>
@@ -293,7 +325,27 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
             </View>
           )}
         </View>
-      ) : (
+      ) : null}
+
+      {tab === "profile" && isProfessor && (cniUrlRecto || cniUrlVerso || selfieUrl) ? (
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionHeaderLeft}>
+              <View style={styles.sectionIconBox}>
+                <FontAwesome5 name="id-badge" size={14} color={colors.primary} />
+              </View>
+              <Text style={styles.sectionTitle}>Documents transmis</Text>
+            </View>
+          </View>
+          <View style={styles.documentsRow}>
+            {selfieUrl ? <DocumentPreview path={selfieUrl} label="Photo de profil" /> : null}
+            {cniUrlRecto ? <DocumentPreview path={cniUrlRecto} label="CNI Recto" /> : null}
+            {cniUrlVerso ? <DocumentPreview path={cniUrlVerso} label="CNI Verso" /> : null}
+          </View>
+        </View>
+      ) : null}
+
+      {tab === "security" ? (
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
             <View style={styles.sectionHeaderLeft}>
@@ -365,7 +417,7 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
             style={{ marginTop: spacing.md }}
           />
         </View>
-      )}
+      ) : null}
 
       {/* Logout Card */}
       <View style={styles.logoutWrapper}>
@@ -413,16 +465,24 @@ const Field = ({ label, value, onChangeText, editable, keyboardType, multiline, 
       ]}
     >
       {icon ? <FontAwesome5 name={icon as any} size={13} color={colors.textMuted} style={styles.fieldIcon} /> : null}
-      <TextInput
-        style={[styles.fieldInput, multiline && styles.fieldInputMultiline]}
-        value={value}
-        onChangeText={onChangeText}
-        editable={editable}
-        keyboardType={keyboardType}
-        multiline={multiline}
-        secureTextEntry={secure}
-        placeholderTextColor={colors.textMuted}
-      />
+      {editable ? (
+        <TextInput
+          style={[styles.fieldInput, multiline && styles.fieldInputMultiline]}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          multiline={multiline}
+          secureTextEntry={secure}
+          placeholderTextColor={colors.textMuted}
+        />
+      ) : (
+        // A disabled TextInput's `value` sometimes fails to paint at all on
+        // Android (a long-standing RN quirk) — read-only state renders as
+        // plain Text instead, which never has that problem.
+        <Text style={[styles.fieldInput, styles.fieldInputReadOnlyText]} numberOfLines={multiline ? 3 : 1}>
+          {value || '—'}
+        </Text>
+      )}
     </View>
   </View>
   );
@@ -548,6 +608,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     backgroundColor: colors.primaryLight,
   },
   editPillText: { fontSize: 11, fontWeight: "700", color: colors.primary },
+  documentsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
 
   // Form Fields
   fieldGroup: { marginBottom: spacing.sm },
@@ -575,6 +636,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     opacity: 0.85,
   },
   fieldInputMultiline: { height: 60, textAlignVertical: "top" },
+  fieldInputReadOnlyText: { paddingVertical: 10 },
   actionsRow: { flexDirection: "row", marginTop: spacing.md },
 
   // Password Rules

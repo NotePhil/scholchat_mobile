@@ -12,6 +12,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import {
   Badge,
+  BottomSheet,
   Button,
   DropdownField,
   EmptyState,
@@ -22,7 +23,8 @@ import DateTimeField from '../../../../components/common/DateTimeField';
 import PromptSheet from '../../../../components/common/PromptSheet';
 import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { classService } from '../../../../services/classService';
-import { coursProgrammerService } from '../../../../services/api';
+import { coursProgrammerService, liveSessionService } from '../../../../services/api';
+import { SessionMode } from '../../../../services/api/liveSessionService';
 import { useUser } from '../../../../context/UserContext';
 import { ClassEntity, ClassUser, CoursProgramme } from '../../../../types';
 import { Cours } from './DashboardCoursBody';
@@ -93,6 +95,8 @@ export const CoursProgrammerScreen = ({
   const [detailItem, setDetailItem] = useState<CoursProgramme | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [cancellingItem, setCancellingItem] = useState<CoursProgramme | null>(null);
+  const [launchingItem, setLaunchingItem] = useState<CoursProgramme | null>(null);
+  const [launching, setLaunching] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
@@ -271,16 +275,37 @@ export const CoursProgrammerScreen = ({
     }
   };
 
-  const handleStart = (item: CoursProgramme) =>
-    applyStateChange(
-      item,
-      {
+  /**
+   * Mirrors web's CoursProgrammerContent.handleLaunchSession exactly: mark
+   * the scheduled course EN_COURS, start the Jitsi session with the chosen
+   * mode, then drop the professor straight into the live session as host —
+   * one action instead of three separate taps.
+   */
+  const handleLaunchSession = async (mode: SessionMode) => {
+    if (!launchingItem) return;
+    const coursId = launchingItem.coursId;
+    if (!coursId) {
+      Alert.alert('Erreur', 'Ce cours programmé est introuvable.');
+      return;
+    }
+    setLaunching(true);
+    try {
+      await coursProgrammerService.update(launchingItem.id, {
         etatCoursProgramme: 'EN_COURS',
         dateDebutEffectif: new Date().toISOString(),
-        dateFinEffectif: null,
-      },
-      'Cours démarré avec succès.'
-    );
+        dateFinEffectif: undefined,
+      });
+      await liveSessionService.startSession(coursId, mode);
+      setLaunchingItem(null);
+      if (onScheduled) onScheduled();
+      await loadList();
+      navigation.navigate('LiveSession', { coursId, isHost: true });
+    } catch (err) {
+      Alert.alert('Erreur', err instanceof Error ? err.message : 'Échec du démarrage de la session.');
+    } finally {
+      setLaunching(false);
+    }
+  };
 
   const handleFinish = (item: CoursProgramme) =>
     applyStateChange(
@@ -483,7 +508,7 @@ export const CoursProgrammerScreen = ({
                       onPress={() => handleJoinZoom(item.lieu!)}
                     >
                       <FontAwesome5 name="video" size={13} color={colors.white} />
-                      <Text style={styles.zoomButtonText}>Rejoindre la visioconférence (Zoom)</Text>
+                      <Text style={styles.zoomButtonText}>Ouvrir le lien externe (Zoom/Meet)</Text>
                     </TouchableOpacity>
                   )}
 
@@ -494,8 +519,7 @@ export const CoursProgrammerScreen = ({
                         icon="play"
                         label="Démarrer"
                         color={colors.success}
-                        onPress={() => handleStart(item)}
-                        busy={busyId === item.id}
+                        onPress={() => setLaunchingItem(item)}
                       />
                     ) : null}
 
@@ -725,7 +749,7 @@ export const CoursProgrammerScreen = ({
                   onPress={() => handleJoinZoom(detailItem.lieu!)}
                 >
                   <FontAwesome5 name="video" size={13} color={colors.white} />
-                  <Text style={styles.zoomButtonText}>Rejoindre la réunion Zoom</Text>
+                  <Text style={styles.zoomButtonText}>Ouvrir le lien externe (Zoom/Meet)</Text>
                 </TouchableOpacity>
               )}
               <DetailRow
@@ -753,6 +777,15 @@ export const CoursProgrammerScreen = ({
         submitLabel="Confirmer l'annulation"
         onCancel={() => setCancellingItem(null)}
         onSubmit={handleConfirmCancel}
+      />
+
+      {/* Session Launcher — pick a mode, then start the live Jitsi session in one action */}
+      <SessionModeSheet
+        visible={!!launchingItem}
+        coursTitle={launchingItem ? coursTitle(launchingItem.coursId) : ''}
+        loading={launching}
+        onCancel={() => (launching ? null : setLaunchingItem(null))}
+        onStart={handleLaunchSession}
       />
     </View>
   );
@@ -789,6 +822,77 @@ const DetailRow = ({ label, value }: { label: string; value: string }) => {
     <Text style={styles.detailLabel}>{label}</Text>
     <Text style={styles.detailValue}>{value}</Text>
   </View>
+  );
+};
+
+const SESSION_MODES: {
+  key: SessionMode;
+  icon: React.ComponentProps<typeof FontAwesome5>['name'];
+  label: string;
+  desc: string;
+}[] = [
+  { key: 'VIDEO', icon: 'video', label: 'Vidéo', desc: 'Caméra + micro + contenu du cours' },
+  { key: 'AUDIO', icon: 'microphone', label: 'Audio', desc: 'Micro uniquement + contenu du cours' },
+  { key: 'CONTENT_ONLY', icon: 'book-open', label: 'Contenu seul', desc: 'Partage de contenu sans audio/vidéo' },
+];
+
+/** Mirrors web's SessionLauncher.jsx — pick a live-session mode before starting the Jitsi call. */
+const SessionModeSheet = ({
+  visible,
+  coursTitle,
+  loading,
+  onCancel,
+  onStart,
+}: {
+  visible: boolean;
+  coursTitle: string;
+  loading: boolean;
+  onCancel: () => void;
+  onStart: (mode: SessionMode) => void;
+}) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const [selected, setSelected] = useState<SessionMode>('VIDEO');
+
+  return (
+    <BottomSheet visible={visible} onClose={onCancel} title="Démarrer la session">
+      <Text style={styles.launcherSubtitle} numberOfLines={1}>{coursTitle}</Text>
+      <Text style={styles.launcherHint}>Choisissez le mode de la session en direct :</Text>
+      {SESSION_MODES.map((m) => {
+        const active = selected === m.key;
+        return (
+          <TouchableOpacity
+            key={m.key}
+            style={[styles.launcherOption, active && styles.launcherOptionActive]}
+            onPress={() => setSelected(m.key)}
+          >
+            <View style={[styles.launcherIconWrap, active && styles.launcherIconWrapActive]}>
+              <FontAwesome5 name={m.icon} size={16} color={colors.white} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.launcherOptionLabel}>{m.label}</Text>
+              <Text style={styles.launcherOptionDesc}>{m.desc}</Text>
+            </View>
+            {active ? (
+              <View style={styles.launcherCheck}>
+                <FontAwesome5 name="check" size={10} color={colors.white} />
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        );
+      })}
+      <View style={styles.launcherActions}>
+        <TouchableOpacity style={styles.launcherCancelBtn} onPress={onCancel} disabled={loading}>
+          <Text style={styles.launcherCancelText}>Annuler</Text>
+        </TouchableOpacity>
+        <Button
+          label={loading ? 'Démarrage...' : 'Démarrer'}
+          onPress={() => onStart(selected)}
+          loading={loading}
+          style={{ flex: 2 }}
+        />
+      </View>
+    </BottomSheet>
   );
 };
 
@@ -841,7 +945,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    backgroundColor: '#2563EB',
+    backgroundColor: colors.infoDark,
     paddingVertical: 9,
     borderRadius: radius.sm,
     marginTop: spacing.sm,
@@ -931,6 +1035,53 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     marginBottom: 2,
   },
   detailValue: { ...typography.body, color: colors.text },
+  launcherSubtitle: { ...typography.bodyBold, color: colors.text, marginBottom: 2 },
+  launcherHint: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.md },
+  launcherOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
+  },
+  launcherOptionActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  launcherIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: colors.textLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  launcherIconWrapActive: { backgroundColor: colors.primary },
+  launcherOptionLabel: { ...typography.bodyBold, color: colors.text },
+  launcherOptionDesc: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  launcherCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  launcherActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  launcherCancelBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+  },
+  launcherCancelText: { ...typography.bodyBold, color: colors.textMuted },
 });
 
 export default CoursProgrammerScreen;

@@ -35,7 +35,7 @@ const ForgotPasswordScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
         <View style={styles.content}>
           <FontAwesome5 name="key" size={40} color={colors.primary} style={styles.icon} />
           <Text style={styles.title}>Mot de passe oublié</Text>

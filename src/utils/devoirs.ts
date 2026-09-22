@@ -39,7 +39,12 @@ export const loadDevoirs = async (userId: string, classes: ClassEntity[]): Promi
   const items: DevoirItem[] = devoirs.map((programme) => {
     const participation = byProgrammeId.get(programme.id) ?? null;
     const etat = participation?.etatSoumission;
-    const isSubmitted = !!etat;
+    // Matches web's StudentDevoirsContent.jsx exactly — EN_COURS means the
+    // student opened the devoir and a participation record now exists, but
+    // nothing was actually submitted yet. Treating that as "submitted" (the
+    // old `!!etat` check) meant simply opening a devoir and backing out
+    // permanently moved it out of "À rendre" on next load.
+    const isSubmitted = etat === 'SOUMIS' || etat === 'EN_ATTENTE_CORRECTION' || etat === 'CORRIGE' || etat === 'VALIDE';
     const isGraded = etat === 'CORRIGE' || etat === 'VALIDE';
     const isPending = etat === 'EN_ATTENTE_CORRECTION';
     const overdue = !isSubmitted && !!programme.dateFinExoEffectif && new Date(programme.dateFinExoEffectif) < new Date();

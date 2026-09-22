@@ -97,6 +97,7 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
   const [viewingRow, setViewingRow] = useState<Row | null>(null);
   const [editingRow, setEditingRow] = useState<Row | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [showCreateAdmin, setShowCreateAdmin] = useState(false);
 
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
 
@@ -210,6 +211,11 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
             </View>
           </View>
         </View>
+        {activeTab === "admins" ? (
+          <TouchableOpacity style={styles.addFab} onPress={() => setShowCreateAdmin(true)} activeOpacity={0.8}>
+            <FontAwesome5 name="plus" size={16} color={colors.white} />
+          </TouchableOpacity>
+        ) : null}
       </LinearGradient>
 
       {/* Horizontal Role Tabs */}
@@ -451,6 +457,8 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
       </BottomSheet>
 
       <EditUserSheet row={editingRow} activeTab={activeTab} onClose={() => setEditingRow(null)} onSave={handleSaveEdit} />
+
+      <CreateAdminSheet visible={showCreateAdmin} onClose={() => setShowCreateAdmin(false)} onCreated={load} />
     </View>
   );
 };
@@ -589,6 +597,54 @@ const RejectMotifSheet = ({ row, onCancel, onSubmit }: RejectMotifSheetProps) =>
   );
 };
 
+// ── CreateAdminSheet ──────────────────────────────────────────────────────────
+// Mirrors GestionnairesBody.tsx's CreateGestionnaireSheet exactly — same
+// POST /utilisateurs call, but with `admin: true` instead of `type:
+// 'gestionnaire'`, since the backend has no distinct "Admin" entity class:
+// an admin is just a base Utilisateurs record with its `admin` boolean set
+// (UtilisateursBusiness.java: `if (utilisateur.isAdmin()) return "ADMIN"`).
+// This tab previously had no create flow at all, unlike every other tab.
+interface CreateAdminSheetProps { visible: boolean; onClose: () => void; onCreated: () => void; }
+
+const CreateAdminSheet = ({ visible, onClose, onCreated }: CreateAdminSheetProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const [nom, setNom] = useState(""); const [prenom, setPrenom] = useState(""); const [email, setEmail] = useState("");
+  const [telephone, setTelephone] = useState(""); const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false); const [error, setError] = useState("");
+
+  const reset = () => { setNom(""); setPrenom(""); setEmail(""); setTelephone(""); setPassword(""); setError(""); };
+
+  const handleCreate = async () => {
+    if (!nom.trim() || !prenom.trim() || !email.trim() || !password) { setError("Nom, prénom, email et mot de passe sont obligatoires."); return; }
+    setLoading(true); setError("");
+    try {
+      await userService.createUser({
+        type: "utilisateur", admin: true,
+        nom: nom.trim(), prenom: prenom.trim(), email: email.trim(),
+        telephone: telephone.trim() ? (telephone.startsWith("+") ? telephone.trim() : `+237${telephone.trim()}`) : null,
+        motDePasse: password, etat: "ACTIVE",
+      });
+      reset(); onCreated(); onClose();
+    } catch (err) { setError(err instanceof Error ? err.message : "Échec de la création."); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <BottomSheet visible={visible} onClose={onClose} title="Nouvel Administrateur">
+      <ScrollView contentContainerStyle={{ paddingBottom: spacing.lg }} keyboardShouldPersistTaps="handled">
+        {error ? <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View> : null}
+        <Input label="Nom *" placeholder="Ex: Dupont" value={nom} onChangeText={setNom} />
+        <Input label="Prénom *" placeholder="Ex: Jean" value={prenom} onChangeText={setPrenom} />
+        <Input label="Email *" placeholder="admin@scholchat.cm" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+        <Input label="Téléphone" placeholder="Ex: 6XXXXXXXX" value={telephone} onChangeText={setTelephone} keyboardType="phone-pad" />
+        <Input label="Mot de passe temporaire *" placeholder="Mot de passe d'accès" value={password} onChangeText={setPassword} secureTextEntry />
+        <Button label="Créer l'administrateur" onPress={handleCreate} loading={loading} fullWidth style={{ marginTop: spacing.md }} />
+      </ScrollView>
+    </BottomSheet>
+  );
+};
+
 const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   // Header
@@ -597,6 +653,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     // readable instead of white-on-white.
     backgroundColor: colors.heroStart,
     paddingTop: 52, paddingBottom: 20, paddingHorizontal: spacing.lg,
+    flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between",
     borderBottomLeftRadius: radius.xxl, borderBottomRightRadius: radius.xxl,
     marginBottom: 14, ...shadow.hero,
   },
@@ -607,6 +664,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   tabIndicatorText: { fontSize: 11, fontWeight: "700", color: colors.white },
   countBadge: { backgroundColor: "rgba(255,255,255,0.25)", borderRadius: radius.full, paddingHorizontal: 10, paddingVertical: 3 },
   countBadgeText: { fontSize: 12, fontWeight: "700", color: colors.white },
+  addFab: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.2)", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.4)", alignItems: "center", justifyContent: "center", ...shadow.sm },
   // Tabs
   tabsScroll: { flexGrow: 0, marginBottom: 10 },
   tab: { borderRadius: radius.lg, overflow: "hidden", borderWidth: 1, borderColor: colors.border, ...shadow.sm },

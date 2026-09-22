@@ -13,15 +13,35 @@ import { Badge, LoadingSpinner, QuickActionGrid } from "../../components/ui";
 import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../styles/theme";
 import {
   classAdminService,
+  coursProgrammerService,
+  coursService,
   establishmentService,
   matiereService,
   professorService,
   userService,
 } from "../../services/api";
-import { ClassEntity, Etablissement, Matiere, Professor } from "../../types";
+import { classService } from "../../services/classService";
+import { ClassEntity, CoursProgramme, Etablissement, Matiere, Professor } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { QuickAction } from "./QuickActionsSheet";
+
+const SEANCE_STATUS_LABELS: Record<string, string> = {
+  PLANIFIE: "Planifié",
+  EN_COURS: "En cours",
+  TERMINE: "Terminé",
+  ANNULE: "Annulé",
+};
+const SEANCE_STATUS_TONE: Record<string, "info" | "success" | "neutral" | "danger"> = {
+  PLANIFIE: "info",
+  EN_COURS: "success",
+  TERMINE: "neutral",
+  ANNULE: "danger",
+};
+const fmtSeanceDate = (d?: string | null) =>
+  d
+    ? new Date(d).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+    : "—";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -82,6 +102,8 @@ const DashboardContentBody = ({
   const [matieres, setMatieres] = useState<Matiere[]>([]);
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
+  const [myCoursCount, setMyCoursCount] = useState(0);
+  const [upcomingSeances, setUpcomingSeances] = useState<CoursProgramme[]>([]);
 
   const navigate = (tab: string) => {
     if (onNavigate) {
@@ -94,24 +116,52 @@ const DashboardContentBody = ({
   const load = useCallback(async () => {
     setError("");
     try {
-      const [profs, cls, mats, ests, pending] = await Promise.all([
-        professorService.getAll().catch(() => []),
-        classAdminService.getAll().catch(() => []),
-        matiereService.getAll().catch(() => []),
-        establishmentService.getAll().catch(() => []),
-        userService.getPendingProfessors().catch(() => [] as unknown[]),
-      ]);
-      setProfessors(profs);
-      setClasses(cls);
-      setMatieres(mats);
-      setEstablishments(ests);
-      setPendingCount(Array.isArray(pending) ? pending.length : ((pending as any)?.content ?? []).length);
+      if (isProfessor && user?.userId) {
+        // A professor doesn't care about platform-wide totals — mirrors web's
+        // Principal dashboard for this role, which is scoped to "my" data.
+        const [cls, cours, seances] = await Promise.all([
+          classService.getClassesWithPublicationRights(user.userId).catch(() => []),
+          coursService.getByProfessor(user.userId).catch(() => []),
+          coursProgrammerService.getByProfessor(user.userId).catch(() => []),
+        ]);
+        setClasses(cls);
+        setMyCoursCount(cours.length);
+        const now = Date.now();
+        const upcoming = seances
+          .filter((s) => {
+            const etat = s.etatCoursProgramme ?? "PLANIFIE";
+            if (etat === "TERMINE" || etat === "ANNULE") return false;
+            if (etat === "EN_COURS") return true;
+            const t = s.dateCoursPrevue ? new Date(s.dateCoursPrevue).getTime() : 0;
+            return t >= now;
+          })
+          .sort((a, b) => {
+            const ta = a.dateCoursPrevue ? new Date(a.dateCoursPrevue).getTime() : 0;
+            const tb = b.dateCoursPrevue ? new Date(b.dateCoursPrevue).getTime() : 0;
+            return ta - tb;
+          })
+          .slice(0, 4);
+        setUpcomingSeances(upcoming);
+      } else {
+        const [profs, cls, mats, ests, pending] = await Promise.all([
+          professorService.getAll().catch(() => []),
+          classAdminService.getAll().catch(() => []),
+          matiereService.getAll().catch(() => []),
+          establishmentService.getAll().catch(() => []),
+          userService.getPendingProfessors().catch(() => [] as unknown[]),
+        ]);
+        setProfessors(profs);
+        setClasses(cls);
+        setMatieres(mats);
+        setEstablishments(ests);
+        setPendingCount(Array.isArray(pending) ? pending.length : ((pending as any)?.content ?? []).length);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur lors du chargement des données.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isProfessor, user?.userId]);
 
   useEffect(() => {
     load();
@@ -238,91 +288,154 @@ const DashboardContentBody = ({
 
         {/* ── Key Metrics Overview (Real Data KPIs) ───────────────────── */}
         <SectionTitle icon="tachometer-alt" label="Vue d'ensemble" />
-        <View style={styles.metricsGrid}>
-          {/* Classes Card */}
-          <TouchableOpacity
-            style={styles.metricCard}
-            onPress={() => navigate("classes")}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.metricAccent, { backgroundColor: "#6366F1" }]} />
-            <View style={styles.metricCardBody}>
-              <View style={styles.metricTopRow}>
-                <View style={[styles.metricIconBox, { backgroundColor: "#EEF2FF" }]}>
-                  <FontAwesome5 name="chalkboard" size={16} color="#6366F1" />
+        {isProfessor ? (
+          <View style={styles.metricsGrid}>
+            {/* Mes classes */}
+            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("classes")} activeOpacity={0.8}>
+              <View style={[styles.metricAccent, { backgroundColor: "#6366F1" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#EEF2FF" }]}>
+                    <FontAwesome5 name="chalkboard" size={16} color="#6366F1" />
+                  </View>
+                  <View style={styles.metricTag}>
+                    <Text style={[styles.metricTagText, { color: "#6366F1" }]}>{activeClasses} actives</Text>
+                  </View>
                 </View>
-                <View style={styles.metricTag}>
-                  <Text style={[styles.metricTagText, { color: "#6366F1" }]}>{activeClasses} actives</Text>
-                </View>
+                <Text style={styles.metricNumber}>{classes.length}</Text>
+                <Text style={styles.metricLabel}>Mes classes</Text>
               </View>
-              <Text style={styles.metricNumber}>{classes.length}</Text>
-              <Text style={styles.metricLabel}>Classes au total</Text>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
 
-          {/* Professeurs Card */}
-          <TouchableOpacity
-            style={styles.metricCard}
-            onPress={() => navigate("users-professeurs")}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.metricAccent, { backgroundColor: "#0EA5E9" }]} />
-            <View style={styles.metricCardBody}>
-              <View style={styles.metricTopRow}>
-                <View style={[styles.metricIconBox, { backgroundColor: "#F0F9FF" }]}>
-                  <FontAwesome5 name="user-graduate" size={16} color="#0EA5E9" />
+            {/* Mes cours */}
+            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("cours")} activeOpacity={0.8}>
+              <View style={[styles.metricAccent, { backgroundColor: "#0EA5E9" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#F0F9FF" }]}>
+                    <FontAwesome5 name="book-open" size={16} color="#0EA5E9" />
+                  </View>
                 </View>
-                <View style={[styles.metricTag, { backgroundColor: "#E0F2FE" }]}>
-                  <Text style={[styles.metricTagText, { color: "#0284C7" }]}>Inscrits</Text>
-                </View>
+                <Text style={styles.metricNumber}>{myCoursCount}</Text>
+                <Text style={styles.metricLabel}>Mes cours</Text>
               </View>
-              <Text style={styles.metricNumber}>{professors.length}</Text>
-              <Text style={styles.metricLabel}>Professeurs</Text>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
 
-          {/* Établissements Card */}
-          <TouchableOpacity
-            style={styles.metricCard}
-            onPress={() => navigate("schools")}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.metricAccent, { backgroundColor: "#10B981" }]} />
-            <View style={styles.metricCardBody}>
-              <View style={styles.metricTopRow}>
-                <View style={[styles.metricIconBox, { backgroundColor: "#ECFDF5" }]}>
-                  <FontAwesome5 name="school" size={16} color="#10B981" />
+            {/* Séances à venir */}
+            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("cours")} activeOpacity={0.8}>
+              <View style={[styles.metricAccent, { backgroundColor: "#10B981" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#ECFDF5" }]}>
+                    <FontAwesome5 name="calendar-alt" size={16} color="#10B981" />
+                  </View>
                 </View>
-                <View style={[styles.metricTag, { backgroundColor: "#D1FAE5" }]}>
-                  <Text style={[styles.metricTagText, { color: "#059669" }]}>Écoles</Text>
-                </View>
+                <Text style={styles.metricNumber}>{upcomingSeances.length}</Text>
+                <Text style={styles.metricLabel}>Séances à venir</Text>
               </View>
-              <Text style={styles.metricNumber}>{establishments.length}</Text>
-              <Text style={styles.metricLabel}>Établissements</Text>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
 
-          {/* Matières Card */}
-          <TouchableOpacity
-            style={styles.metricCard}
-            onPress={() => navigate("matieres")}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.metricAccent, { backgroundColor: "#64748B" }]} />
-            <View style={styles.metricCardBody}>
-              <View style={styles.metricTopRow}>
-                <View style={[styles.metricIconBox, { backgroundColor: "#F1F5F9" }]}>
-                  <FontAwesome5 name="book" size={16} color="#475569" />
+            {/* Messages */}
+            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("messages")} activeOpacity={0.8}>
+              <View style={[styles.metricAccent, { backgroundColor: "#64748B" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#F1F5F9" }]}>
+                    <FontAwesome5 name="envelope" size={16} color="#475569" />
+                  </View>
                 </View>
-                <View style={[styles.metricTag, { backgroundColor: "#E2E8F0" }]}>
-                  <Text style={[styles.metricTagText, { color: "#334155" }]}>Programmes</Text>
-                </View>
+                <Text style={styles.metricNumber}>—</Text>
+                <Text style={styles.metricLabel}>Messagerie</Text>
               </View>
-              <Text style={styles.metricNumber}>{matieres.length}</Text>
-              <Text style={styles.metricLabel}>Matières</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.metricsGrid}>
+            {/* Classes Card */}
+            <TouchableOpacity
+              style={styles.metricCard}
+              onPress={() => navigate("classes")}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.metricAccent, { backgroundColor: "#6366F1" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#EEF2FF" }]}>
+                    <FontAwesome5 name="chalkboard" size={16} color="#6366F1" />
+                  </View>
+                  <View style={styles.metricTag}>
+                    <Text style={[styles.metricTagText, { color: "#6366F1" }]}>{activeClasses} actives</Text>
+                  </View>
+                </View>
+                <Text style={styles.metricNumber}>{classes.length}</Text>
+                <Text style={styles.metricLabel}>Classes au total</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Professeurs Card */}
+            <TouchableOpacity
+              style={styles.metricCard}
+              onPress={() => navigate("users-professeurs")}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.metricAccent, { backgroundColor: "#0EA5E9" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#F0F9FF" }]}>
+                    <FontAwesome5 name="user-graduate" size={16} color="#0EA5E9" />
+                  </View>
+                  <View style={[styles.metricTag, { backgroundColor: "#E0F2FE" }]}>
+                    <Text style={[styles.metricTagText, { color: "#0284C7" }]}>Inscrits</Text>
+                  </View>
+                </View>
+                <Text style={styles.metricNumber}>{professors.length}</Text>
+                <Text style={styles.metricLabel}>Professeurs</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Établissements Card */}
+            <TouchableOpacity
+              style={styles.metricCard}
+              onPress={() => navigate("schools")}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.metricAccent, { backgroundColor: "#10B981" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#ECFDF5" }]}>
+                    <FontAwesome5 name="school" size={16} color="#10B981" />
+                  </View>
+                  <View style={[styles.metricTag, { backgroundColor: "#D1FAE5" }]}>
+                    <Text style={[styles.metricTagText, { color: "#059669" }]}>Écoles</Text>
+                  </View>
+                </View>
+                <Text style={styles.metricNumber}>{establishments.length}</Text>
+                <Text style={styles.metricLabel}>Établissements</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Matières Card */}
+            <TouchableOpacity
+              style={styles.metricCard}
+              onPress={() => navigate("matieres")}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.metricAccent, { backgroundColor: "#64748B" }]} />
+              <View style={styles.metricCardBody}>
+                <View style={styles.metricTopRow}>
+                  <View style={[styles.metricIconBox, { backgroundColor: "#F1F5F9" }]}>
+                    <FontAwesome5 name="book" size={16} color="#475569" />
+                  </View>
+                  <View style={[styles.metricTag, { backgroundColor: "#E2E8F0" }]}>
+                    <Text style={[styles.metricTagText, { color: "#334155" }]}>Programmes</Text>
+                  </View>
+                </View>
+                <Text style={styles.metricNumber}>{matieres.length}</Text>
+                <Text style={styles.metricLabel}>Matières</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* ── Admin Management Hub (Role based) ────────────────────────── */}
         {isAdmin && (
@@ -412,11 +525,57 @@ const DashboardContentBody = ({
           </>
         )}
 
+        {/* ── Professor-only: Prochaines séances programmées ───────────── */}
+        {isProfessor && (
+          <>
+            <SectionTitle
+              icon="calendar-alt"
+              label="Prochaines séances"
+              actionLabel="Tout voir"
+              onAction={() => navigate("cours")}
+            />
+            <View style={styles.listCard}>
+              {upcomingSeances.length === 0 ? (
+                <View style={styles.emptyWrap}>
+                  <FontAwesome5 name="calendar-alt" size={24} color={colors.textMuted} />
+                  <Text style={styles.emptyText}>Aucune séance programmée à venir</Text>
+                </View>
+              ) : (
+                upcomingSeances.map((s, i) => {
+                  const etat = s.etatCoursProgramme ?? "PLANIFIE";
+                  return (
+                    <TouchableOpacity
+                      key={s.id || i}
+                      style={[styles.listItemRow, i > 0 && styles.listItemBorder]}
+                      onPress={() => navigate("cours")}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.listAvatar, { backgroundColor: colors.primaryLight }]}>
+                        <FontAwesome5 name={etat === "EN_COURS" ? "video" : "clock"} size={13} color={colors.primary} />
+                      </View>
+                      <View style={styles.listContent}>
+                        <Text style={styles.listTitle} numberOfLines={1}>
+                          {s.classes?.map((c) => c.nom).join(", ") || "Séance programmée"}
+                        </Text>
+                        <Text style={styles.listSub}>{fmtSeanceDate(s.dateCoursPrevue)}</Text>
+                      </View>
+                      <Badge
+                        label={SEANCE_STATUS_LABELS[etat] ?? etat}
+                        tone={SEANCE_STATUS_TONE[etat] ?? "neutral"}
+                      />
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </View>
+          </>
+        )}
+
         {/* ── Real Live Data: Dernières Classes ───────────────────────── */}
         <SectionTitle
           icon="chalkboard-teacher"
-          label="Dernières Classes"
-          actionLabel="Gérer toutes"
+          label={isProfessor ? "Mes classes" : "Dernières Classes"}
+          actionLabel={isProfessor ? "Voir toutes" : "Gérer toutes"}
           onAction={() => navigate("classes")}
         />
         <View style={styles.listCard}>
@@ -461,7 +620,9 @@ const DashboardContentBody = ({
           )}
         </View>
 
-        {/* ── Real Live Data: Récents Professeurs ─────────────────────── */}
+        {/* ── Real Live Data: Récents Professeurs (not relevant to a professor's own dashboard) ── */}
+        {!isProfessor && (
+        <>
         <SectionTitle
           icon="user-check"
           label="Professeurs Référents"
@@ -501,8 +662,12 @@ const DashboardContentBody = ({
             })
           )}
         </View>
+        </>
+        )}
 
-        {/* ── Timeline des Activités Récentes ─────────────────────────── */}
+        {/* ── Timeline des Activités Récentes (platform-wide, not shown to a professor) ── */}
+        {!isProfessor && (
+        <>
         <SectionTitle
           icon="history"
           label="Activités Récentes"
@@ -552,6 +717,8 @@ const DashboardContentBody = ({
             </View>
           ))}
         </View>
+        </>
+        )}
 
         <View style={{ height: 110 }} />
       </View>

@@ -9,16 +9,18 @@ import {
   View,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Badge, Button, LoadingSpinner } from "../../components/ui";
+import { Badge, BottomSheet, Button, LoadingSpinner } from "../../components/ui";
 import OffreInfoPanel from "../../components/common/OffreInfoPanel";
+import DocumentPreview from "../../components/common/DocumentPreview";
 import CreateEstablishmentSheet from "../admin/components/CreateEstablishmentSheet";
 import CreateClassSheet from "../admin/components/CreateClassSheet";
 import ClassDetails from "../professeurs/components/classes/ClassDetails";
+import PromptSheet from "../../components/common/PromptSheet";
 import { UIClass, enrichClassForDetails } from "../professeurs/components/classes/DashboardClassesBody";
 import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { classAdminService, establishmentService } from "../../services/api";
+import { classAdminService, establishmentService, professorService } from "../../services/api";
 import { classService } from "../../services/classService";
-import { ClassEntity, Etablissement, Gestionnaire } from "../../types";
+import { ClassEntity, Etablissement, Gestionnaire, Professor } from "../../types";
 
 type Tab = "classes" | "professeurs" | "settings" | "info";
 
@@ -60,6 +62,10 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
 
   // Managing a class inside establishment
   const [managedClass, setManagedClass] = useState<ClassEntity | null>(null);
+  const [rejectingClass, setRejectingClass] = useState<ClassEntity | null>(null);
+  const [viewingProfessor, setViewingProfessor] = useState<Professor | null>(null);
+  const [loadingProfessor, setLoadingProfessor] = useState(false);
+  const [deletingProfessor, setDeletingProfessor] = useState(false);
   const [selectedUIClass, setSelectedUIClass] = useState<UIClass | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState("overview");
   const [managingClass, setManagingClass] = useState(false);
@@ -139,9 +145,13 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
     }
   };
 
+  // classAdminService.approve/reject (PATCH /classes/{id}/approve|reject) —
+  // matches what web's gestionnaire screen actually calls
+  // (classService.approuverClasse/rejeterClasse); the establishment-scoped
+  // pair this used to call takes no rejection reason at all.
   const handleApproveClass = async (cls: ClassEntity) => {
     try {
-      await establishmentService.approveClass(cls.id, establishmentId);
+      await classAdminService.approve(cls.id);
       Alert.alert("Succès", `Classe "${cls.nom}" approuvée.`);
       load(true);
     } catch (err) {
@@ -149,10 +159,16 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
     }
   };
 
-  const handleRejectClass = async (cls: ClassEntity) => {
+  const handleRejectClass = (cls: ClassEntity) => {
+    setRejectingClass(cls);
+  };
+
+  const handleConfirmRejectClass = async (motif: string) => {
+    if (!rejectingClass) return;
     try {
-      await establishmentService.rejectClass(cls.id, establishmentId);
-      Alert.alert("Succès", `Classe "${cls.nom}" rejetée.`);
+      await classAdminService.reject(rejectingClass.id, motif);
+      setRejectingClass(null);
+      Alert.alert("Succès", `Classe "${rejectingClass.nom}" rejetée.`);
       load(true);
     } catch (err) {
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du rejet.");
@@ -211,21 +227,44 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
     }
   };
 
-  const handleProfessorPress = (p: {
-    id: string;
-    nom?: string;
-    prenom?: string;
-    email?: string;
-    telephone?: string;
-    etat?: string;
-    count: number;
-  }) => {
-    const name = `${p.prenom ?? ""} ${p.nom ?? ""}`.trim();
-    Alert.alert(
-      name || "Professeur",
-      `Email : ${p.email || "Non renseigné"}\nTéléphone : ${p.telephone || "Non renseigné"}\nClasses modérées : ${p.count}\nStatut : ${p.etat || "ACTIF"}`,
-      [{ text: "Fermer" }]
-    );
+  // Fetches the full professor record (incl. CNI recto/verso + selfie
+  // identity documents) instead of the plain summary Alert this used to
+  // show — mirrors web's UserViewModal, opened via "Voir" on the
+  // gestionnaire's own établissement-management page.
+  const handleProfessorPress = async (p: { id: string }) => {
+    setLoadingProfessor(true);
+    try {
+      const full = await professorService.getById(p.id);
+      setViewingProfessor(full);
+    } catch (err) {
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Impossible de charger ce professeur.");
+    } finally {
+      setLoadingProfessor(false);
+    }
+  };
+
+  const handleDeleteProfessor = () => {
+    if (!viewingProfessor) return;
+    const name = `${viewingProfessor.prenom ?? ""} ${viewingProfessor.nom ?? ""}`.trim() || "ce professeur";
+    Alert.alert("Supprimer le professeur", `Supprimer définitivement ${name} ? Cette action est irréversible.`, [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: async () => {
+          setDeletingProfessor(true);
+          try {
+            await professorService.remove(viewingProfessor.id);
+            setViewingProfessor(null);
+            load(true);
+          } catch (err) {
+            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
+          } finally {
+            setDeletingProfessor(false);
+          }
+        },
+      },
+    ]);
   };
 
   const professeurs = useMemo(() => {
@@ -490,6 +529,7 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
                   key={p.id}
                   style={styles.listItem}
                   activeOpacity={0.7}
+                  disabled={loadingProfessor}
                   onPress={() => handleProfessorPress(p)}
                 >
                   <View style={styles.listItemAvatar}>
@@ -596,6 +636,55 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
         defaultEstablishmentId={establishment.id}
         lockEstablishment
       />
+
+      <PromptSheet
+        visible={!!rejectingClass}
+        title="Motif du rejet"
+        message={rejectingClass ? `Pourquoi rejeter "${rejectingClass.nom}" ?` : undefined}
+        placeholder="Motif"
+        submitLabel="Rejeter"
+        onCancel={() => setRejectingClass(null)}
+        onSubmit={handleConfirmRejectClass}
+      />
+
+      <BottomSheet
+        visible={!!viewingProfessor}
+        onClose={() => setViewingProfessor(null)}
+        title={viewingProfessor ? `${viewingProfessor.prenom ?? ""} ${viewingProfessor.nom ?? ""}`.trim() : "Professeur"}
+      >
+        {viewingProfessor ? (
+          <View style={{ paddingBottom: spacing.lg }}>
+            <Row icon="envelope" label="Email" value={viewingProfessor.email || "Non renseigné"} />
+            <Row icon="phone" label="Téléphone" value={viewingProfessor.telephone || "Non renseigné"} />
+            {viewingProfessor.matriculeProfesseur ? (
+              <Row icon="id-badge" label="Matricule" value={viewingProfessor.matriculeProfesseur} />
+            ) : null}
+            <Row icon="toggle-on" label="Statut" value={viewingProfessor.etat === "INACTIVE" ? "Inactif" : "Actif"} />
+
+            {(viewingProfessor.selfieUrl || viewingProfessor.cniUrlRecto || viewingProfessor.cniUrlVerso) ? (
+              <>
+                <Text style={[styles.sectionTitle, { marginTop: spacing.md }]}>Documents transmis</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm }}>
+                  {viewingProfessor.selfieUrl ? <DocumentPreview path={viewingProfessor.selfieUrl} label="Photo de profil" /> : null}
+                  {viewingProfessor.cniUrlRecto ? <DocumentPreview path={viewingProfessor.cniUrlRecto} label="CNI Recto" /> : null}
+                  {viewingProfessor.cniUrlVerso ? <DocumentPreview path={viewingProfessor.cniUrlVerso} label="CNI Verso" /> : null}
+                </View>
+              </>
+            ) : (
+              <Text style={[styles.emptyText, { marginTop: spacing.md }]}>Aucun document transmis.</Text>
+            )}
+
+            <Button
+              label="Supprimer ce professeur"
+              variant="danger"
+              onPress={handleDeleteProfessor}
+              loading={deletingProfessor}
+              fullWidth
+              style={{ marginTop: spacing.lg }}
+            />
+          </View>
+        ) : null}
+      </BottomSheet>
     </View>
   );
 };

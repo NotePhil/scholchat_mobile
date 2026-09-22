@@ -5,6 +5,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -125,6 +126,7 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
   const [received, setReceived] = useState<MessageItem[]>([]);
   const [trash, setTrash] = useState<MessageItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const [filterType, setFilterType] = useState<FilterType>("all");
@@ -311,7 +313,7 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
     return (
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View style={styles.threadHeader}>
           <TouchableOpacity onPress={() => setSelectedThreadKey(null)} style={styles.threadBackButton}>
@@ -382,6 +384,12 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
   }
 
   // ── Inbox / list view ────────────────────────────────────────────────
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
   const filterTabs: { id: FilterType; label: string; icon: React.ComponentProps<typeof FontAwesome5>["name"]; count: number }[] = [
     { id: "all", label: "Inbox", icon: "inbox", count: counts.all },
     { id: "trash", label: "Corbeille", icon: "trash-alt", count: counts.trash },
@@ -392,7 +400,7 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
       <View style={styles.header}>
         {onBack && (
           <TouchableOpacity style={styles.backButton} onPress={onBack}>
-            <FontAwesome5 name="arrow-left" size={18} color="#4F46E5" />
+            <FontAwesome5 name="arrow-left" size={18} color="#3B82F6" />
           </TouchableOpacity>
         )}
         <Text style={styles.headerTitle}>Messages</Text>
@@ -433,18 +441,21 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
         })}
       </ScrollView>
 
-      <ScrollView style={styles.messagesList}>
+      <ScrollView
+        style={styles.messagesList}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
+      >
         {error ? (
           <View style={styles.emptyState}>
             <FontAwesome5 name="exclamation-circle" size={40} color="#EF4444" />
             <Text style={[styles.emptyStateText, { color: "#EF4444" }]}>{error}</Text>
             <TouchableOpacity onPress={load} style={{ marginTop: 12 }}>
-              <Text style={{ color: "#4F46E5", fontWeight: "600" }}>Réessayer</Text>
+              <Text style={{ color: "#3B82F6", fontWeight: "600" }}>Réessayer</Text>
             </TouchableOpacity>
           </View>
         ) : loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#4F46E5" />
+            <ActivityIndicator size="large" color="#3B82F6" />
             <Text style={styles.loadingText}>Chargement des messages...</Text>
           </View>
         ) : filterType === "trash" ? (
@@ -461,7 +472,7 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
                   <Text style={styles.trashPreview} numberOfLines={1}>{stripQuoted(m.contenu)}</Text>
                 </View>
                 <TouchableOpacity onPress={() => handleRestore(m)} style={styles.restoreButton}>
-                  <FontAwesome5 name="undo" size={14} color="#4F46E5" />
+                  <FontAwesome5 name="undo" size={14} color="#3B82F6" />
                 </TouchableOpacity>
               </View>
             ))
@@ -567,7 +578,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#FFFFFF",
   },
-  activeTab: { backgroundColor: "#4F46E5" },
+  activeTab: { backgroundColor: "#3B82F6" },
   tabText: { fontSize: 12, fontWeight: "700", color: "#6B7280" },
   activeTabText: { color: "#FFFFFF" },
   tabBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, backgroundColor: "#F3F4F6" },
@@ -608,7 +619,7 @@ const styles = StyleSheet.create({
   conversationName: { flex: 1, fontSize: 14, fontWeight: "600", color: "#374151", marginRight: 8 },
   conversationNameUnread: { fontWeight: "800", color: "#111827" },
   conversationTime: { fontSize: 10, fontWeight: "700", color: "#9CA3AF" },
-  conversationSubject: { fontSize: 11, fontWeight: "700", color: "#4F46E5", marginTop: 1 },
+  conversationSubject: { fontSize: 11, fontWeight: "700", color: "#3B82F6", marginTop: 1 },
   conversationPreview: { fontSize: 12, color: "#6B7280", marginTop: 2 },
   threadCountWrap: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: 8 },
   threadCountText: { fontSize: 10, fontWeight: "700", color: "#9CA3AF" },
@@ -624,10 +635,10 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
     shadowRadius: 10,
@@ -671,7 +682,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -684,7 +695,7 @@ const styles = StyleSheet.create({
   bubbleRowMine: { justifyContent: "flex-end" },
   bubble: { maxWidth: "80%", padding: 14, borderRadius: 22 },
   bubbleTheirs: { backgroundColor: "#F3F4F6", borderBottomLeftRadius: 4 },
-  bubbleMine: { backgroundColor: "#4F46E5", borderBottomRightRadius: 4 },
+  bubbleMine: { backgroundColor: "#3B82F6", borderBottomRightRadius: 4 },
   bubbleText: { fontSize: 14, lineHeight: 20, color: "#111827" },
   bubbleTextMine: { color: "#FFFFFF" },
   bubbleTime: { fontSize: 10, color: "#9CA3AF", marginTop: 4, textAlign: "right" },
@@ -712,7 +723,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     alignItems: "center",
     justifyContent: "center",
   },

@@ -45,13 +45,13 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
           <View
             style={[
               styles.statusBadge,
-              { backgroundColor: isActif ? "#D1FAE5" : "#F3F4F6" },
+              { backgroundColor: isActif ? "#D1FAE5" : colors.surfaceElevated },
             ]}
           >
             <Text
               style={[
                 styles.statusText,
-                { color: isActif ? "#059669" : "#6B7280" },
+                { color: isActif ? "#059669" : colors.textMuted },
               ]}
             >
               {isActif ? "Active" : "Inactive"}
@@ -85,7 +85,7 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
         <View style={styles.metaRow}>
           {classItem.etablissement && classItem.etablissement !== "Non spécifié" ? (
             <View style={styles.metaItem}>
-              <FontAwesome5 name="school" size={11} color="#9CA3AF" />
+              <FontAwesome5 name="school" size={11} color={colors.textLight} />
               <Text style={styles.metaText} numberOfLines={1}>
                 {classItem.etablissement}
               </Text>
@@ -93,7 +93,7 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
           ) : null}
           {classItem.moderator && classItem.moderator !== "Non spécifié" ? (
             <View style={styles.metaItem}>
-              <FontAwesome5 name="user-tie" size={11} color="#9CA3AF" />
+              <FontAwesome5 name="user-tie" size={11} color={colors.textLight} />
               <Text style={styles.metaText} numberOfLines={1}>
                 Modérateur : {classItem.moderator}
               </Text>
@@ -104,19 +104,19 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
         {/* Stats */}
         <View style={styles.classCardStats}>
           <View style={styles.statItem}>
-            <FontAwesome5 name="user-graduate" size={12} color="#6B7280" />
+            <FontAwesome5 name="user-graduate" size={12} color={colors.textMuted} />
             <Text style={styles.statItemText}>
               {classItem.studentsCount} élèves
             </Text>
           </View>
           <View style={styles.statItem}>
-            <FontAwesome5 name="users" size={12} color="#6B7280" />
+            <FontAwesome5 name="users" size={12} color={colors.textMuted} />
             <Text style={styles.statItemText}>
               {classItem.parentsCount} parents
             </Text>
           </View>
           <View style={styles.statItem}>
-            <FontAwesome5 name="calendar" size={12} color="#6B7280" />
+            <FontAwesome5 name="calendar" size={12} color={colors.textMuted} />
             <Text style={styles.statItemText}>
               {new Date(classItem.creationDate).toLocaleDateString("fr-FR")}
             </Text>
@@ -130,7 +130,7 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
           style={[styles.actionButton, styles.viewButton]}
           onPress={() => onViewDetails(classItem)}
         >
-          <FontAwesome5 name="eye" size={13} color="#4F46E5" />
+          <FontAwesome5 name="eye" size={13} color="#3B82F6" />
           <Text style={styles.viewButtonText}>Détails</Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -147,7 +147,7 @@ const ClassCard = ({ classItem, onViewDetails, onManageClass }: ClassCardProps) 
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   classCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 14,
     padding: 16,
     marginBottom: 12,
@@ -157,7 +157,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     shadowRadius: 3,
     elevation: 2,
     borderWidth: 1,
-    borderColor: "#F1F5F9",
+    borderColor: colors.borderLight,
   },
   classCardHeader: {
     flexDirection: "row",
@@ -175,7 +175,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -191,11 +191,11 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   classCardName: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#0F172A",
+    color: colors.text,
   },
   classCardLevel: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.textMuted,
     marginTop: 2,
   },
   statusBadge: {
@@ -230,14 +230,14 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     color: colors.text,
   },
   standardBadge: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surfaceElevated,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
   },
   standardBadgeText: {
     fontSize: 11,
-    color: "#64748B",
+    color: colors.textMuted,
     fontWeight: "500",
   },
   codeBadge: {
@@ -268,7 +268,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   },
   metaText: {
     fontSize: 12,
-    color: "#64748B",
+    color: colors.textMuted,
     flex: 1,
   },
   classCardStats: {
@@ -276,7 +276,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     justifyContent: "space-between",
     paddingVertical: 8,
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: colors.borderLight,
   },
   statItem: {
     flexDirection: "row",
@@ -284,7 +284,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   },
   statItemText: {
     fontSize: 12,
-    color: "#64748B",
+    color: colors.textMuted,
     marginLeft: 5,
   },
   classCardActions: {
@@ -295,12 +295,14 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     marginTop: 8,
     paddingTop: 8,
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: colors.borderLight,
   },
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
+    minHeight: 40,
     paddingVertical: 7,
     paddingHorizontal: 12,
     borderRadius: 8,
@@ -316,7 +318,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     color: "#4338CA",
   },
   manageButton: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
   },
   manageButtonText: {
     fontSize: 12,

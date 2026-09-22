@@ -11,3 +11,4 @@ export { default as Input } from './Input';
 export { default as ListItem } from './ListItem';
 export { default as LoadingSpinner } from './LoadingSpinner';
 export { default as QuickActionGrid } from './QuickActionGrid';
+export { default as Skeleton } from './Skeleton';

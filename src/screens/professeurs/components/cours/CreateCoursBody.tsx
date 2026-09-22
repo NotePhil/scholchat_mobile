@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   ScrollView,
   View,
@@ -8,6 +8,8 @@ import {
   StyleSheet,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -16,6 +18,7 @@ import { useUser } from "../../../../context/UserContext";
 import { coursService, matiereService, mediaService } from "../../../../services/api";
 import { LoadingSpinner } from "../../../../components/ui";
 import PromptSheet from "../../../../components/common/PromptSheet";
+import { useThemeColors } from "../../../../styles/theme";
 import { Matiere } from "../../../../types";
 
 // `etat` is intentionally never a user-facing field, on create OR edit — web
@@ -43,6 +46,8 @@ interface CreateCoursBodyProps {
 
 const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBodyProps) => {
   const { user } = useUser();
+  const colors = useThemeColors();
+  const createStyles = useMemo(() => createStylesheet(colors), [colors]);
   const isEditing = !!editingCours;
   const [submitting, setSubmitting] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
@@ -415,7 +420,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
       {/* Header */}
       <View style={createStyles.header}>
         <TouchableOpacity onPress={onBack} style={createStyles.backButton}>
-          <FontAwesome5 name="arrow-left" size={20} color="#111827" />
+          <FontAwesome5 name="arrow-left" size={20} color={colors.text} />
         </TouchableOpacity>
         <Text style={createStyles.headerTitle}>{isEditing ? "Modifier le cours" : "Créer un cours"}</Text>
         <TouchableOpacity
@@ -430,11 +435,16 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
         <LoadingSpinner label="Chargement du cours..." />
       ) : (
       <>
+      <KeyboardAvoidingView
+        style={createStyles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
       {/* Content */}
       <ScrollView
         style={createStyles.content}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={createStyles.contentContainer}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Title Field */}
         <View style={createStyles.fieldContainer}>
@@ -519,7 +529,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
             <FontAwesome5
               name={showMatieresDropdown ? "chevron-up" : "chevron-down"}
               size={14}
-              color="#6B7280"
+              color={colors.textMuted}
             />
           </TouchableOpacity>
 
@@ -543,7 +553,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                       >
                         {matiere.nom}
                       </Text>
-                      {isSelected && <FontAwesome5 name="check" size={14} color="#4F46E5" />}
+                      {isSelected && <FontAwesome5 name="check" size={14} color="#3B82F6" />}
                     </TouchableOpacity>
                   );
                 })
@@ -562,7 +572,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                     onPress={() => toggleMatiere(matiere)}
                     style={createStyles.removeTagButton}
                   >
-                    <FontAwesome5 name="times" size={12} color="#6B7280" />
+                    <FontAwesome5 name="times" size={12} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
               ))}
@@ -618,7 +628,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                       chapitre.isExpanded ? "chevron-down" : "chevron-right"
                     }
                     size={14}
-                    color="#6B7280"
+                    color={colors.textMuted}
                   />
                   <Text style={createStyles.chapitreNumber}>
                     Chapitre {index + 1}
@@ -686,13 +696,13 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                         style={createStyles.toolbarButton}
                         onPress={() => formatText(chapitre.id, "bold")}
                       >
-                        <FontAwesome5 name="bold" size={14} color="#6B7280" />
+                        <FontAwesome5 name="bold" size={14} color={colors.textMuted} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={createStyles.toolbarButton}
                         onPress={() => formatText(chapitre.id, "italic")}
                       >
-                        <FontAwesome5 name="italic" size={14} color="#6B7280" />
+                        <FontAwesome5 name="italic" size={14} color={colors.textMuted} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={createStyles.toolbarButton}
@@ -701,7 +711,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                         <FontAwesome5
                           name="underline"
                           size={14}
-                          color="#6B7280"
+                          color={colors.textMuted}
                         />
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -711,7 +721,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                         <FontAwesome5
                           name="list-ul"
                           size={14}
-                          color="#6B7280"
+                          color={colors.textMuted}
                         />
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -721,20 +731,20 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                         <FontAwesome5
                           name="heading"
                           size={14}
-                          color="#6B7280"
+                          color={colors.textMuted}
                         />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={createStyles.toolbarButton}
                         onPress={() => addImageToChapitre(chapitre.id)}
                       >
-                        <FontAwesome5 name="image" size={14} color="#6B7280" />
+                        <FontAwesome5 name="image" size={14} color={colors.textMuted} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={createStyles.toolbarButton}
                         onPress={() => addLinkToChapitre(chapitre.id)}
                       >
-                        <FontAwesome5 name="link" size={14} color="#6B7280" />
+                        <FontAwesome5 name="link" size={14} color={colors.textMuted} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -797,7 +807,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                       </Text>
                       {chapitre.links.map((link) => (
                         <View key={link.id} style={createStyles.linkItem}>
-                          <FontAwesome5 name="link" size={12} color="#4F46E5" />
+                          <FontAwesome5 name="link" size={12} color="#3B82F6" />
                           <Text style={createStyles.linkText} numberOfLines={1}>
                             {link.title}
                           </Text>
@@ -845,6 +855,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
           </Text>
         </TouchableOpacity>
       </View>
+      </KeyboardAvoidingView>
       </>
       )}
 
@@ -860,10 +871,13 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
   );
 };
 
-const createStyles = StyleSheet.create({
+const createStylesheet = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
+  },
+  flex: {
+    flex: 1,
   },
   header: {
     flexDirection: "row",
@@ -871,9 +885,9 @@ const createStyles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: colors.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -884,14 +898,14 @@ const createStyles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     justifyContent: "center",
     alignItems: "center",
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.text,
     flex: 1,
     textAlign: "center",
     marginHorizontal: 16,
@@ -919,18 +933,18 @@ const createStyles = StyleSheet.create({
   fieldLabel: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 10,
   },
   textInput: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderWidth: 1.5,
-    borderColor: "#E5E7EB",
+    borderColor: colors.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: "#111827",
+    color: colors.text,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
@@ -954,8 +968,8 @@ const createStyles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 25,
     borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#FFFFFF",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     marginBottom: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -972,25 +986,25 @@ const createStyles = StyleSheet.create({
   optionText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#374151",
+    color: colors.text,
   },
   dropdownButton: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderWidth: 1.5,
-    borderColor: "#E5E7EB",
+    borderColor: colors.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
   dropdownButtonText: {
     fontSize: 16,
-    color: "#111827",
+    color: colors.text,
   },
   dropdownContainer: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 12,
     marginTop: 8,
     shadowColor: "#000",
@@ -1014,10 +1028,10 @@ const createStyles = StyleSheet.create({
   },
   dropdownItemText: {
     fontSize: 14,
-    color: "#111827",
+    color: colors.text,
   },
   dropdownItemTextSelected: {
-    color: "#4F46E5",
+    color: "#3B82F6",
     fontWeight: "600",
   },
   selectedMatieresContainer: {
@@ -1036,7 +1050,7 @@ const createStyles = StyleSheet.create({
   },
   selectedMatiereText: {
     fontSize: 12,
-    color: "#4F46E5",
+    color: "#3B82F6",
     fontWeight: "500",
     marginRight: 6,
   },
@@ -1045,7 +1059,7 @@ const createStyles = StyleSheet.create({
   },
   helpText: {
     fontSize: 12,
-    color: "#9CA3AF",
+    color: colors.textLight,
     marginTop: 6,
     fontStyle: "italic",
     paddingHorizontal: 4,
@@ -1061,11 +1075,11 @@ const createStyles = StyleSheet.create({
   addChapterButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -1078,11 +1092,11 @@ const createStyles = StyleSheet.create({
     marginLeft: 6,
   },
   chapitreCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     marginBottom: 16,
     borderWidth: 2,
-    borderColor: "#E5E7EB",
+    borderColor: colors.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1106,7 +1120,7 @@ const createStyles = StyleSheet.create({
   chapitreNumber: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginLeft: 8,
   },
   removeChapterButton: {
@@ -1123,18 +1137,18 @@ const createStyles = StyleSheet.create({
   chapitreFieldLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#374151",
+    color: colors.text,
     marginBottom: 8,
   },
   chapitreInput: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    color: "#111827",
+    color: colors.text,
   },
   chapitreTextArea: {
     height: 80,
@@ -1153,7 +1167,7 @@ const createStyles = StyleSheet.create({
   toolbarButtons: {
     flexDirection: "row",
     flexWrap: "wrap",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 12,
     padding: 8,
     marginTop: 8,
@@ -1162,7 +1176,7 @@ const createStyles = StyleSheet.create({
   toolbarButton: {
     width: 36,
     height: 36,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     justifyContent: "center",
     alignItems: "center",
@@ -1180,7 +1194,7 @@ const createStyles = StyleSheet.create({
   mediaLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#374151",
+    color: colors.text,
     marginBottom: 8,
   },
   imagesGrid: {
@@ -1195,7 +1209,7 @@ const createStyles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 8,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
   },
   removeMediaButton: {
     position: "absolute",
@@ -1214,17 +1228,17 @@ const createStyles = StyleSheet.create({
   linkItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.background,
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
     borderLeftWidth: 3,
-    borderLeftColor: "#4F46E5",
+    borderLeftColor: "#3B82F6",
   },
   linkText: {
     flex: 1,
     fontSize: 12,
-    color: "#4F46E5",
+    color: "#3B82F6",
     marginLeft: 8,
     marginRight: 8,
   },
@@ -1236,12 +1250,12 @@ const createStyles = StyleSheet.create({
     height: 180,
   },
   bottomContainer: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 95,
     borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
+    borderTopColor: colors.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.08,
@@ -1252,10 +1266,10 @@ const createStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingVertical: 16,
     borderRadius: 12,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

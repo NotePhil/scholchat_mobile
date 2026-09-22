@@ -9,6 +9,8 @@ import {
   Alert,
   Image,
   Animated,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -356,10 +358,15 @@ const CreateActivityModal = ({ onClose, onCreateActivity, activityToEdit, onUpda
       </View>
 
       {/* Content */}
+      <KeyboardAvoidingView
+        style={modalStyles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
       <ScrollView
         style={modalStyles.content}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={modalStyles.contentContainer}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Title Field */}
         <View style={modalStyles.fieldContainer}>
@@ -483,7 +490,7 @@ const CreateActivityModal = ({ onClose, onCreateActivity, activityToEdit, onUpda
             style={modalStyles.imagePickerButton}
             onPress={handleImagePicker}
           >
-            <FontAwesome5 name="camera" size={20} color="#4F46E5" />
+            <FontAwesome5 name="camera" size={20} color="#3B82F6" />
             <Text style={modalStyles.imagePickerText}>Ajouter une image ou une vidéo</Text>
           </TouchableOpacity>
 
@@ -504,6 +511,7 @@ const CreateActivityModal = ({ onClose, onCreateActivity, activityToEdit, onUpda
                   )}
                   <TouchableOpacity
                     style={modalStyles.removeImageButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     onPress={() => removeExistingMedia(media.id)}
                   >
                     <FontAwesome5 name="times" size={12} color="#FFFFFF" />
@@ -521,6 +529,7 @@ const CreateActivityModal = ({ onClose, onCreateActivity, activityToEdit, onUpda
                   )}
                   <TouchableOpacity
                     style={modalStyles.removeImageButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     onPress={() => removeImage(image.id)}
                   >
                     <FontAwesome5 name="times" size={12} color="#FFFFFF" />
@@ -553,6 +562,7 @@ const CreateActivityModal = ({ onClose, onCreateActivity, activityToEdit, onUpda
           </Text>
         </TouchableOpacity>
       </View>
+      </KeyboardAvoidingView>
     </Animated.View>
   );
 };
@@ -572,6 +582,9 @@ const modalStyles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
+  },
+  flex: {
+    flex: 1,
   },
   dragHandle: {
     alignItems: "center",
@@ -726,7 +739,7 @@ const modalStyles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#F8FAFC",
     borderWidth: 2,
-    borderColor: "#4F46E5",
+    borderColor: "#3B82F6",
     borderStyle: "dashed",
     borderRadius: 16,
     paddingVertical: 24,
@@ -734,7 +747,7 @@ const modalStyles = StyleSheet.create({
   },
   imagePickerText: {
     fontSize: 16,
-    color: "#4F46E5",
+    color: "#3B82F6",
     fontWeight: "600",
     marginLeft: 10,
   },
@@ -793,10 +806,10 @@ const modalStyles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingVertical: 16,
     borderRadius: 12,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

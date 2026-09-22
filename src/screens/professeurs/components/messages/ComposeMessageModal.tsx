@@ -9,6 +9,8 @@ import {
   Modal,
   Animated,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -345,13 +347,17 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
             { transform: [{ translateY: slideAnim }] },
           ]}
         >
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+          >
           <View style={styles.composeHeader}>
             <Text style={styles.composeTitle}>Nouveau message</Text>
             <TouchableOpacity onPress={handleClose}>
               <FontAwesome5 name="times" size={20} color="#6B7280" />
             </TouchableOpacity>
           </View>
-          <ScrollView style={styles.composeForm}>
+          <ScrollView style={styles.composeForm} keyboardShouldPersistTaps="handled">
             {/* Classes Selection */}
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Classes *</Text>
@@ -376,7 +382,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
                     >
                       <View style={styles.classCheckbox}>
                         {selectedClasses.find(c => c.id === classItem.id) && (
-                          <FontAwesome5 name="check" size={12} color="#4F46E5" />
+                          <FontAwesome5 name="check" size={12} color="#3B82F6" />
                         )}
                       </View>
                       <Text style={styles.classOptionText}>{classItem.nom}</Text>
@@ -512,7 +518,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
                       <FontAwesome5
                         name={att.mimeType === 'text/uri-list' ? 'link' : att.mimeType?.startsWith('image') ? 'image' : 'file-alt'}
                         size={12}
-                        color="#4F46E5"
+                        color="#3B82F6"
                         style={{ marginRight: 6 }}
                       />
                       <Text style={styles.recipientChipText} numberOfLines={1}>{att.name}</Text>
@@ -602,6 +608,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
               </Text>
             </TouchableOpacity>
           </View>
+          </KeyboardAvoidingView>
         </Animated.View>
       </View>
       {showAttachmentModal && (
@@ -639,6 +646,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     height: "85%",
+  },
+  flex: {
+    flex: 1,
   },
   composeHeader: {
     flexDirection: "row",
@@ -702,7 +712,7 @@ const styles = StyleSheet.create({
   sendButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
@@ -712,31 +722,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#FFFFFF",
     marginLeft: 8,
-  },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 4,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 8,
-  },
-  checkboxInner: {
-    width: 12,
-    height: 12,
-    backgroundColor: "#4F46E5",
-    borderRadius: 2,
-  },
-  checkboxLabel: {
-    fontSize: 14,
-    color: "#374151",
   },
   attachmentsHeader: {
     flexDirection: "row",
@@ -791,7 +776,7 @@ const styles = StyleSheet.create({
   groupMessageButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
@@ -828,7 +813,7 @@ const styles = StyleSheet.create({
   },
   recipientChipText: {
     fontSize: 14,
-    color: "#4F46E5",
+    color: "#3B82F6",
     marginRight: 8,
   },
   suggestionsContainer: {
@@ -874,7 +859,7 @@ const styles = StyleSheet.create({
     marginRight: 4,
   },
   activeToolbarButton: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
   },
   disabledButton: {
     opacity: 0.6,

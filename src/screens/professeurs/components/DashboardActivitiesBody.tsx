@@ -10,12 +10,13 @@ import {
   Share,
   Modal,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import CreateActivityModal, { Activity, ActivityComment, ActivityMedia } from "./CreateActivityModal";
 import { activityFeedService } from "../../../services/api";
 import { classService } from "../../../services/classService";
-import { LoadingSpinner } from "../../../components/ui";
+import { EmptyState, Skeleton } from "../../../components/ui";
 import ActivityMediaImage from "../../../components/common/ActivityMediaImage";
 import ActivityMediaVideo from "../../../components/common/ActivityMediaVideo";
 import { useUser } from "../../../context/UserContext";
@@ -98,6 +99,26 @@ const sortActivitiesLikeWeb = (list: Activity[]): Activity[] =>
     const db = b.rawDate ? new Date(b.rawDate).getTime() : 0;
     return db - da;
   });
+
+/**
+ * Placeholder shaped like a real activity card (avatar, name/date lines, body
+ * text, media block) so the feed's layout is visible immediately instead of
+ * a blank screen behind a spinner — shown while the first page is in flight.
+ */
+const ActivitySkeletonCard = () => (
+  <View style={activitiesStyles.activityCard}>
+    <View style={activitiesStyles.creatorSection}>
+      <Skeleton width={40} height={40} borderRadius={20} style={{ marginRight: 12 }} />
+      <View style={{ flex: 1 }}>
+        <Skeleton width="55%" height={15} style={{ marginBottom: 8 }} />
+        <Skeleton width="35%" height={11} />
+      </View>
+    </View>
+    <Skeleton width="95%" height={13} style={{ marginBottom: 8 }} />
+    <Skeleton width="80%" height={13} style={{ marginBottom: 14 }} />
+    <Skeleton width="100%" height={160} borderRadius={10} />
+  </View>
+);
 
 /**
  * Facebook-style responsive media grid — mirrors web's ActivitiesContent.jsx
@@ -240,7 +261,7 @@ const commentStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarMine: { backgroundColor: "#4F46E5" },
+  avatarMine: { backgroundColor: "#3B82F6" },
   avatarText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
   bubble: {
     maxWidth: "75%",
@@ -250,7 +271,7 @@ const commentStyles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  bubbleMine: { backgroundColor: "#4F46E5", borderBottomLeftRadius: 14, borderBottomRightRadius: 4 },
+  bubbleMine: { backgroundColor: "#3B82F6", borderBottomLeftRadius: 14, borderBottomRightRadius: 4 },
   bubbleText: { fontSize: 14, color: "#111827" },
   bubbleTextMine: { color: "#FFFFFF" },
   time: { fontSize: 10, color: "#9CA3AF", marginTop: 4 },
@@ -259,7 +280,7 @@ const commentStyles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -277,7 +298,7 @@ const commentStyles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -323,6 +344,7 @@ const DashboardActivitiesBody = () => {
   // arrays, never duplicate derived counters by hand.
   const [rawActivities, setRawActivities] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -596,9 +618,18 @@ const DashboardActivitiesBody = () => {
     setShowCreateModal(true);
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadActivities(0, false);
+    setRefreshing(false);
+  };
+
   return (
     <View style={activitiesStyles.container}>
-      <ScrollView style={activitiesStyles.content}>
+      <ScrollView
+        style={activitiesStyles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
+      >
         {/* Header Section */}
         <View style={activitiesStyles.pageHeader}>
           <Text style={activitiesStyles.pageTitle}>Fil d'activité</Text>
@@ -635,7 +666,20 @@ const DashboardActivitiesBody = () => {
         </View>
 
         {error ? <Text style={{ color: "#EF4444", marginBottom: 12 }}>{error}</Text> : null}
-        {loading ? <LoadingSpinner label="Chargement des activités..." /> : null}
+        {loading ? (
+          <View style={activitiesStyles.activitiesList}>
+            <ActivitySkeletonCard />
+            <ActivitySkeletonCard />
+            <ActivitySkeletonCard />
+          </View>
+        ) : null}
+        {!loading && filteredActivities.length === 0 ? (
+          <EmptyState
+            icon="heartbeat"
+            title="Aucune activité"
+            message="Aucune activité ne correspond à ce filtre pour le moment."
+          />
+        ) : null}
 
         {/* Activities List */}
         <View style={activitiesStyles.activitiesList}>
@@ -682,12 +726,14 @@ const DashboardActivitiesBody = () => {
                   <View style={activitiesStyles.cardActions}>
                     <TouchableOpacity
                       style={activitiesStyles.cardActionButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       onPress={() => setEditingActivity(rawActivities.find((r) => String(r.id) === String(activity.id)) ?? null)}
                     >
                       <FontAwesome5 name="pencil-alt" size={14} color="#6B7280" />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={activitiesStyles.cardActionButton}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       disabled={deletingId === String(activity.id)}
                       onPress={() => handleDeleteActivity(activity)}
                     >
@@ -854,9 +900,9 @@ const DashboardActivitiesBody = () => {
                         onPress={() => submitComment(activity)}
                       >
                         {submittingCommentId === String(activity.id) ? (
-                          <FontAwesome5 name="spinner" size={13} color="#4F46E5" />
+                          <FontAwesome5 name="spinner" size={13} color="#3B82F6" />
                         ) : (
-                          <FontAwesome5 name="paper-plane" size={13} color="#4F46E5" />
+                          <FontAwesome5 name="paper-plane" size={13} color="#3B82F6" />
                         )}
                       </TouchableOpacity>
                     </View>
@@ -871,7 +917,7 @@ const DashboardActivitiesBody = () => {
         {!loading && hasMore && (
           <TouchableOpacity style={activitiesStyles.loadMoreButton} onPress={handleLoadMore} disabled={loadingMore}>
             {loadingMore ? (
-              <FontAwesome5 name="spinner" size={14} color="#4F46E5" />
+              <FontAwesome5 name="spinner" size={14} color="#3B82F6" />
             ) : (
               <Text style={activitiesStyles.loadMoreText}>
                 Voir plus{totalElements > activities.length ? ` (${totalElements - activities.length} restant${totalElements - activities.length > 1 ? "s" : ""})` : ""}
@@ -970,7 +1016,7 @@ const activitiesStyles = StyleSheet.create({
     backgroundColor: "#F3F4F6",
   },
   activeFilterTab: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
   },
   filterTabText: {
     fontSize: 14,
@@ -1021,7 +1067,7 @@ const activitiesStyles = StyleSheet.create({
     marginBottom: 12,
   },
   loadMoreText: {
-    color: "#4F46E5",
+    color: "#3B82F6",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -1035,7 +1081,7 @@ const activitiesStyles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -1092,7 +1138,7 @@ const activitiesStyles = StyleSheet.create({
     borderRadius: 8,
     padding: 12,
     borderLeftWidth: 3,
-    borderLeftColor: "#4F46E5",
+    borderLeftColor: "#3B82F6",
   },
   eventInfo: {
     marginBottom: 8,
@@ -1165,7 +1211,7 @@ const activitiesStyles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",

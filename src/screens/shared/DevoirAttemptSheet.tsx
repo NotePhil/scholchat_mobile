@@ -15,20 +15,6 @@ interface DevoirAttemptSheetProps {
   onComplete: () => void;
 }
 
-const isAutoCorrectable = (type?: string) => type === "QCM" || type === "VRAI_FAUX";
-
-const autoCorrect = (question: Question, value: string): { isCorrect: boolean; correctAnswer: string } => {
-  if (question.typeQuestion === "QCM") {
-    const correctChoice = (question.choixReponses ?? []).find((c) => c.estCorrect);
-    return { isCorrect: !!correctChoice && value === correctChoice.id, correctAnswer: correctChoice?.texte ?? question.reponse ?? "" };
-  }
-  if (question.typeQuestion === "VRAI_FAUX") {
-    const expected = (question.reponse ?? "").toLowerCase().trim();
-    return { isCorrect: expected === value.toLowerCase().trim(), correctAnswer: question.reponse ?? "" };
-  }
-  return { isCorrect: false, correctAnswer: question.reponse ?? "" };
-};
-
 /**
  * Shared homework-taking flow — used identically by the Student's own
  * devoirs screen and by Parent's (attempting on behalf of the selected
@@ -91,37 +77,23 @@ const DevoirAttemptSheet = ({ visible, exerciseProgrammerId, title, userId, onCl
     }
     setSubmitting(true);
     try {
-      let score = 0;
-      let max = 0;
-      let allAutoCorrect = true;
-
+      // Mirrors web's StudentExerciseView.jsx exactly: grading (even QCM/
+      // Vrai-Faux) is always left to the professor. Submitting ungraded and
+      // always landing on SOUMIS — never a client-computed CORRIGE — matches
+      // the actual backend contract (ParticipationExerciseBusiness has no
+      // auto-grading logic either).
       for (const q of questions) {
-        const points = q.points ?? 1;
-        max += points;
         const value = answers[q.id] ?? "";
         let reponseText = value;
-        let estCorrecte: boolean | undefined;
-        let note: string | undefined;
-
-        if (isAutoCorrectable(q.typeQuestion)) {
-          const correction = autoCorrect(q, value);
-          estCorrecte = correction.isCorrect;
-          note = correction.isCorrect ? String(points) : "0";
-          if (correction.isCorrect) score += points;
-          if (q.typeQuestion === "QCM") {
-            const chosen = (q.choixReponses ?? []).find((c) => c.id === value);
-            reponseText = chosen?.texte ?? value;
-          }
-        } else {
-          allAutoCorrect = false;
+        if (q.typeQuestion === "QCM") {
+          const chosen = (q.choixReponses ?? []).find((c) => c.id === value);
+          reponseText = chosen?.texte ?? value;
         }
 
         await reponseService.submit({
           utilisateurId: userId,
           questionId: q.id,
           reponseUtilisateur: reponseText,
-          estCorrecte,
-          note,
         }).catch(() => {});
       }
 
@@ -129,8 +101,7 @@ const DevoirAttemptSheet = ({ visible, exerciseProgrammerId, title, userId, onCl
         utilisateurId: userId,
         exerciseProgrammerId,
         dateFin: new Date().toISOString(),
-        note: `${score}/${max}`,
-        etatSoumission: allAutoCorrect ? "CORRIGE" : "EN_ATTENTE_CORRECTION",
+        etatSoumission: "SOUMIS",
       });
 
       Alert.alert("Succès", "Votre devoir a été soumis.");

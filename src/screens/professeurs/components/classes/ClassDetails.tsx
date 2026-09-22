@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
   userService,
 } from "../../../../services/api";
 import { Badge, LoadingSpinner } from "../../../../components/ui";
+import { useThemeColors } from "../../../../styles/theme";
 import OffreInfoPanel from "../../../../components/common/OffreInfoPanel";
 import { Professor, ClassUser, CoursProgramme, ExerciseProgramme, ActivityEvent } from "../../../../types";
 import { UIClass, FormattedAccessRequest } from "./DashboardClassesBody";
@@ -60,6 +61,9 @@ const ClassDetails = ({
   onRefresh,
   isAdmin,
 }: ClassDetailsProps) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const rightsStyles = useMemo(() => createRightsStyles(colors), [colors]);
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [selectedUser, setSelectedUser] = useState<ProfileUser | null>(null);
   const [showModeratorModal, setShowModeratorModal] = useState(false);
@@ -133,11 +137,11 @@ const ClassDetails = ({
   const [isLoadingModerators, setIsLoadingModerators] = useState(false);
 
   const getStateColor = (state: string) => {
-    return state === "ACTIVE" ? "#10B981" : "#6B7280";
+    return state === "ACTIVE" ? "#10B981" : colors.textMuted;
   };
 
   const getStateBackground = (state: string) => {
-    return state === "ACTIVE" ? "#D1FAE5" : "#F3F4F6";
+    return state === "ACTIVE" ? "#D1FAE5" : colors.surfaceElevated;
   };
 
   const getStateText = (state: string) => {
@@ -407,7 +411,7 @@ const ClassDetails = ({
       {/* Header */}
       <View style={styles.detailHeader}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <FontAwesome5 name="arrow-left" size={16} color="#111827" />
+          <FontAwesome5 name="arrow-left" size={16} color={colors.text} />
           <Text style={styles.backButtonText}>Retour</Text>
         </TouchableOpacity>
         <Text style={styles.detailTitle} numberOfLines={1}>
@@ -600,7 +604,7 @@ const ClassDetails = ({
                   <Text
                     style={[
                       styles.accesMajeurBadgeText,
-                      { color: selectedClass.accesMajeur ? "#1F2937" : "#64748B" },
+                      { color: selectedClass.accesMajeur ? colors.text : colors.textMuted },
                     ]}
                   >
                     {selectedClass.accesMajeur ? "Classe Majeure — email" : "Accès standard"}
@@ -625,7 +629,7 @@ const ClassDetails = ({
                 style={styles.viewModeratorsButton}
                 onPress={handleViewModerators}
               >
-                <FontAwesome5 name="users" size={16} color="#4F46E5" />
+                <FontAwesome5 name="users" size={16} color="#3B82F6" />
                 <Text style={styles.viewModeratorsButtonText}>Voir les modérateurs</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -651,7 +655,7 @@ const ClassDetails = ({
                       <FontAwesome5
                         name="user-graduate"
                         size={14}
-                        color="#4F46E5"
+                        color="#3B82F6"
                       />
                     </View>
                     <View style={styles.listItemInfo}>
@@ -667,18 +671,21 @@ const ClassDetails = ({
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
                         style={styles.eyeButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => handleViewProfile(student)}
                       >
-                        <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                        <FontAwesome5 name="eye" size={12} color={colors.textMuted} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.eyeButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => handleOpenRights(student)}
                       >
                         <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.removeButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => handleRemoveAccess(student)}
                       >
                         <FontAwesome5 name="times" size={12} color="#EF4444" />
@@ -686,6 +693,7 @@ const ClassDetails = ({
                       {isAdmin ? (
                         <TouchableOpacity
                           style={styles.removeButton}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           onPress={() => handleDeleteFromSystem(student, "eleves")}
                         >
                           <FontAwesome5 name="trash" size={12} color="#EF4444" />
@@ -722,18 +730,21 @@ const ClassDetails = ({
                     <View style={styles.actionButtons}>
                       <TouchableOpacity
                         style={styles.eyeButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => handleViewProfile(parent)}
                       >
-                        <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                        <FontAwesome5 name="eye" size={12} color={colors.textMuted} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.eyeButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => handleOpenRights(parent)}
                       >
                         <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.removeButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => handleRemoveAccess(parent)}
                       >
                         <FontAwesome5 name="times" size={12} color="#EF4444" />
@@ -741,6 +752,7 @@ const ClassDetails = ({
                       {isAdmin ? (
                         <TouchableOpacity
                           style={styles.removeButton}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                           onPress={() => handleDeleteFromSystem(parent, "parents")}
                         >
                           <FontAwesome5 name="trash" size={12} color="#EF4444" />
@@ -788,18 +800,19 @@ const ClassDetails = ({
                         ) : null}
                       </View>
                       <View style={styles.actionButtons}>
-                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleViewProfile(profProfile)}>
-                          <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                        <TouchableOpacity style={styles.eyeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => handleViewProfile(profProfile)}>
+                          <FontAwesome5 name="eye" size={12} color={colors.textMuted} />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleOpenRights(profProfile)}>
+                        <TouchableOpacity style={styles.eyeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => handleOpenRights(profProfile)}>
                           <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveAccess(profProfile)}>
+                        <TouchableOpacity style={styles.removeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => handleRemoveAccess(profProfile)}>
                           <FontAwesome5 name="times" size={12} color="#EF4444" />
                         </TouchableOpacity>
                         {isAdmin ? (
                           <TouchableOpacity
                             style={styles.removeButton}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             onPress={() => handleDeleteFromSystem(profProfile, "professeurs")}
                           >
                             <FontAwesome5 name="trash" size={12} color="#EF4444" />
@@ -834,7 +847,7 @@ const ClassDetails = ({
                   return (
                     <View key={other.id} style={styles.listItem}>
                       <View style={styles.listItemAvatar}>
-                        <FontAwesome5 name="user-circle" size={14} color="#6B7280" />
+                        <FontAwesome5 name="user-circle" size={14} color={colors.textMuted} />
                       </View>
                       <View style={styles.listItemInfo}>
                         <Text style={styles.listItemName}>{otherProfile.name}</Text>
@@ -849,18 +862,19 @@ const ClassDetails = ({
                         </View>
                       </View>
                       <View style={styles.actionButtons}>
-                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleViewProfile(otherProfile)}>
-                          <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                        <TouchableOpacity style={styles.eyeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => handleViewProfile(otherProfile)}>
+                          <FontAwesome5 name="eye" size={12} color={colors.textMuted} />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.eyeButton} onPress={() => handleOpenRights(otherProfile)}>
+                        <TouchableOpacity style={styles.eyeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => handleOpenRights(otherProfile)}>
                           <FontAwesome5 name="user-shield" size={12} color="#8B5CF6" />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.removeButton} onPress={() => handleRemoveAccess(otherProfile)}>
+                        <TouchableOpacity style={styles.removeButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={() => handleRemoveAccess(otherProfile)}>
                           <FontAwesome5 name="times" size={12} color="#EF4444" />
                         </TouchableOpacity>
                         {isAdmin ? (
                           <TouchableOpacity
                             style={styles.removeButton}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             onPress={() => handleDeleteFromSystem(otherProfile, "utilisateurs")}
                           >
                             <FontAwesome5 name="trash" size={12} color="#EF4444" />
@@ -898,20 +912,23 @@ const ClassDetails = ({
                     <View style={styles.requestActions}>
                       <TouchableOpacity
                         style={styles.eyeButton}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         onPress={() => handleViewRequestDetails(request)}
                       >
-                        <FontAwesome5 name="eye" size={12} color="#6B7280" />
+                        <FontAwesome5 name="eye" size={12} color={colors.textMuted} />
                       </TouchableOpacity>
                       {request.status === 'EN_ATTENTE' && (
                         <>
                           <TouchableOpacity
                             style={styles.acceptButton}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             onPress={() => handleApproveRequest(request)}
                           >
                             <FontAwesome5 name="check" size={12} color="#FFFFFF" />
                           </TouchableOpacity>
                           <TouchableOpacity
                             style={styles.rejectButton}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             onPress={() => handleRejectRequest(request)}
                           >
                             <FontAwesome5 name="times" size={12} color="#FFFFFF" />
@@ -1043,7 +1060,7 @@ const ClassDetails = ({
                 onPress={() => setShowUserProfile(false)}
                 style={styles.closeButton}
               >
-                <FontAwesome5 name="times" size={16} color="#6B7280" />
+                <FontAwesome5 name="times" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             {selectedUser && (
@@ -1097,24 +1114,24 @@ const ClassDetails = ({
                 onPress={handleCancelModeratorAssignment}
                 style={styles.closeButton}
               >
-                <FontAwesome5 name="times" size={16} color="#6B7280" />
+                <FontAwesome5 name="times" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.searchContainer}>
-              <FontAwesome5 name="search" size={16} color="#6B7280" style={styles.searchIcon} />
+              <FontAwesome5 name="search" size={16} color={colors.textMuted} style={styles.searchIcon} />
               <TextInput
                 style={styles.searchInput}
                 placeholder="Rechercher par nom ou email..."
                 value={searchTerm}
                 onChangeText={handleSearchProfessors}
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={colors.textLight}
               />
             </View>
 
             {isSearching && (
               <View style={styles.loadingContainer}>
-                <FontAwesome5 name="spinner" size={16} color="#4F46E5" />
+                <FontAwesome5 name="spinner" size={16} color="#3B82F6" />
                 <Text style={styles.loadingText}>Recherche...</Text>
               </View>
             )}
@@ -1220,7 +1237,7 @@ const ClassDetails = ({
                 onPress={() => setShowRequestDetails(false)}
                 style={styles.closeButton}
               >
-                <FontAwesome5 name="times" size={16} color="#6B7280" />
+                <FontAwesome5 name="times" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             {selectedRequest && (
@@ -1288,7 +1305,7 @@ const ClassDetails = ({
                 onPress={() => setShowRejectModal(false)}
                 style={styles.closeButton}
               >
-                <FontAwesome5 name="times" size={16} color="#6B7280" />
+                <FontAwesome5 name="times" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             <Text style={styles.rejectLabel}>Motif du rejet:</Text>
@@ -1299,7 +1316,7 @@ const ClassDetails = ({
               onChangeText={setRejectionReason}
               multiline
               numberOfLines={4}
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={colors.textLight}
             />
             <View style={styles.rejectActions}>
               <TouchableOpacity
@@ -1334,13 +1351,13 @@ const ClassDetails = ({
                 onPress={() => setShowModeratorsModal(false)}
                 style={styles.closeButton}
               >
-                <FontAwesome5 name="times" size={16} color="#6B7280" />
+                <FontAwesome5 name="times" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
             {isLoadingModerators ? (
               <View style={styles.loadingContainer}>
-                <FontAwesome5 name="spinner" size={24} color="#4F46E5" />
+                <FontAwesome5 name="spinner" size={24} color="#3B82F6" />
                 <Text style={styles.loadingText}>Chargement des modérateurs...</Text>
               </View>
             ) : (
@@ -1375,7 +1392,7 @@ const ClassDetails = ({
                           Matricule: {moderator.matriculeProfesseur || 'Non défini'}
                         </Text>
                       </View>
-                      <FontAwesome5 name="eye" size={16} color="#6B7280" />
+                      <FontAwesome5 name="eye" size={16} color={colors.textMuted} />
                     </TouchableOpacity>
                   ))
                 ) : (
@@ -1399,7 +1416,7 @@ const ClassDetails = ({
             <View style={styles.profileHeader}>
               <Text style={styles.profileTitle}>Droits de publication</Text>
               <TouchableOpacity onPress={() => setShowRightsModal(false)} style={styles.closeButton}>
-                <FontAwesome5 name="times" size={16} color="#6B7280" />
+                <FontAwesome5 name="times" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
             {rightsTargetUser && (
@@ -1412,7 +1429,7 @@ const ClassDetails = ({
                   <FontAwesome5
                     name={canPublish ? 'check-square' : 'square'}
                     size={18}
-                    color={canPublish ? '#4F46E5' : '#9CA3AF'}
+                    color={canPublish ? '#3B82F6' : colors.textLight}
                   />
                   <Text style={rightsStyles.rightLabel}>Peut publier du contenu</Text>
                 </TouchableOpacity>
@@ -1423,7 +1440,7 @@ const ClassDetails = ({
                   <FontAwesome5
                     name={canModerate ? 'check-square' : 'square'}
                     size={18}
-                    color={canModerate ? '#4F46E5' : '#9CA3AF'}
+                    color={canModerate ? '#3B82F6' : colors.textLight}
                   />
                   <Text style={rightsStyles.rightLabel}>Peut modérer la classe</Text>
                 </TouchableOpacity>
@@ -1445,7 +1462,7 @@ const ClassDetails = ({
   );
 };
 
-const rightsStyles = StyleSheet.create({
+const createRightsStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   rightRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1455,11 +1472,11 @@ const rightsStyles = StyleSheet.create({
   rightLabel: {
     marginLeft: 12,
     fontSize: 14,
-    color: '#111827',
+    color: colors.text,
   },
   saveButton: {
     marginTop: 16,
-    backgroundColor: '#4F46E5',
+    backgroundColor: '#3B82F6',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -1472,10 +1489,10 @@ const rightsStyles = StyleSheet.create({
   },
 });
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
@@ -1487,9 +1504,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
+    borderBottomColor: colors.border,
     paddingTop: 50,
   },
   backButton: {
@@ -1499,17 +1516,17 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 20,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
   },
   backButtonText: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.text,
   },
   detailTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.text,
     flex: 1,
     textAlign: "center",
     marginHorizontal: 8,
@@ -1532,7 +1549,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   classInfoCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 20,
     marginVertical: 20,
@@ -1548,7 +1565,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 12,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
@@ -1565,12 +1582,12 @@ const styles = StyleSheet.create({
   className: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 4,
   },
   classLevel: {
     fontSize: 14,
-    color: "#6B7280",
+    color: colors.textMuted,
     marginBottom: 8,
   },
   classMetaRow: {
@@ -1581,7 +1598,7 @@ const styles = StyleSheet.create({
   },
   classDate: {
     fontSize: 12,
-    color: "#9CA3AF",
+    color: colors.textLight,
     marginLeft: 12,
   },
   statusBadge: {
@@ -1595,7 +1612,7 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     flexGrow: 0,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 12,
     paddingVertical: 4,
     paddingHorizontal: 6,
@@ -1614,12 +1631,12 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   activeTab: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
   },
   tabText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   activeTabText: {
     color: "#FFFFFF",
@@ -1628,7 +1645,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   infoSection: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 20,
     shadowColor: "#000",
@@ -1640,7 +1657,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 16,
   },
   infoItem: {
@@ -1650,18 +1667,18 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: colors.textMuted,
     width: 120,
   },
   infoValue: {
     fontSize: 14,
-    color: "#111827",
+    color: colors.text,
     flex: 1,
   },
   codeValue: {
     fontFamily: "monospace",
     fontWeight: "700",
-    color: "#4F46E5",
+    color: "#3B82F6",
   },
   accesMajeurBadge: {
     paddingHorizontal: 8,
@@ -1669,21 +1686,21 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   accesMajeurBadgeOn: {
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: colors.border,
   },
   accesMajeurBadgeOff: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surfaceElevated,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
   },
   accesMajeurBadgeText: {
     fontSize: 11,
     fontWeight: "600",
   },
   manageSection: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 20,
     marginBottom: 16,
@@ -1698,13 +1715,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: colors.borderLight,
   },
   listItemAvatar: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -1715,16 +1732,16 @@ const styles = StyleSheet.create({
   listItemName: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 2,
   },
   listItemEmail: {
     fontSize: 12,
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   listItemMeta: {
     fontSize: 11,
-    color: "#9CA3AF",
+    color: colors.textLight,
     marginTop: 2,
   },
   metaBadgeRow: {
@@ -1738,7 +1755,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: colors.borderLight,
   },
   requestActions: {
     flexDirection: "row",
@@ -1763,14 +1780,14 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: colors.textLight,
     textAlign: "center",
     paddingVertical: 16,
   },
   historyItem: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 10,
     padding: 12,
     marginBottom: 10,
@@ -1783,7 +1800,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     justifyContent: "center",
     alignItems: "center",
     marginRight: 8,
@@ -1804,7 +1821,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   profileModal: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 24,
     width: "100%",
@@ -1819,13 +1836,13 @@ const styles = StyleSheet.create({
   profileTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
   },
   closeButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1836,7 +1853,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 16,
@@ -1844,7 +1861,7 @@ const styles = StyleSheet.create({
   profileName: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 20,
     textAlign: "center",
   },
@@ -1856,22 +1873,22 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: colors.borderLight,
   },
   profileDetailLabel: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   profileDetailValue: {
     fontSize: 14,
-    color: "#111827",
+    color: colors.text,
     flex: 1,
     textAlign: "right",
   },
   addModeratorButton: {
     flex: 1,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1886,7 +1903,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   moderatorModal: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 24,
     width: "100%",
@@ -1902,12 +1919,12 @@ const styles = StyleSheet.create({
   moderatorTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1919,7 +1936,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: "#111827",
+    color: colors.text,
   },
   loadingContainer: {
     flexDirection: "row",
@@ -1930,7 +1947,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginLeft: 8,
     fontSize: 14,
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   resultsContainer: {
     maxHeight: 200,
@@ -1943,13 +1960,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     marginBottom: 8,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: colors.border,
   },
   selectedProfessorItem: {
     backgroundColor: "#EEF2FF",
-    borderColor: "#4F46E5",
+    borderColor: "#3B82F6",
   },
   professorInfo: {
     flex: 1,
@@ -1957,21 +1974,21 @@ const styles = StyleSheet.create({
   professorName: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 2,
   },
   professorEmail: {
     fontSize: 14,
-    color: "#6B7280",
+    color: colors.textMuted,
     marginBottom: 2,
   },
   professorMatricule: {
     fontSize: 12,
-    color: "#9CA3AF",
+    color: colors.textLight,
   },
   selectText: {
     fontSize: 14,
-    color: "#4F46E5",
+    color: "#3B82F6",
     fontWeight: "500",
   },
   selectedModeratorContainer: {
@@ -1983,7 +2000,7 @@ const styles = StyleSheet.create({
   selectedModeratorLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 8,
   },
   selectedModeratorInfo: {
@@ -1992,17 +2009,17 @@ const styles = StyleSheet.create({
   selectedModeratorName: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 2,
   },
   selectedModeratorEmail: {
     fontSize: 14,
-    color: "#6B7280",
+    color: colors.textMuted,
     marginBottom: 2,
   },
   selectedModeratorMatricule: {
     fontSize: 12,
-    color: "#9CA3AF",
+    color: colors.textLight,
   },
   modalActions: {
     flexDirection: "row",
@@ -2014,20 +2031,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     alignItems: "center",
   },
   cancelButtonText: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   assignButton: {
     flex: 1,
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     alignItems: "center",
   },
   assignButtonText: {
@@ -2039,7 +2056,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   successModal: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 32,
     alignItems: "center",
@@ -2057,12 +2074,12 @@ const styles = StyleSheet.create({
   successTitle: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 8,
   },
   successMessage: {
     fontSize: 14,
-    color: "#6B7280",
+    color: colors.textMuted,
     textAlign: "center",
     marginBottom: 24,
   },
@@ -2078,7 +2095,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   requestDetailsModal: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 24,
     width: "100%",
@@ -2093,7 +2110,7 @@ const styles = StyleSheet.create({
   requestDetailsTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
   },
   requestDetailsContent: {
     alignItems: "center",
@@ -2110,7 +2127,7 @@ const styles = StyleSheet.create({
   requestDetailsName: {
     fontSize: 20,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 20,
   },
   requestDetailsInfo: {
@@ -2122,16 +2139,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: colors.borderLight,
   },
   requestDetailLabel: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   requestDetailValue: {
     fontSize: 14,
-    color: "#111827",
+    color: colors.text,
   },
   requestDetailsActions: {
     flexDirection: "row",
@@ -2169,7 +2186,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   rejectModal: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 24,
     width: "100%",
@@ -2184,22 +2201,22 @@ const styles = StyleSheet.create({
   rejectTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
   },
   rejectLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 8,
   },
   rejectInput: {
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 12,
     fontSize: 14,
-    color: "#111827",
+    color: colors.text,
     textAlignVertical: "top",
     marginBottom: 20,
     minHeight: 100,
@@ -2235,16 +2252,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#4F46E5",
+    borderColor: "#3B82F6",
   },
   viewModeratorsButtonText: {
-    color: "#4F46E5",
+    color: "#3B82F6",
     fontSize: 14,
     fontWeight: "600",
     marginLeft: 8,
   },
   moderatorsListModal: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 24,
     width: "100%",
@@ -2260,7 +2277,7 @@ const styles = StyleSheet.create({
   moderatorsListTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
   },
   moderatorsListContainer: {
     maxHeight: 400,
@@ -2272,15 +2289,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 12,
     marginBottom: 12,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: colors.border,
   },
   moderatorAvatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 16,
@@ -2291,21 +2308,21 @@ const styles = StyleSheet.create({
   moderatorName: {
     fontSize: 16,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 4,
   },
   moderatorEmail: {
     fontSize: 14,
-    color: "#6B7280",
+    color: colors.textMuted,
     marginBottom: 2,
   },
   moderatorMatricule: {
     fontSize: 12,
-    color: "#9CA3AF",
+    color: colors.textLight,
   },
   emptyModeratorsText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: colors.textLight,
     textAlign: "center",
     paddingVertical: 32,
   },

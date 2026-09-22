@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import {
   ScrollView,
   View,
@@ -9,6 +9,7 @@ import {
   Modal,
   Animated,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import ClassCard from "./ClassCard";
@@ -17,6 +18,8 @@ import ClassDetails from "./ClassDetails";
 import { classService } from "../../../../services/classService";
 import { useUser } from "../../../../context/UserContext";
 import { ClassEntity, ClassUser, Etablissement, Professor } from "../../../../types";
+import DropdownField from "../../../../components/ui/DropdownField";
+import { useThemeColors } from "../../../../styles/theme";
 
 export interface FormattedStudent {
   id: string;
@@ -160,6 +163,8 @@ interface CachedClassData {
 
 const DashboardClassesBody = () => {
   const { user } = useUser();
+  const themeColors = useThemeColors();
+  const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const [activeFilter, setActiveFilter] = useState("toutes");
   const [searchTerm, setSearchTerm] = useState("");
   const [showAccessModal, setShowAccessModal] = useState(false);
@@ -184,9 +189,6 @@ const DashboardClassesBody = () => {
   const [activationCode, setActivationCode] = useState("");
   const [selectedEstablishment, setSelectedEstablishment] = useState<Etablissement | null>(null);
   const [selectedModerator, setSelectedModerator] = useState<Professor | null>(null);
-  const [showLevelDropdown, setShowLevelDropdown] = useState(false);
-  const [showEstablishmentDropdown, setShowEstablishmentDropdown] = useState(false);
-  const [showModeratorDropdown, setShowModeratorDropdown] = useState(false);
   const [etablissements, setEtablissements] = useState<Etablissement[]>([]);
   const [professors, setProfessors] = useState<Professor[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -202,9 +204,25 @@ const DashboardClassesBody = () => {
     "LYCEE",
     "UNIVERSITE"
   ];
+  const levelOptions = levels.map((level) => ({ label: level, value: level }));
+  const establishmentOptions = [
+    { label: "Aucun établissement", value: "" },
+    ...etablissements.map((e) => ({
+      label: `${e?.nom || "Nom non défini"} - ${e?.localisation || "Localisation non définie"}`,
+      value: e?.id ?? "",
+    })),
+  ];
+  const moderatorOptions = [
+    { label: "Aucun modérateur", value: "" },
+    ...professors.map((p) => ({
+      label: `${p?.prenom || ""} ${p?.nom || "Nom non défini"}`.trim(),
+      value: p?.id ?? "",
+    })),
+  ];
 
   const [classes, setClasses] = useState<UIClass[]>([]);
   const [isLoadingClasses, setIsLoadingClasses] = useState(true);
+  const [refreshingClasses, setRefreshingClasses] = useState(false);
 
   const filters = [
     { id: "toutes", label: "Toutes" },
@@ -777,9 +795,18 @@ const DashboardClassesBody = () => {
     );
   }
 
+  const handleRefreshClasses = async () => {
+    setRefreshingClasses(true);
+    await loadClasses();
+    setRefreshingClasses(false);
+  };
+
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshingClasses} onRefresh={handleRefreshClasses} tintColor="#3B82F6" />}
+      >
         {/* Header Section */}
         <View style={styles.pageHeader}>
           <Text style={styles.pageTitle}>Mes Classes</Text>
@@ -826,7 +853,7 @@ const DashboardClassesBody = () => {
           <FontAwesome5
             name="search"
             size={16}
-            color="#6B7280"
+            color={themeColors.textMuted}
             style={styles.searchIcon}
           />
           <TextInput
@@ -841,7 +868,7 @@ const DashboardClassesBody = () => {
         <View style={styles.classesList}>
           {isLoadingClasses ? (
             <View style={styles.loadingContainer}>
-              <FontAwesome5 name="spinner" size={32} color="#4F46E5" />
+              <FontAwesome5 name="spinner" size={32} color="#3B82F6" />
               <Text style={styles.loadingText}>Chargement des classes...</Text>
             </View>
           ) : (
@@ -858,7 +885,7 @@ const DashboardClassesBody = () => {
         {/* Empty State */}
         {!isLoadingClasses && filteredClasses.length === 0 && (
           <View style={styles.emptyState}>
-            <FontAwesome5 name="school" size={48} color="#D1D5DB" />
+            <FontAwesome5 name="school" size={48} color={themeColors.textLight} />
             <Text style={styles.emptyTitle}>Aucune classe trouvée</Text>
             <Text style={styles.emptyText}>
               Essayez de modifier vos critères de recherche ou demandez l'accès
@@ -914,13 +941,14 @@ const DashboardClassesBody = () => {
                 }}
                 disabled={isLoadingData || isLoading}
               >
-                <FontAwesome5 name="times" size={20} color="#6B7280" />
+                <FontAwesome5 name="times" size={20} color={themeColors.textMuted} />
               </TouchableOpacity>
             </View>
 
             {/* Form Fields */}
             <View style={styles.createFormContainer}>
-              {/* Class Name */}
+              {/* Section: Identité */}
+              <Text style={styles.createSectionTitle}>Identité</Text>
               <View style={styles.createFormField}>
                 <Text style={styles.createFieldLabel}>Nom de la classe *</Text>
                 <TextInput
@@ -931,40 +959,17 @@ const DashboardClassesBody = () => {
                 />
               </View>
 
-              {/* Level Selection */}
-              <View style={styles.createFormField}>
-                <Text style={styles.createFieldLabel}>Niveau *</Text>
-                <TouchableOpacity
-                  style={styles.createDropdownButton}
-                  onPress={() => setShowLevelDropdown(!showLevelDropdown)}
-                >
-                  <Text style={styles.createDropdownText}>
-                    {selectedLevel || "Sélectionner un niveau"}
-                  </Text>
-                  <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
-                </TouchableOpacity>
-                {showLevelDropdown && (
-                  <View style={styles.createDropdownOptions}>
-                    {levels.map((level) => (
-                      <TouchableOpacity
-                        key={level}
-                        style={styles.createDropdownOption}
-                        onPress={() => {
-                          console.log('Selected level:', level);
-                          setSelectedLevel(level);
-                          setShowLevelDropdown(false);
-                        }}
-                      >
-                        <Text style={styles.createDropdownOptionText}>
-                          {level}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
+              <DropdownField
+                label="Niveau *"
+                value={selectedLevel}
+                options={levelOptions}
+                onChange={setSelectedLevel}
+                placeholder="Sélectionner un niveau"
+                sheetTitle="Niveau"
+              />
 
-              {/* Activation Code */}
+              {/* Section: Accès */}
+              <Text style={styles.createSectionTitle}>Accès</Text>
               <View style={styles.createFormField}>
                 <Text style={styles.createFieldLabel}>Code d'activation *</Text>
                 <View style={styles.createCodeContainer}>
@@ -983,99 +988,27 @@ const DashboardClassesBody = () => {
                 </View>
               </View>
 
-              {/* Establishment Selection */}
-              <View style={styles.createFormField}>
-                <Text style={styles.createFieldLabel}>
-                  Établissement (Optionnel) {isLoadingData && '(Chargement...)'}
-                </Text>
-                <TouchableOpacity
-                  style={styles.createDropdownButton}
-                  onPress={() => setShowEstablishmentDropdown(!showEstablishmentDropdown)}
-                  disabled={isLoadingData}
-                >
-                  <Text style={styles.createDropdownText}>
-                    {selectedEstablishment ? `${selectedEstablishment?.nom || 'Nom non défini'} - ${selectedEstablishment?.localisation || 'Localisation non définie'}` : "Aucun établissement (Optionnel)"}
-                  </Text>
-                  <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
-                </TouchableOpacity>
-                {showEstablishmentDropdown && (
-                  <View style={styles.createDropdownOptions}>
-                    <TouchableOpacity
-                      key="no-establishment"
-                      style={styles.createDropdownOption}
-                      onPress={() => {
-                        console.log('Selected establishment: None');
-                        setSelectedEstablishment(null);
-                        setShowEstablishmentDropdown(false);
-                      }}
-                    >
-                      <Text style={styles.createDropdownOptionText}>Aucun établissement</Text>
-                    </TouchableOpacity>
-                    {etablissements.map((etablissement) => (
-                      <TouchableOpacity
-                        key={etablissement?.id || etablissement?.nom || 'unknown'}
-                        style={styles.createDropdownOption}
-                        onPress={() => {
-                          console.log('Selected establishment:', etablissement);
-                          setSelectedEstablishment(etablissement);
-                          setShowEstablishmentDropdown(false);
-                        }}
-                      >
-                        <Text style={styles.createDropdownOptionText}>
-                          {etablissement?.nom || 'Nom non défini'} - {etablissement?.localisation || 'Localisation non définie'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
+              {/* Section: Établissement & modérateur */}
+              <Text style={styles.createSectionTitle}>Établissement & modérateur</Text>
+              <DropdownField
+                label={`Établissement (Optionnel)${isLoadingData ? ' (Chargement...)' : ''}`}
+                value={selectedEstablishment?.id ?? ""}
+                options={establishmentOptions}
+                onChange={(val) => setSelectedEstablishment(val ? etablissements.find((e) => e.id === val) ?? null : null)}
+                placeholder="Aucun établissement (Optionnel)"
+                disabled={isLoadingData}
+                sheetTitle="Établissement"
+              />
 
-              {/* Moderator Selection */}
-              <View style={styles.createFormField}>
-                <Text style={styles.createFieldLabel}>
-                  Modérateur (Optionnel) {isLoadingData && '(Chargement...)'}
-                </Text>
-                <TouchableOpacity
-                  style={styles.createDropdownButton}
-                  onPress={() => setShowModeratorDropdown(!showModeratorDropdown)}
-                  disabled={isLoadingData}
-                >
-                  <Text style={styles.createDropdownText}>
-                    {selectedModerator ? `${selectedModerator.prenom} ${selectedModerator.nom}` : "Aucun modérateur (Optionnel)"}
-                  </Text>
-                  <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
-                </TouchableOpacity>
-                {showModeratorDropdown && (
-                  <View style={styles.createDropdownOptions}>
-                    <TouchableOpacity
-                      key="no-moderator"
-                      style={styles.createDropdownOption}
-                      onPress={() => {
-                        console.log('Selected moderator: None');
-                        setSelectedModerator(null);
-                        setShowModeratorDropdown(false);
-                      }}
-                    >
-                      <Text style={styles.createDropdownOptionText}>Aucun modérateur</Text>
-                    </TouchableOpacity>
-                    {professors.map((professor) => (
-                      <TouchableOpacity
-                        key={professor?.id || professor?.nom || 'unknown'}
-                        style={styles.createDropdownOption}
-                        onPress={() => {
-                          console.log('Selected moderator:', professor);
-                          setSelectedModerator(professor);
-                          setShowModeratorDropdown(false);
-                        }}
-                      >
-                        <Text style={styles.createDropdownOptionText}>
-                          {professor?.prenom || ''} {professor?.nom || 'Nom non défini'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
+              <DropdownField
+                label={`Modérateur (Optionnel)${isLoadingData ? ' (Chargement...)' : ''}`}
+                value={selectedModerator?.id ?? ""}
+                options={moderatorOptions}
+                onChange={(val) => setSelectedModerator(val ? professors.find((p) => p.id === val) ?? null : null)}
+                placeholder="Aucun modérateur (Optionnel)"
+                disabled={isLoadingData}
+                sheetTitle="Modérateur"
+              />
 
               {/* Important Information */}
               <View style={styles.createInfoBox}>
@@ -1125,10 +1058,10 @@ const DashboardClassesBody = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
   },
   content: {
     flex: 1,
@@ -1141,30 +1074,30 @@ const styles = StyleSheet.create({
   pageTitle: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 4,
   },
   pageSubtitle: {
     fontSize: 16,
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   accessButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 12,
     marginBottom: 24,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3,
   },
   accessButtonText: {
-    color: "#FFFFFF",
+    color: colors.surface,
     fontSize: 16,
     fontWeight: "600",
     marginLeft: 8,
@@ -1177,23 +1110,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 25,
     marginRight: 12,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
   },
   activeFilterTab: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
   },
   filterTabText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   activeFilterTabText: {
-    color: "#FFFFFF",
+    color: colors.surface,
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -1210,7 +1143,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: "#111827",
+    color: colors.text,
   },
   classesList: {
     marginBottom: 20,
@@ -1222,13 +1155,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#6B7280",
+    color: colors.textMuted,
     marginTop: 16,
     marginBottom: 8,
   },
   emptyText: {
     fontSize: 14,
-    color: "#9CA3AF",
+    color: colors.textLight,
     textAlign: "center",
     paddingHorizontal: 32,
     lineHeight: 20,
@@ -1240,7 +1173,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#000",
@@ -1252,7 +1185,7 @@ const styles = StyleSheet.create({
   // Create Class Modal Styles
   createModalContainer: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: colors.background,
     padding: 20,
   },
   createModalScrollContainer: {
@@ -1264,12 +1197,12 @@ const styles = StyleSheet.create({
   createModalTitle: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 4,
   },
   createModalSubtitle: {
     fontSize: 16,
-    color: "#6B7280",
+    color: colors.textMuted,
   },
   createModalCloseButton: {
     position: "absolute",
@@ -1280,74 +1213,51 @@ const styles = StyleSheet.create({
   createFormContainer: {
     marginBottom: 20,
   },
+  createSectionTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 20,
+    marginBottom: 12,
+  },
   createFormField: {
     marginBottom: 16,
   },
   createFieldLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 8,
   },
   createTextInput: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 12,
     fontSize: 16,
-    color: "#111827",
-  },
-  createDropdownButton: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    padding: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  createDropdownText: {
-    fontSize: 16,
-    color: "#6B7280",
-  },
-  createDropdownOptions: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    marginTop: 8,
-    maxHeight: 200,
-    overflow: "hidden",
-  },
-  createDropdownOption: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  createDropdownOptionText: {
-    fontSize: 16,
-    color: "#111827",
+    color: colors.text,
   },
   createCodeContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
   createGenerateButton: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
     marginLeft: 8,
   },
   createGenerateButtonText: {
-    color: "#FFFFFF",
+    color: colors.surface,
     fontSize: 14,
     fontWeight: "600",
   },
   createInfoBox: {
-    backgroundColor: "#F3F4F6",
+    backgroundColor: colors.surfaceElevated,
     borderRadius: 8,
     padding: 16,
     marginBottom: 20,
@@ -1355,23 +1265,23 @@ const styles = StyleSheet.create({
   createInfoTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: colors.text,
     marginBottom: 8,
   },
   createInfoText: {
     fontSize: 12,
-    color: "#6B7280",
+    color: colors.textMuted,
     marginBottom: 4,
   },
   createButton: {
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     padding: 16,
     borderRadius: 8,
     alignItems: "center",
     marginTop: 20,
   },
   createButtonText: {
-    color: "#FFFFFF",
+    color: colors.surface,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -1381,7 +1291,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 16,
-    color: "#6B7280",
+    color: colors.textMuted,
     textAlign: "center",
     marginTop: 12,
   },

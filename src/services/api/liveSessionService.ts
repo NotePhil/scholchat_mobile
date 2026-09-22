@@ -1,11 +1,18 @@
 import { apiClient, extractErrorMessage } from './client';
 import { ApiSuccess, LiveSessionInfo } from '../../types';
 
+export type SessionMode = 'VIDEO' | 'AUDIO' | 'CONTENT_ONLY';
+
 /** Live-session (Jitsi) endpoints, ported from scholchat_front's LiveSessionService.js. Used by Phase 8. */
 export const liveSessionService = {
-  startSession: async (coursId: string): Promise<LiveSessionInfo> => {
+  /**
+   * Backend's StartSessionRequestDTO requires a `mode` field — omitting the
+   * body (as this used to) makes Spring reject every call with 400 "Required
+   * request body is missing" before a session is ever created.
+   */
+  startSession: async (coursId: string, mode: SessionMode = 'VIDEO'): Promise<LiveSessionInfo> => {
     try {
-      const { data } = await apiClient.post<LiveSessionInfo>(`/cours/${coursId}/session/start`);
+      const { data } = await apiClient.post<LiveSessionInfo>(`/cours/${coursId}/session/start`, { mode });
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du démarrage de la session.'));

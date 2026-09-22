@@ -98,7 +98,7 @@ const AccessRequestModal = ({
                   { transform: [{ rotate: loadingRotation }] },
                 ]}
               >
-                <FontAwesome5 name="spinner" size={32} color="#4F46E5" />
+                <FontAwesome5 name="spinner" size={32} color="#3B82F6" />
               </Animated.View>
               <Text style={styles.loadingText}>
                 Traitement de votre demande...
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   },
   validateButton: {
     flex: 1,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",

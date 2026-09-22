@@ -11,12 +11,17 @@ interface CourseContentSheetProps {
   visible: boolean;
   coursProgramme: CoursProgramme | null;
   onClose: () => void;
+  /** The learner whose progress this sheet tracks — the student themself, or
+   * the selected child when opened from a parent's Cours tab. Omitting it
+   * still shows chapters, just without progress/completion tracking. */
+  userId?: string;
 }
 
 export const CourseContentSheet = ({
   visible,
   coursProgramme,
   onClose,
+  userId,
 }: CourseContentSheetProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -24,22 +29,58 @@ export const CourseContentSheet = ({
   const [courseDetails, setCourseDetails] = useState<Cours | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [completedChapterIds, setCompletedChapterIds] = useState<Set<string>>(new Set());
+  const [togglingChapterId, setTogglingChapterId] = useState<string | null>(null);
 
   const coursId = coursProgramme?.coursId || (coursProgramme as any)?.cours?.id;
+
+  const loadProgression = (id: string, uid: string) => {
+    coursService
+      .getProgression(id, uid)
+      .then((data) => {
+        const ids = (data as { chapitresCompletesIds?: string[] }).chapitresCompletesIds ?? [];
+        setCompletedChapterIds(new Set(ids));
+      })
+      .catch(() => setCompletedChapterIds(new Set()));
+  };
 
   useEffect(() => {
     if (!visible || !coursId) {
       setCourseDetails(null);
+      setCompletedChapterIds(new Set());
       return;
     }
     setLoading(true);
     setError("");
     coursService
-      .getById(coursId)
+      .getWithChapitres(coursId)
       .then((data) => setCourseDetails(data))
       .catch((err) => setError(err instanceof Error ? err.message : "Impossible de charger les détails du cours."))
       .finally(() => setLoading(false));
-  }, [visible, coursId]);
+    if (userId) loadProgression(coursId, userId);
+  }, [visible, coursId, userId]);
+
+  const handleToggleChapter = async (chapitreId?: string) => {
+    if (!chapitreId || !coursId || !userId || togglingChapterId) return;
+    if (completedChapterIds.has(chapitreId)) return; // Backend only exposes "mark complete", not "un-complete".
+    setTogglingChapterId(chapitreId);
+    try {
+      await coursService.markChapterComplete(coursId, chapitreId, userId);
+      setCompletedChapterIds((prev) => new Set(prev).add(chapitreId));
+    } catch {
+      // best-effort — chapter stays unmarked, user can retry
+    } finally {
+      setTogglingChapterId(null);
+    }
+  };
+
+  const chapitres = useMemo(
+    () => [...(courseDetails?.chapitres ?? [])].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0)),
+    [courseDetails?.chapitres]
+  );
+  const totalChapitres = chapitres.length;
+  const completedCount = chapitres.filter((c) => c.id && completedChapterIds.has(c.id)).length;
+  const progressPct = totalChapitres > 0 ? Math.round((completedCount / totalChapitres) * 100) : 0;
 
   if (!coursProgramme) return null;
 
@@ -159,6 +200,55 @@ export const CourseContentSheet = ({
           <Text style={styles.errorText}>{error}</Text>
         ) : (
           <>
+            {/* Chapters & progress — mirrors web's CourseDetailsView.jsx */}
+            {totalChapitres > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.progressHeaderRow}>
+                  <Text style={styles.sectionTitle}>Chapitres</Text>
+                  {userId ? (
+                    <Text style={styles.progressPctText}>{progressPct}%</Text>
+                  ) : null}
+                </View>
+                {userId ? (
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+                  </View>
+                ) : null}
+                {userId ? (
+                  <Text style={styles.progressSubtext}>
+                    {completedCount} / {totalChapitres} chapitre{totalChapitres > 1 ? "s" : ""} terminé{completedCount > 1 ? "s" : ""}
+                  </Text>
+                ) : null}
+                <View style={{ marginTop: spacing.sm }}>
+                  {chapitres.map((ch, idx) => {
+                    const done = !!ch.id && completedChapterIds.has(ch.id);
+                    return (
+                      <TouchableOpacity
+                        key={ch.id ?? idx}
+                        style={styles.chapterRow}
+                        onPress={() => handleToggleChapter(ch.id)}
+                        disabled={!userId || done || togglingChapterId === ch.id}
+                        activeOpacity={0.7}
+                      >
+                        <FontAwesome5
+                          name={togglingChapterId === ch.id ? "spinner" : done ? "check-circle" : "circle"}
+                          solid={done}
+                          size={18}
+                          color={done ? colors.success : colors.textLight}
+                        />
+                        <Text style={[styles.chapterText, done && styles.chapterTextDone]} numberOfLines={2}>
+                          {idx + 1}. {ch.titre || `Chapitre ${idx + 1}`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                {!userId ? (
+                  <Text style={styles.progressSubtext}>Le suivi de progression n'est pas disponible ici.</Text>
+                ) : null}
+              </View>
+            ) : null}
+
             {/* Description */}
             {courseDetails?.description ? (
               <View style={styles.section}>
@@ -256,6 +346,27 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     gap: spacing.xs,
   },
   sectionTitle: { ...typography.bodyBold, color: colors.text, marginBottom: 4 },
+  progressHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  progressPctText: { ...typography.bodyBold, color: colors.primary },
+  progressTrack: {
+    height: 8,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceElevated,
+    overflow: "hidden",
+    marginTop: spacing.xs,
+  },
+  progressFill: { height: "100%", borderRadius: radius.full, backgroundColor: colors.primary },
+  progressSubtext: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
+  chapterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.borderLight,
+  },
+  chapterText: { ...typography.body, color: colors.text, flex: 1 },
+  chapterTextDone: { color: colors.textMuted, textDecorationLine: "line-through" },
   bodyText: { ...typography.body, color: colors.text, lineHeight: 22 },
   docItem: {
     flexDirection: "row",

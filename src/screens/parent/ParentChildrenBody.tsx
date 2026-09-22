@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Avatar, Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from "../../components/ui";
+import { Avatar, Badge, EmptyState, LoadingSpinner } from "../../components/ui";
 import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
-import { parentService, studentService } from "../../services/api";
+import { parentService } from "../../services/api";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
+import AddChildSheet from "./AddChildSheet";
 
 const ParentChildrenBody = () => {
   const colors = useThemeColors();
@@ -97,56 +98,6 @@ const ParentChildrenBody = () => {
         parentId={user?.userId}
       />
     </View>
-  );
-};
-
-interface AddChildSheetProps {
-  visible: boolean;
-  onClose: () => void;
-  onAdded: () => void;
-  parentId?: string;
-}
-
-const AddChildSheet = ({ visible, onClose, onAdded, parentId }: AddChildSheetProps) => {
-  const [prenom, setPrenom] = useState("");
-  const [nom, setNom] = useState("");
-  const [niveau, setNiveau] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async () => {
-    if (!parentId) {
-      Alert.alert("Erreur", "Utilisateur non identifié.");
-      return;
-    }
-    if (!prenom.trim() || !nom.trim()) {
-      Alert.alert("Erreur", "Le prénom et le nom sont obligatoires.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const created = await studentService.create({ prenom: prenom.trim(), nom: nom.trim(), niveau: niveau.trim() });
-      if (created.id) {
-        await parentService.addChild(parentId, created.id);
-      }
-      setPrenom("");
-      setNom("");
-      setNiveau("");
-      onAdded();
-      onClose();
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'ajout de l'enfant.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <BottomSheet visible={visible} onClose={onClose} title="Ajouter un enfant">
-      <Input label="Prénom" value={prenom} onChangeText={setPrenom} placeholder="Prénom de l'enfant" />
-      <Input label="Nom" value={nom} onChangeText={setNom} placeholder="Nom de l'enfant" />
-      <Input label="Niveau" value={niveau} onChangeText={setNiveau} placeholder="Ex: 3ème" />
-      <Button label="Ajouter" onPress={handleSubmit} loading={submitting} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
-    </BottomSheet>
   );
 };
 

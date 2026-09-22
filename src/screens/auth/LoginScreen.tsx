@@ -21,8 +21,9 @@ import { authService } from '../../services/home/authService';
 import { useUser } from '../../context/UserContext';
 import RoleSelectorSheet from '../shared/RoleSelectorSheet';
 import { LoginResponse } from '../../types';
+import { useKeyboardAwareScroll } from '../../hooks/useKeyboardAwareScroll';
 
-const logo = require('../../../assets/logo.png');
+const logo = require('../../../assets/logo-mark.png');
 
 /**
  * Enterprise-grade, clean & professional Login screen matching the Scholchat Web experience.
@@ -48,6 +49,7 @@ const LoginScreen = () => {
   const [passwordFocused, setPasswordFocused] = useState(false);
 
   const topPadding = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
+  const { scrollRef, scrollToFocusedInput } = useKeyboardAwareScroll();
 
   const handleSignIn = async () => {
     if (!email.trim() || !password) {
@@ -90,10 +92,12 @@ const LoginScreen = () => {
     <View style={[styles.safeArea, { paddingTop: topPadding }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? topPadding : 0}
         style={styles.flex}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -149,7 +153,7 @@ const LoginScreen = () => {
                   autoCorrect={false}
                   textContentType="emailAddress"
                   autoComplete="email"
-                  onFocus={() => setEmailFocused(true)}
+                  onFocus={(e) => { setEmailFocused(true); scrollToFocusedInput(e); }}
                   onBlur={() => setEmailFocused(false)}
                 />
               </View>
@@ -186,7 +190,7 @@ const LoginScreen = () => {
                   autoCorrect={false}
                   textContentType="password"
                   autoComplete="password"
-                  onFocus={() => setPasswordFocused(true)}
+                  onFocus={(e) => { setPasswordFocused(true); scrollToFocusedInput(e); }}
                   onBlur={() => setPasswordFocused(false)}
                 />
                 <TouchableOpacity

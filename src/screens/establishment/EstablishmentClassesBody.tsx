@@ -5,6 +5,7 @@ import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from ".
 import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { classAdminService, establishmentService } from "../../services/api";
 import { classService } from "../../services/classService";
+import PromptSheet from "../../components/common/PromptSheet";
 import ClassDetails from "../professeurs/components/classes/ClassDetails";
 import { UIClass, enrichClassForDetails } from "../professeurs/components/classes/DashboardClassesBody";
 import { ClassEntity, Etablissement } from "../../types";
@@ -33,6 +34,7 @@ const EstablishmentClassesBody = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [rejectingClass, setRejectingClass] = useState<ClassEntity | null>(null);
   const [managedClass, setManagedClass] = useState<ClassEntity | null>(null);
   const [selectedClass, setSelectedClass] = useState<UIClass | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState("info");
@@ -59,24 +61,47 @@ const EstablishmentClassesBody = () => {
     load();
   }, [load]);
 
+  // Uses classAdminService.approve/reject (PATCH /classes/{id}/approve|reject)
+  // — the same endpoints web's gestionnaire screen calls
+  // (classService.approuverClasse/rejeterClasse) — instead of the
+  // establishment-scoped pair, which takes no rejection reason at all and
+  // doesn't verify the class actually belongs to this établissement.
   const handleApprove = async (cls: ClassEntity) => {
-    if (!cls.etablissement?.id) return;
     try {
-      await establishmentService.approveClass(cls.id, cls.etablissement.id);
+      await classAdminService.approve(cls.id);
       load();
     } catch (err) {
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'approbation.");
     }
   };
 
-  const handleReject = async (cls: ClassEntity) => {
-    if (!cls.etablissement?.id) return;
+  const handleConfirmReject = async (motif: string) => {
+    if (!rejectingClass) return;
     try {
-      await establishmentService.rejectClass(cls.id, cls.etablissement.id);
+      await classAdminService.reject(rejectingClass.id, motif);
+      setRejectingClass(null);
       load();
     } catch (err) {
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du rejet.");
     }
+  };
+
+  const handleDelete = (cls: ClassEntity) => {
+    Alert.alert("Supprimer la classe", `Supprimer définitivement "${cls.nom ?? "cette classe"}" ?`, [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await classAdminService.remove(cls.id);
+            load();
+          } catch (err) {
+            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
+          }
+        },
+      },
+    ]);
   };
 
   const handleManage = async (cls: ClassEntity) => {
@@ -157,12 +182,16 @@ const EstablishmentClassesBody = () => {
                         <FontAwesome5 name="check" size={14} color={colors.success} />
                         <Text style={[styles.actionText, { color: colors.success }]}>Approuver</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.actionBtn} onPress={() => handleReject(cls)}>
+                      <TouchableOpacity style={styles.actionBtn} onPress={() => setRejectingClass(cls)}>
                         <FontAwesome5 name="times" size={14} color={colors.danger} />
                         <Text style={[styles.actionText, { color: colors.danger }]}>Rejeter</Text>
                       </TouchableOpacity>
                     </>
                   )}
+                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleDelete(cls)}>
+                    <FontAwesome5 name="trash" size={14} color={colors.danger} />
+                    <Text style={[styles.actionText, { color: colors.danger }]}>Supprimer</Text>
+                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             );
@@ -177,6 +206,16 @@ const EstablishmentClassesBody = () => {
         onCreated={load}
         establishments={establishments}
         creatorId={user?.userId}
+      />
+
+      <PromptSheet
+        visible={!!rejectingClass}
+        title="Motif du rejet"
+        message={rejectingClass ? `Pourquoi rejeter "${rejectingClass.nom}" ?` : undefined}
+        placeholder="Motif"
+        submitLabel="Rejeter"
+        onCancel={() => setRejectingClass(null)}
+        onSubmit={handleConfirmReject}
       />
     </View>
   );

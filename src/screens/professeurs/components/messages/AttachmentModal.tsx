@@ -18,21 +18,21 @@ const AttachmentModal = ({ onClose, onAttach }: AttachmentModalProps) => {
             style={styles.attachmentOption}
             onPress={() => onAttach("link")}
           >
-            <FontAwesome5 name="link" size={20} color="#4F46E5" />
+            <FontAwesome5 name="link" size={20} color="#3B82F6" />
             <Text style={styles.attachmentText}>Lien</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.attachmentOption}
             onPress={() => onAttach("image")}
           >
-            <FontAwesome5 name="image" size={20} color="#4F46E5" />
+            <FontAwesome5 name="image" size={20} color="#3B82F6" />
             <Text style={styles.attachmentText}>Image</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.attachmentOption}
             onPress={() => onAttach("file")}
           >
-            <FontAwesome5 name="file-alt" size={20} color="#4F46E5" />
+            <FontAwesome5 name="file-alt" size={20} color="#3B82F6" />
             <Text style={styles.attachmentText}>Fichier</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>

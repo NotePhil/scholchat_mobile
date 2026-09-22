@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   ScrollView,
   View,
@@ -10,12 +10,14 @@ import {
   TouchableWithoutFeedback,
   Alert,
   Share,
+  RefreshControl,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { useUser } from "../../../../context/UserContext";
 import { coursService } from "../../../../services/api";
 import { LoadingSpinner } from "../../../../components/ui";
+import { useThemeColors } from "../../../../styles/theme";
 import { CoursProgrammerScreen } from "./CoursProgrammerScreen";
 import CourseDetailView from "./CourseDetailView";
 
@@ -57,7 +59,6 @@ export interface Cours {
 
 interface DashboardCoursBodyProps {
   onNavigateToCreate: () => void;
-  onCreateCours?: (cours: Cours) => void;
   onEditCours: (cours: Cours) => void;
 }
 
@@ -92,6 +93,8 @@ const getInitials = (title: string): string => {
 
 const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursBodyProps) => {
   const { user } = useUser();
+  const themeColors = useThemeColors();
+  const coursStyles = useMemo(() => createCoursStyles(themeColors), [themeColors]);
   const navigation = useNavigation<any>();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState("tous");
@@ -101,6 +104,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [cours, setCours] = useState<Cours[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const loadCours = useCallback(async () => {
@@ -324,6 +328,12 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
     outputRange: [0, 1],
   });
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadCours();
+    setRefreshing(false);
+  };
+
   return (
     <View style={coursStyles.container}>
       {/* Scrollable Content */}
@@ -332,6 +342,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
         contentContainerStyle={coursStyles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
       >
         {/* Header Section with Gradient-like Badge */}
         <View style={coursStyles.pageHeader}>
@@ -350,7 +361,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
               style={coursStyles.scheduleQuickBtn}
               activeOpacity={0.7}
             >
-              <FontAwesome5 name="calendar-alt" size={16} color="#4F46E5" />
+              <FontAwesome5 name="calendar-alt" size={16} color="#3B82F6" />
             </TouchableOpacity>
           </View>
         </View>
@@ -368,12 +379,12 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
             <View style={coursStyles.statTopRow}>
               <Text style={coursStyles.statLabel}>Total Cours</Text>
               <View style={[coursStyles.statIconBadge, { backgroundColor: "#EEF2FF" }]}>
-                <FontAwesome5 name="book-open" size={14} color="#4F46E5" />
+                <FontAwesome5 name="book-open" size={14} color="#3B82F6" />
               </View>
             </View>
             <Text style={[coursStyles.statNumber, { color: "#0F172A" }]}>{totalCours}</Text>
             <View style={coursStyles.statBottomRow}>
-              <FontAwesome5 name="chart-line" size={10} color="#94A3B8" style={{ marginRight: 4 }} />
+              <FontAwesome5 name="chart-line" size={10} color={themeColors.textLight} style={{ marginRight: 4 }} />
               <Text style={coursStyles.statSubText}>Tous les cours</Text>
             </View>
           </TouchableOpacity>
@@ -394,7 +405,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
             </View>
             <Text style={[coursStyles.statNumber, { color: "#D97706" }]}>{brouillonCount}</Text>
             <View style={coursStyles.statBottomRow}>
-              <FontAwesome5 name="clock" size={10} color="#94A3B8" style={{ marginRight: 4 }} />
+              <FontAwesome5 name="clock" size={10} color={themeColors.textLight} style={{ marginRight: 4 }} />
               <Text style={coursStyles.statSubText}>Non publiés</Text>
             </View>
           </TouchableOpacity>
@@ -415,7 +426,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
             </View>
             <Text style={[coursStyles.statNumber, { color: "#059669" }]}>{publieCount}</Text>
             <View style={coursStyles.statBottomRow}>
-              <FontAwesome5 name="star" size={10} color="#94A3B8" style={{ marginRight: 4 }} />
+              <FontAwesome5 name="star" size={10} color={themeColors.textLight} style={{ marginRight: 4 }} />
               <Text style={coursStyles.statSubText}>Disponibles</Text>
             </View>
           </TouchableOpacity>
@@ -423,7 +434,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
 
         {/* Search Bar */}
         <View style={coursStyles.searchContainer}>
-          <FontAwesome5 name="search" size={15} color="#94A3B8" style={coursStyles.searchIcon} />
+          <FontAwesome5 name="search" size={15} color={themeColors.textLight} style={coursStyles.searchIcon} />
           <TextInput
             style={coursStyles.searchInput}
             placeholder="Rechercher un cours par titre ou description..."
@@ -433,7 +444,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
           />
           {searchTerm.length > 0 && (
             <TouchableOpacity onPress={() => setSearchTerm("")} style={coursStyles.clearSearchBtn}>
-              <FontAwesome5 name="times-circle" size={16} color="#94A3B8" />
+              <FontAwesome5 name="times-circle" size={16} color={themeColors.textLight} />
             </TouchableOpacity>
           )}
         </View>
@@ -553,14 +564,14 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
                   {/* Meta Details Row */}
                   <View style={coursStyles.cardMetaRow}>
                     <View style={coursStyles.metaItem}>
-                      <FontAwesome5 name="calendar-alt" size={12} color="#94A3B8" />
+                      <FontAwesome5 name="calendar-alt" size={12} color={themeColors.textLight} />
                       <Text style={coursStyles.metaText}>
                         Créé le {new Date(coursItem.dateCreation).toLocaleDateString("fr-FR")}
                       </Text>
                     </View>
                     {coursItem.chapitres && coursItem.chapitres.length > 0 && (
                       <View style={coursStyles.metaItem}>
-                        <FontAwesome5 name="book" size={12} color="#94A3B8" />
+                        <FontAwesome5 name="book" size={12} color={themeColors.textLight} />
                         <Text style={coursStyles.metaText}>
                           {coursItem.chapitres.length} chapitre{coursItem.chapitres.length > 1 ? "s" : ""}
                         </Text>
@@ -590,7 +601,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
                         accessibilityLabel="Détails"
                         activeOpacity={0.7}
                       >
-                        <FontAwesome5 name="eye" size={14} color="#4F46E5" />
+                        <FontAwesome5 name="eye" size={14} color="#3B82F6" />
                       </TouchableOpacity>
 
                       {/* Edit */}
@@ -623,7 +634,7 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
                         accessibilityLabel="Partager"
                         activeOpacity={0.7}
                       >
-                        <FontAwesome5 name="share-alt" size={14} color="#64748B" />
+                        <FontAwesome5 name="share-alt" size={14} color={themeColors.textMuted} />
                       </TouchableOpacity>
 
                       {/* Delete */}
@@ -754,10 +765,10 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
   );
 };
 
-const coursStyles = StyleSheet.create({
+const createCoursStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: colors.background,
   },
   scrollView: {
     flex: 1,
@@ -778,11 +789,11 @@ const coursStyles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -794,12 +805,12 @@ const coursStyles = StyleSheet.create({
   pageTitle: {
     fontSize: 22,
     fontWeight: "800",
-    color: "#0F172A",
+    color: colors.text,
     letterSpacing: -0.5,
   },
   pageSubtitle: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.textMuted,
     marginTop: 2,
   },
   scheduleQuickBtn: {
@@ -819,11 +830,11 @@ const coursStyles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
@@ -831,7 +842,7 @@ const coursStyles = StyleSheet.create({
     elevation: 2,
   },
   statCardActive: {
-    borderColor: "#4F46E5",
+    borderColor: "#3B82F6",
     borderWidth: 2,
   },
   statCardActiveAmber: {
@@ -851,7 +862,7 @@ const coursStyles = StyleSheet.create({
   statLabel: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#64748B",
+    color: colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 0.2,
   },
@@ -873,16 +884,16 @@ const coursStyles = StyleSheet.create({
   },
   statSubText: {
     fontSize: 10,
-    color: "#94A3B8",
+    color: colors.textLight,
     fontWeight: "500",
   },
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     paddingHorizontal: 14,
     height: 46,
     marginBottom: 14,
@@ -898,7 +909,7 @@ const coursStyles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: "#0F172A",
+    color: colors.text,
     paddingVertical: 0,
   },
   clearSearchBtn: {
@@ -913,22 +924,22 @@ const coursStyles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
   },
   activeFilterTab: {
-    backgroundColor: "#4F46E5",
-    borderColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
+    borderColor: "#3B82F6",
   },
   filterTabText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#64748B",
+    color: colors.textMuted,
     marginRight: 6,
   },
   activeFilterTabText: {
-    color: "#FFFFFF",
+    color: colors.surface,
   },
   filterBadge: {
     paddingHorizontal: 6,
@@ -939,17 +950,17 @@ const coursStyles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.25)",
   },
   filterBadgeInactive: {
-    backgroundColor: "#F1F5F9",
+    backgroundColor: colors.surfaceElevated,
   },
   filterBadgeText: {
     fontSize: 11,
     fontWeight: "700",
   },
   filterBadgeTextActive: {
-    color: "#FFFFFF",
+    color: colors.surface,
   },
   filterBadgeTextInactive: {
-    color: "#64748B",
+    color: colors.textMuted,
   },
   errorBox: {
     flexDirection: "row",
@@ -971,10 +982,10 @@ const coursStyles = StyleSheet.create({
     gap: 14,
   },
   coursCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     padding: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -995,17 +1006,17 @@ const coursStyles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 3,
   },
   avatarText: {
-    color: "#FFFFFF",
+    color: colors.surface,
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0.5,
@@ -1018,7 +1029,7 @@ const coursStyles = StyleSheet.create({
     height: 16,
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: "#FFFFFF",
+    borderColor: colors.surface,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -1029,12 +1040,12 @@ const coursStyles = StyleSheet.create({
   cardTitle: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#0F172A",
+    color: colors.text,
     lineHeight: 20,
   },
   cardSubject: {
     fontSize: 12,
-    color: "#64748B",
+    color: colors.textMuted,
     marginTop: 2,
   },
   statusBadge: {
@@ -1066,14 +1077,14 @@ const coursStyles = StyleSheet.create({
   },
   metaText: {
     fontSize: 12,
-    color: "#64748B",
+    color: colors.textMuted,
   },
   cardActionsBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
+    borderTopColor: colors.surfaceElevated,
     paddingTop: 12,
   },
   liveButton: {
@@ -1109,10 +1120,10 @@ const coursStyles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 48,
     paddingHorizontal: 24,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     marginTop: 10,
   },
   emptyIconCircle: {
@@ -1127,13 +1138,13 @@ const coursStyles = StyleSheet.create({
   emptyTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#0F172A",
+    color: colors.text,
     marginBottom: 6,
     textAlign: "center",
   },
   emptySubtitle: {
     fontSize: 13,
-    color: "#64748B",
+    color: colors.textMuted,
     textAlign: "center",
     lineHeight: 19,
     marginBottom: 20,
@@ -1141,23 +1152,23 @@ const coursStyles = StyleSheet.create({
   emptyCreateButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 12,
-    shadowColor: "#4F46E5",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.25,
     shadowRadius: 5,
     elevation: 3,
   },
   emptyCreateButtonText: {
-    color: "#FFFFFF",
+    color: colors.surface,
     fontSize: 14,
     fontWeight: "600",
   },
   fabBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(15, 23, 42, 0.4)",
     zIndex: 10,
   },
@@ -1176,12 +1187,12 @@ const coursStyles = StyleSheet.create({
   speedDialCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.surface,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: colors.border,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
@@ -1204,19 +1215,19 @@ const coursStyles = StyleSheet.create({
   speedDialTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#0F172A",
+    color: colors.text,
   },
   speedDialSubtitle: {
     fontSize: 10,
-    color: "#64748B",
+    color: colors.textMuted,
     marginTop: 1,
   },
   floatingButton: {
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: "#4F46E5",
-    shadowColor: "#4F46E5",
+    backgroundColor: "#3B82F6",
+    shadowColor: "#3B82F6",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
     shadowRadius: 8,

@@ -6,7 +6,7 @@ import { mediaService } from "../../services/api";
 import { storageService } from "../../services/storageService";
 
 /** Mirrors web's ProfessorsContent.jsx `toRelativePath` — a stored CNI/selfie value is often a full Wasabi/MinIO URL; the download-by-path lookup needs the relative storage key. */
-const toRelativePath = (raw: string): string => {
+export const toRelativePath = (raw: string): string => {
   if (!raw.startsWith("http")) return raw;
   try {
     const pathname = new URL(raw).pathname.replace(/^\//, "");

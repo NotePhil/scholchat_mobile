@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, SafeAreaView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Input } from '../../components/ui';
@@ -52,8 +52,8 @@ const SetPasswordScreen = () => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
-        <View style={styles.content}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <FontAwesome5 name="shield-alt" size={40} color={colors.primary} style={styles.icon} />
           <Text style={styles.title}>Sécurisez votre compte</Text>
           {email ? <Text style={styles.email}>{email}</Text> : null}
@@ -90,7 +90,7 @@ const SetPasswordScreen = () => {
               <Button label="Valider mon profil" onPress={handleSubmit} loading={loading} fullWidth />
             </>
           )}
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -99,7 +99,7 @@ const SetPasswordScreen = () => {
 const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
-  content: { flex: 1, justifyContent: 'center', padding: spacing.xl },
+  content: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
   icon: { alignSelf: 'center', marginBottom: spacing.md },
   title: { ...typography.h1, color: colors.text, textAlign: 'center' },
   email: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.lg },
