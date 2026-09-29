@@ -7,7 +7,7 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { Camera } from "expo-camera";
 import { Button, EmptyState, LoadingSpinner } from "../../components/ui";
 import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
-import { liveSessionService } from "../../services/api";
+import { coursService, liveSessionService } from "../../services/api";
 import { LiveSessionInfo } from "../../types";
 
 /**
@@ -20,7 +20,7 @@ import { LiveSessionInfo } from "../../types";
  * sets, passed via the URL hash fragment (parsed client-side by Jitsi's own
  * web app, same as the JS API would apply them).
  */
-const buildJitsiUrl = (session: LiveSessionInfo, isModerator: boolean): string | null => {
+const buildJitsiUrl = (session: LiveSessionInfo, isModerator: boolean, coursTitre?: string): string | null => {
   if (!session.roomName || !session.jitsiDomain) return null;
   const startWithAudioMuted = !isModerator;
   const startWithVideoMuted = session.mode !== 'VIDEO' || !isModerator;
@@ -31,6 +31,13 @@ const buildJitsiUrl = (session: LiveSessionInfo, isModerator: boolean): string |
     `config.startWithVideoMuted=${startWithVideoMuted}`,
     'config.prejoinPageEnabled=false',
     'config.disableDeepLinking=true',
+    // Jitsi shows the raw technical room name (roomName above, e.g.
+    // "scholchat-<id>-<timestamp>") as its conference title by default.
+    // "subject" is the documented override for a human-readable title
+    // instead — mirrors web's JitsiRoom.jsx. Hash values are JSON-parsed
+    // by Jitsi, so a string needs to be URL-encoded JSON (quoted).
+    `config.subject=${encodeURIComponent(JSON.stringify(coursTitre || 'Session ScholChat'))}`,
+    'config.readOnlyName=true',
     'interfaceConfig.SHOW_JITSI_WATERMARK=false',
     'interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false',
     // Jitsi's web app shows a big "open in app" promo/redirect on mobile
@@ -55,13 +62,25 @@ const LiveSessionScreen = () => {
   const isHost: boolean = route.params?.isHost ?? false;
 
   const [session, setSession] = useState<LiveSessionInfo | null>(null);
+  const [coursTitre, setCoursTitre] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
   const [webviewError, setWebviewError] = useState(false);
   const [permissionWarning, setPermissionWarning] = useState("");
 
-  const jitsiUrl = useMemo(() => (session ? buildJitsiUrl(session, isHost) : null), [session, isHost]);
+  const jitsiUrl = useMemo(
+    () => (session ? buildJitsiUrl(session, isHost, coursTitre) : null),
+    [session, isHost, coursTitre]
+  );
+
+  useEffect(() => {
+    if (!coursId) return;
+    coursService
+      .getById(coursId)
+      .then((c) => setCoursTitre(c.titre || ""))
+      .catch(() => {});
+  }, [coursId]);
 
   // Android's WebView silently DENIES any getUserMedia() request from the
   // page it hosts unless the app itself already holds the OS-level CAMERA/
@@ -159,7 +178,9 @@ const LiveSessionScreen = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <FontAwesome5 name="arrow-left" size={18} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Session en direct</Text>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {coursTitre || "Session en direct"}
+        </Text>
         {session ? (
           <TouchableOpacity onPress={handleEnd} style={styles.endButton}>
             <Text style={styles.endButtonText}>{isHost ? "Terminer" : "Quitter"}</Text>
