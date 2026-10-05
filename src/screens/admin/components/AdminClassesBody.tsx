@@ -213,7 +213,7 @@ const AdminClassesBody = ({ autoCreate }: AdminClassesBodyProps) => {
                     </View>
                     <Badge label={etat} tone={STATUS_TONE[etatUpper] ?? "neutral"} />
                   </View>
-
+//ok
                   {/* Establishment */}
                   {cls.etablissement?.nom ? (
                     <View style={styles.metaRow}>
