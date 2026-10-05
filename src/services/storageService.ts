@@ -5,6 +5,8 @@ import { AuthUser, LoginResponse } from '../types';
 const STORAGE_KEYS = {
   USER_TOKEN: 'userToken',
   USER_DATA: 'userData',
+  // Survives logout on purpose: onboarding is shown only on the very first launch.
+  ONBOARDING_SEEN: 'onboardingSeen',
 };
 
 export const storageService = {
@@ -12,7 +14,10 @@ export const storageService = {
   saveUserData: async (loginResponse: LoginResponse): Promise<void> => {
     try {
       const decodedToken = decodeToken(loginResponse.accessToken);
-      const userRole = getUserRole(loginResponse.accessToken);
+      // Multi-role accounts: the token lists every role, `selectedRole` is the one in use.
+      const userRole = loginResponse.selectedRole
+        ? `ROLE_${String(loginResponse.selectedRole).toUpperCase().replace(/^ROLE_/, '')}`
+        : getUserRole(loginResponse.accessToken);
 
       const enrichedData: AuthUser = {
         ...loginResponse,
@@ -57,6 +62,23 @@ export const storageService = {
     } catch (error) {
       console.error('Error clearing user data:', error);
       throw error;
+    }
+  },
+
+  // First-launch onboarding flag (pre-login carousel)
+  hasSeenOnboarding: async (): Promise<boolean> => {
+    try {
+      return (await AsyncStorage.getItem(STORAGE_KEYS.ONBOARDING_SEEN)) === '1';
+    } catch {
+      return false;
+    }
+  },
+
+  setOnboardingSeen: async (): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.ONBOARDING_SEEN, '1');
+    } catch {
+      // best-effort: worst case the carousel shows again next launch
     }
   },
 

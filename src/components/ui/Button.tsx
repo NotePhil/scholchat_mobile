@@ -1,18 +1,21 @@
 import React, { useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, TouchableOpacityProps, ViewStyle } from 'react-native';
+import { FontAwesome5 } from '@expo/vector-icons';
 import { radius, spacing, typography, useThemeColors } from '../../styles/theme';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 
 interface ButtonProps extends TouchableOpacityProps {
   label: string;
+  /** FontAwesome5 icon name shown before the label. */
+  icon?: string;
   variant?: ButtonVariant;
   loading?: boolean;
   fullWidth?: boolean;
   style?: ViewStyle;
 }
 
-const Button = ({ label, variant = 'primary', loading = false, fullWidth = false, style, disabled, ...rest }: ButtonProps) => {
+const Button = ({ label, icon, variant = 'primary', loading = false, fullWidth = false, style, disabled, ...rest }: ButtonProps) => {
   const colors = useThemeColors();
   const { styles, variantStyles, variantTextStyles } = useMemo(() => createStyles(colors), [colors]);
   const isDisabled = disabled || loading;
@@ -33,7 +36,10 @@ const Button = ({ label, variant = 'primary', loading = false, fullWidth = false
       {loading ? (
         <ActivityIndicator size="small" color={variant === 'ghost' ? colors.primary : colors.white} />
       ) : (
-        <Text style={[styles.label, variantTextStyles[variant]]}>{label}</Text>
+        <>
+          {icon ? <FontAwesome5 name={icon as any} size={13} color={variantTextStyles[variant].color} /> : null}
+          <Text style={[styles.label, variantTextStyles[variant]]}>{label}</Text>
+        </>
       )}
     </TouchableOpacity>
   );
@@ -48,6 +54,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => {
       paddingVertical: spacing.md,
       paddingHorizontal: spacing.lg,
       borderRadius: radius.sm,
+      gap: spacing.sm,
     },
     fullWidth: {
       width: '100%',

@@ -9,6 +9,10 @@ interface ActivityMediaVideoProps {
   mediaId?: string;
   presignedUrl?: string | null;
   style?: StyleProp<ViewStyle>;
+  /** Start resolving and playing immediately instead of waiting for a tap (used by the full-screen viewer). */
+  autoPlay?: boolean;
+  /** Smaller play button and label, for small grid cells. */
+  compact?: boolean;
 }
 
 const ActiveVideo = ({ source, style, onError }: { source: VideoSource; style?: StyleProp<ViewStyle>; onError: () => void }) => {
@@ -47,10 +51,10 @@ const ActiveVideo = ({ source, style, onError }: { source: VideoSource; style?: 
  * Mirrors scholchat_front's VideoPlayer (ActivitiesContent.jsx) exactly:
  * two phases, no exceptions.
  *   Phase 1 (default): dark placeholder, centered play button, "Vidéo" badge
- *     — zero network cost, matches every other cell in the grid until tapped.
- *     This is web's own design too (a real thumbnail/poster frame is never
- *     fetched or shown there either), not a bug — do not confuse it with the
- *     genuinely broken all-black-after-tap case below.
+ *     — zero network cost until tapped. Web also paints a first-frame thumbnail
+ *     with a canvas; expo-video's generateThumbnailsAsync can only be shown
+ *     through expo-image, which isn't installed, so mobile keeps web's own
+ *     fallback (dark tile + play button) instead.
  *   Phase 2 (after tap): resolves the real playable URL and mounts the real
  *     player, which autoplays with native controls once ready.
  *
@@ -71,7 +75,7 @@ const ActiveVideo = ({ source, style, onError }: { source: VideoSource; style?: 
  * player error triggers a one-time retry through the proxy+header path
  * before giving up.
  */
-const ActivityMediaVideo = ({ mediaId, presignedUrl, style }: ActivityMediaVideoProps) => {
+const ActivityMediaVideo = ({ mediaId, presignedUrl, style, autoPlay = false, compact = false }: ActivityMediaVideoProps) => {
   const [active, setActive] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [source, setSource] = useState<VideoSource | null>(null);
@@ -114,6 +118,11 @@ const ActivityMediaVideo = ({ mediaId, presignedUrl, style }: ActivityMediaVideo
     }
   };
 
+  useEffect(() => {
+    if (autoPlay) activate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay]);
+
   const handlePlayerError = () => {
     if (!triedProxy && mediaId) {
       setTriedProxy(true);
@@ -146,10 +155,10 @@ const ActivityMediaVideo = ({ mediaId, presignedUrl, style }: ActivityMediaVideo
   // Phase 1 — lazy preview, no network request until tapped.
   return (
     <TouchableOpacity style={[styles.preview, style as StyleProp<ViewStyle>]} activeOpacity={0.85} onPress={activate}>
-      <View style={styles.playButton}>
-        <FontAwesome5 name="play" size={22} color="#FFFFFF" style={{ marginLeft: 3 }} />
+      <View style={[styles.playButton, compact && styles.playButtonCompact]}>
+        <FontAwesome5 name="play" size={compact ? 15 : 22} color="#FFFFFF" style={{ marginLeft: 3 }} />
       </View>
-      <Text style={styles.playLabel}>Lire la vidéo</Text>
+      {!compact ? <Text style={styles.playLabel}>Lire la vidéo</Text> : null}
       <View style={styles.badge}>
         <FontAwesome5 name="video" size={9} color="#FFFFFF" />
         <Text style={styles.badgeText}>Vidéo</Text>
@@ -175,6 +184,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  playButtonCompact: { width: 42, height: 42, borderRadius: 21 },
   playLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '600', marginTop: 8 },
   badge: {
     position: 'absolute',

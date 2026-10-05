@@ -5,6 +5,7 @@ import { BottomSheet, Button, Input } from "../../components/ui";
 import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService, classAdminService } from "../../services/api";
 import { ClassEntity } from "../../types";
+import { useUser } from "../../context/UserContext";
 
 interface JoinClassSheetProps {
   visible: boolean;
@@ -25,6 +26,7 @@ interface JoinClassSheetProps {
 const JoinClassSheet = ({ visible, onClose, onSubmitted, utilisateurId, estParent }: JoinClassSheetProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { user } = useUser();
   const [code, setCode] = useState("");
   const [searching, setSearching] = useState(false);
   const [foundClass, setFoundClass] = useState<ClassEntity | null>(null);
@@ -58,8 +60,11 @@ const JoinClassSheet = ({ visible, onClose, onSubmitted, utilisateurId, estParen
     if (!foundClass || !utilisateurId) return;
     setSubmitting(true);
     try {
+      // Backend requires the request to come from oneself (utilisateurId =
+      // logged-in user). Like web's StudentClassList, a parent sends it with
+      // their own id and names the child in eleveAssocieId.
       await accederService.demanderAcces({
-        utilisateurId,
+        utilisateurId: estParent ? user?.userId ?? utilisateurId : utilisateurId,
         classeId: foundClass.id,
         codeActivation: code.trim(),
         estParent,

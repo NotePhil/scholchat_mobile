@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { userService } from '../../services/api';
+import { translate, useT } from '../../i18n';
 
 /**
  * Enterprise-grade VerifyEmail screen informing the newly registered user
@@ -23,6 +24,7 @@ const VerifyEmailScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
+  const { t } = useT();
   const email: string | undefined = route.params?.email;
   const userType: string | undefined = route.params?.userType;
 
@@ -39,10 +41,10 @@ const VerifyEmailScreen = () => {
     setIsError(false);
     try {
       await userService.resendActivationEmail(email);
-      setFeedback("L'e-mail d'activation a été renvoyé avec succès.");
+      setFeedback(translate('auth.verifyEmail.resent'));
     } catch (err) {
       setIsError(true);
-      setFeedback(err instanceof Error ? err.message : "Échec de l'envoi de l'e-mail.");
+      setFeedback(err instanceof Error ? err.message : translate('auth.verifyEmail.resendFailed'));
     } finally {
       setSending(false);
     }
@@ -86,20 +88,20 @@ const VerifyEmailScreen = () => {
             <FontAwesome5 name="envelope-open-text" size={36} color="#2563EB" />
           </View>
 
-          <Text style={styles.title}>Vérifiez votre e-mail</Text>
+          <Text style={styles.title}>{t('auth.verifyEmail.title')}</Text>
 
           <Text style={styles.subtitle}>
-            Nous venons d'envoyer un lien d'activation à :
+            {t('auth.verifyEmail.sentTo')}
           </Text>
 
           <View style={styles.emailChip}>
-            <Text style={styles.emailText}>{email || 'votre adresse e-mail'}</Text>
+            <Text style={styles.emailText}>{email || t('auth.verifyEmail.yourAddress')}</Text>
           </View>
 
           <Text style={styles.instructions}>
             {userType === 'Professeur'
-              ? "Votre demande d'inscription professeur a bien été enregistrée. Elle est en attente de vérification par l'administration. Vous recevrez une notification par e-mail une fois validée."
-              : "Cliquez sur le lien reçu dans l'e-mail pour activer votre compte et définir votre mot de passe d'accès. Pensez également à vérifier vos spams."}
+              ? t('auth.verifyEmail.teacherInstructions')
+              : t('auth.verifyEmail.instructions')}
           </Text>
 
           {feedback ? (
@@ -127,7 +129,7 @@ const VerifyEmailScreen = () => {
               ) : (
                 <View style={styles.resendRow}>
                   <FontAwesome5 name="redo-alt" size={13} color="#2563EB" />
-                  <Text style={styles.resendButtonText}>Renvoyer l'e-mail d'activation</Text>
+                  <Text style={styles.resendButtonText}>{t('auth.verifyEmail.resend')}</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -138,13 +140,13 @@ const VerifyEmailScreen = () => {
             onPress={handleGoToLogin}
             activeOpacity={0.85}
           >
-            <Text style={styles.loginButtonText}>Aller à la connexion</Text>
+            <Text style={styles.loginButtonText}>{t('auth.activation.goToLogin')}</Text>
             <FontAwesome5 name="arrow-right" size={13} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
         <Text style={styles.helpText}>
-          Besoin d'aide ? Contactez le support de votre établissement.
+          {t('auth.verifyEmail.help')}
         </Text>
       </ScrollView>
     </View>

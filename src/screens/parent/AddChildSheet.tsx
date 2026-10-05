@@ -2,10 +2,8 @@ import React, { useState } from "react";
 import { Alert } from "react-native";
 import { BottomSheet, Button, DropdownField, Input } from "../../components/ui";
 import { spacing } from "../../styles/theme";
-import { parentService, studentService } from "../../services/api";
-
-/** Mirrors web's AddChildModal.jsx `niveaux` list exactly. */
-const NIVEAUX = ["CP", "CE1", "CE2", "CM1", "CM2", "6eme", "5eme", "4eme", "3eme", "2nde", "1ere", "Terminale"];
+import { parentService } from "../../services/api";
+import { NIVEAUX } from "../../constants/niveaux";
 
 interface AddChildSheetProps {
   visible: boolean;
@@ -15,9 +13,9 @@ interface AddChildSheetProps {
 }
 
 /**
- * Mirrors web's AddChildModal.jsx field set exactly (prenom, nom, niveau
- * required from a fixed list, email/telephone optional) — mobile previously
- * only asked for 3 free-text fields with no niveau list.
+ * Mirrors web's AddChildModal.jsx exactly: prenom, nom, niveau (shared NIVEAUX list)
+ * required, email/telephone optional; POST /profil-eleves then
+ * POST /parents/{parentId}/enfants/{eleveId}; same validation/success/error messages.
  */
 const AddChildSheet = ({ visible, onClose, onAdded, parentId }: AddChildSheetProps) => {
   const [prenom, setPrenom] = useState("");
@@ -41,26 +39,27 @@ const AddChildSheet = ({ visible, onClose, onAdded, parentId }: AddChildSheetPro
       return;
     }
     if (!prenom.trim() || !nom.trim() || !niveau) {
-      Alert.alert("Erreur", "Le prénom, le nom et le niveau sont obligatoires.");
+      Alert.alert("Erreur", "Nom, prenom et niveau sont obligatoires");
       return;
     }
     setSubmitting(true);
     try {
-      const created = await studentService.create({
+      // 1. create the child's profile, 2. link it to this parent (same two calls as web's AddChildModal)
+      const created = await parentService.createChildProfile({
         prenom: prenom.trim(),
         nom: nom.trim(),
         niveau,
         email: email.trim(),
         telephone: telephone.trim(),
       });
-      if (created.id) {
-        await parentService.addChild(parentId, created.id);
-      }
+      if (!created?.id) throw new Error("Erreur lors de la creation de l'eleve");
+      await parentService.addChild(parentId, created.id);
       resetForm();
       onAdded();
       onClose();
+      Alert.alert("Succès", `${prenom} ${nom} a ete ajoute avec succes !`);
     } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'ajout de l'enfant.");
+      Alert.alert("Erreur", err instanceof Error && err.message ? err.message : "Erreur lors de l'ajout de l'enfant");
     } finally {
       setSubmitting(false);
     }
@@ -68,8 +67,8 @@ const AddChildSheet = ({ visible, onClose, onAdded, parentId }: AddChildSheetPro
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title="Ajouter un enfant">
-      <Input label="Prénom *" value={prenom} onChangeText={setPrenom} placeholder="Prénom de l'enfant" />
-      <Input label="Nom *" value={nom} onChangeText={setNom} placeholder="Nom de l'enfant" />
+      <Input label="Prénom *" value={prenom} onChangeText={setPrenom} placeholder="Prenom" />
+      <Input label="Nom *" value={nom} onChangeText={setNom} placeholder="Nom" />
       <DropdownField
         label="Niveau *"
         value={niveau}
@@ -82,7 +81,7 @@ const AddChildSheet = ({ visible, onClose, onAdded, parentId }: AddChildSheetPro
         label="Email (optionnel)"
         value={email}
         onChangeText={setEmail}
-        placeholder="email@exemple.com"
+        placeholder="email@example.com"
         keyboardType="email-address"
         autoCapitalize="none"
       />
@@ -90,7 +89,7 @@ const AddChildSheet = ({ visible, onClose, onAdded, parentId }: AddChildSheetPro
         label="Téléphone (optionnel)"
         value={telephone}
         onChangeText={setTelephone}
-        placeholder="6 00 00 00 00"
+        placeholder="6XXXXXXXX"
         keyboardType="phone-pad"
       />
       <Button

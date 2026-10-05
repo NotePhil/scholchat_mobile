@@ -3,9 +3,11 @@ import { SafeAreaView, StyleSheet, View } from 'react-native';
 import { EmptyState } from '../../components/ui';
 import { colors, spacing, useThemeColors } from '../../styles/theme';
 import { useUser } from '../../context/UserContext';
+import { useT } from '../../i18n';
+import type { AppRole } from '../../types';
 
 interface ComingSoonScreenProps {
-  roleLabel: string;
+  role: AppRole;
 }
 
 /**
@@ -13,19 +15,21 @@ interface ComingSoonScreenProps {
  * (parent, student, establishment, gestionnaire, tutor — see the phased
  * roadmap). Still lets the user see who they're signed in as and log out.
  */
-const ComingSoonScreen = ({ roleLabel }: ComingSoonScreenProps) => {
+const ComingSoonScreen = ({ role }: ComingSoonScreenProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user, logout } = useUser();
+  const { t } = useT();
+  const roleLabel = t(`roles.${role}`);
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <EmptyState
           icon="tools"
-          title={`Espace ${roleLabel}`}
-          message={`Bonjour ${user?.username || user?.nom || ''} — cet espace est en cours de construction et arrive bientôt.`}
-          actionLabel="Se déconnecter"
+          title={t('comingSoon.title', { role: roleLabel })}
+          message={t('comingSoon.message', { name: user?.username || user?.nom || '' })}
+          actionLabel={t('common.logout')}
           onAction={logout}
         />
       </View>

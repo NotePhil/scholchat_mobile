@@ -1,56 +1,66 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, ImageStyle, StyleProp, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, useThemeColors } from '../../styles/theme';
+import { useThemeColors } from '../../styles/theme';
 import { mediaService } from '../../services/api';
 import { storageService } from '../../services/storageService';
 
 interface ActivityMediaImageProps {
   mediaId?: string;
   presignedUrl?: string | null;
-  style?: StyleProp<ImageStyle>;
+  /** Size/shape of the box. The image always fills it, so loading and broken states keep the same footprint. */
+  style?: StyleProp<ViewStyle | ImageStyle>;
   onPress?: () => void;
   resizeMode?: 'cover' | 'contain';
+  /** Background shown while loading or broken. Defaults to the theme's elevated surface; the full-screen viewer passes 'transparent'. */
+  placeholderColor?: string;
 }
 
 /**
- * Resolves a real, loadable image URL before rendering — mirrors
- * scholchat_front's LazyMedia component. A media object's embedded
- * `filePath`/`presignedUrl` from a list endpoint is not reliably a fetchable
- * URI, so this calls /media/{id}/download-url (falling back to the direct
- * /media/{id}/content proxy stream) instead of ever using filePath as-is.
+ * Resolves a loadable image URL, the same way scholchat_front's LazyMedia does:
+ * use the embedded presignedUrl when there is one, otherwise call
+ * /media/{id}/download-url, and fall back to the auth-gated /media/{id}/content
+ * proxy. The proxy is also retried once if the presigned URL fails to load,
+ * because in dev the presigned host is often `localhost:9000`, which a phone
+ * can't reach.
  *
- * The presigned S3 URL's host comes straight from the backend's `s3.endpoint`
- * config — in local/dev setups that's commonly `localhost:9000`, which only
- * resolves on the machine running the backend itself. A browser on that same
- * laptop loads it fine; a phone on the network cannot. So this always retries
- * through `/media/{id}/content` (a same-origin proxy stream served BY the
- * backend API, which the app already reaches for every other request) before
- * giving up — not just as the initial resolution fallback, but also whenever
- * the presigned URL fails to actually load.
+ * States, matching web: a pulsing skeleton with a spinner while the URL resolves
+ * or the image downloads, then the image, or a muted broken-image icon (web's
+ * BrokenImagePlaceholder). An empty grey box never stays on screen.
  */
-const ActivityMediaImage = ({ mediaId, presignedUrl, style, onPress, resizeMode = 'cover' }: ActivityMediaImageProps) => {
+const ActivityMediaImage = ({
+  mediaId,
+  presignedUrl,
+  style,
+  onPress,
+  resizeMode = 'cover',
+  placeholderColor,
+}: ActivityMediaImageProps) => {
   const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const styles = useMemo(() => createStyles(), []);
   const [url, setUrl] = useState<string | null>(presignedUrl ?? null);
-  // The /media/{id}/content proxy is auth-gated — unlike a presigned S3 url,
-  // a request to it with no Authorization header 401s and Image just shows
-  // it as a load failure with no useful signal why. Tracked separately so
-  // the header is only attached for that specific URL, not the S3 one.
+  // The /media/{id}/content proxy needs the Bearer token; a presigned S3 URL
+  // must NOT get it (an extra header breaks the signature).
   const [needsAuthHeader, setNeedsAuthHeader] = useState(false);
   const [authHeader, setAuthHeader] = useState<Record<string, string> | undefined>(undefined);
   const [triedProxy, setTriedProxy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     setTriedProxy(false);
     setFailed(false);
+    setLoaded(false);
     setNeedsAuthHeader(false);
     if (presignedUrl) {
       setUrl(presignedUrl);
       return;
     }
-    if (!mediaId) return;
+    setUrl(null);
+    if (!mediaId) {
+      setFailed(true);
+      return;
+    }
     let cancelled = false;
     mediaService
       .getDownloadUrl(mediaId)
@@ -89,6 +99,7 @@ const ActivityMediaImage = ({ mediaId, presignedUrl, style, onPress, resizeMode 
   const handleError = () => {
     if (!triedProxy && mediaId) {
       setTriedProxy(true);
+      setLoaded(false);
       setUrl(mediaService.getContentUrl(mediaId));
       setNeedsAuthHeader(true);
     } else {
@@ -96,27 +107,47 @@ const ActivityMediaImage = ({ mediaId, presignedUrl, style, onPress, resizeMode 
     }
   };
 
-  const content =
-    !url || failed ? (
-      <View style={[styles.placeholder, style as StyleProp<ViewStyle>]}>
-        {!failed ? <ActivityIndicator color={colors.textMuted} /> : <FontAwesome5 name="image" size={18} color={colors.textMuted} />}
-      </View>
-    ) : (
-      <Image
-        source={{ uri: url, headers: authHeader }}
-        style={StyleSheet.flatten([styles.image, style])}
-        resizeMode={resizeMode}
-        onError={handleError}
-      />
-    );
+  // Wait for the token before requesting the proxy URL, otherwise the first request 401s.
+  const waitingForToken = needsAuthHeader && !authHeader;
+  const showImage = !!url && !failed && !waitingForToken;
+  const bg = placeholderColor ?? colors.surfaceElevated;
 
-  if (!onPress) return content;
-  return <TouchableOpacity onPress={onPress}>{content}</TouchableOpacity>;
+  const body = (
+    <>
+      {showImage ? (
+        <Image
+          source={{ uri: url as string, headers: authHeader }}
+          style={StyleSheet.absoluteFill}
+          resizeMode={resizeMode}
+          onLoad={() => setLoaded(true)}
+          onError={handleError}
+        />
+      ) : null}
+      {!loaded || failed ? (
+        <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: bg }]} pointerEvents="none">
+          {failed ? (
+            <FontAwesome5 name="image" size={26} color={colors.textLight} style={{ opacity: 0.5 }} />
+          ) : (
+            <ActivityIndicator color={colors.textLight} />
+          )}
+        </View>
+      ) : null}
+    </>
+  );
+
+  const boxStyle = [styles.box, { backgroundColor: bg }, style as StyleProp<ViewStyle>];
+  if (!onPress) return <View style={boxStyle}>{body}</View>;
+  return (
+    <TouchableOpacity style={boxStyle} activeOpacity={0.9} onPress={onPress}>
+      {body}
+    </TouchableOpacity>
+  );
 };
 
-const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
-  image: { backgroundColor: colors.grayLight },
-  placeholder: { backgroundColor: colors.grayLight, alignItems: 'center', justifyContent: 'center' },
-});
+const createStyles = () =>
+  StyleSheet.create({
+    box: { overflow: 'hidden' },
+    center: { alignItems: 'center', justifyContent: 'center' },
+  });
 
 export default ActivityMediaImage;

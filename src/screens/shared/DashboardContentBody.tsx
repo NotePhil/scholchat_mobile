@@ -1,57 +1,77 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Dimensions,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Badge, LoadingSpinner, QuickActionGrid } from "../../components/ui";
-import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../styles/theme";
+import Svg, { Defs, G, Line, LinearGradient as SvgGradient, Path, Rect, Stop, Text as SvgText } from "react-native-svg";
+import { LoadingSpinner } from "../../components/ui";
+import { radius, shadow } from "../../styles/theme";
+import { useThemeStore } from "../../store/useThemeStore";
 import {
   classAdminService,
-  coursProgrammerService,
-  coursService,
   establishmentService,
   matiereService,
   professorService,
   userService,
 } from "../../services/api";
-import { classService } from "../../services/classService";
-import { ClassEntity, CoursProgramme, Etablissement, Matiere, Professor } from "../../types";
-import { useUser } from "../../context/UserContext";
+import { ClassEntity, Etablissement, Matiere, Professor } from "../../types";
 import { useAuthStore } from "../../store/useAuthStore";
+import { classService } from "../../services/classService";
 import type { QuickAction } from "./QuickActionsSheet";
 
-const SEANCE_STATUS_LABELS: Record<string, string> = {
-  PLANIFIE: "Planifié",
-  EN_COURS: "En cours",
-  TERMINE: "Terminé",
-  ANNULE: "Annulé",
-};
-const SEANCE_STATUS_TONE: Record<string, "info" | "success" | "neutral" | "danger"> = {
-  PLANIFIE: "info",
-  EN_COURS: "success",
-  TERMINE: "neutral",
-  ANNULE: "danger",
-};
-const fmtSeanceDate = (d?: string | null) =>
-  d
-    ? new Date(d).toLocaleString("fr-FR", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-    : "—";
+/**
+ * Mobile port of web's DashboardContent
+ * (scholchat_front/src/pages/Dashbaord/principale/DashboardContent.jsx):
+ * same header, KPI cards, secondary KPIs, charts and recent activity, in the
+ * same order, with web's slate palette. Charts are drawn with react-native-svg
+ * since recharts is web-only.
+ */
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
 try {
   LinearGradient = require("expo-linear-gradient").LinearGradient;
 } catch {
-  LinearGradient = ({ children, style }: any) => <View style={style}>{children}</View>;
+  LinearGradient = ({ children, style, colors: c }: any) => (
+    <View style={[style, { backgroundColor: c?.[0] }]}>{children}</View>
+  );
 }
 
-const SCREEN_W = Dimensions.get("window").width;
+// ─── Colour palette for charts (same as web) ─────────────────────────────────
+const CHART_COLORS = [
+  "#3B82F6",
+  "#6366F1",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+  "#14B8A6",
+  "#F97316",
+  "#06B6D4",
+];
+
+// Web's Tailwind slate scale, light vs dark
+const palette = (isDark: boolean) => ({
+  isDark,
+  page: isDark ? "#0F172A" : "#F8FAFC", // slate-900 / slate-50
+  card: isDark ? "#1E293B" : "#FFFFFF", // slate-800 / white
+  border: isDark ? "#334155" : "#F1F5F9", // slate-700 / slate-100
+  title: isDark ? "#FFFFFF" : "#0F172A", // white / slate-900
+  heading: isDark ? "#FFFFFF" : "#1E293B", // white / slate-800
+  muted: isDark ? "#94A3B8" : "#64748B", // slate-400 / slate-500
+  faint: isDark ? "#64748B" : "#94A3B8", // slate-500 / slate-400
+  legend: isDark ? "#94A3B8" : "#475569", // slate-400 / slate-600
+  grid: isDark ? "#334155" : "#F1F5F9",
+  axis: isDark ? "#94A3B8" : "#64748B",
+});
+type Palette = ReturnType<typeof palette>;
 
 interface DashboardContentBodyProps {
   accentColor?: string;
@@ -60,108 +80,282 @@ interface DashboardContentBodyProps {
   onNavigate?: (tab: string) => void;
 }
 
-const SectionTitle = ({ icon, label, actionLabel, onAction }: { icon: string; label: string; actionLabel?: string; onAction?: () => void }) => {
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+// ─── Chart helpers ───────────────────────────────────────────────────────────
+const polar = (cx: number, cy: number, r: number, a: number) => ({
+  x: cx + r * Math.cos(a),
+  y: cy + r * Math.sin(a),
+});
+
+const arcPath = (cx: number, cy: number, rOut: number, rIn: number, start: number, end: number) => {
+  const sweep = Math.min(end - start, Math.PI * 2 - 0.0001);
+  const e = start + sweep;
+  const large = sweep > Math.PI ? 1 : 0;
+  const o1 = polar(cx, cy, rOut, start);
+  const o2 = polar(cx, cy, rOut, e);
+  const i1 = polar(cx, cy, rIn, e);
+  const i2 = polar(cx, cy, rIn, start);
+  return `M${o1.x},${o1.y} A${rOut},${rOut} 0 ${large} 1 ${o2.x},${o2.y} L${i1.x},${i1.y} A${rIn},${rIn} 0 ${large} 0 ${i2.x},${i2.y} Z`;
+};
+
+/** Catmull-Rom → cubic Bézier, close to recharts' "monotone" curve for this data. */
+const smoothPath = (pts: { x: number; y: number }[]) => {
+  if (pts.length === 0) return "";
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`;
+  }
+  return d;
+};
+
+/** Four evenly spaced ticks from 0 up to a round number ≥ max. */
+const niceTicks = (max: number) => {
+  const raw = Math.max(max, 1) / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = Math.ceil(raw / mag) * mag;
+  return [0, step, step * 2, step * 3, step * 4];
+};
+
+type Slice = { name: string; value: number; color: string };
+
+const DonutChart = ({ data, size, inner, outer, padAngle }: { data: Slice[]; size: number; inner: number; outer: number; padAngle: number }) => {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const cx = size / 2;
+  const cy = size / 2;
+  const rOut = (size / 2) * outer;
+  const rIn = (size / 2) * inner;
+  const pad = data.filter((d) => d.value > 0).length > 1 ? (padAngle * Math.PI) / 180 : 0;
+  let angle = -Math.PI / 2;
   return (
-  <View style={styles.sectionHeaderRow}>
-    <View style={styles.sectionTitleWrap}>
-      <View style={styles.sectionIconBox}>
-        <FontAwesome5 name={icon as any} size={12} color={colors.primary} />
-      </View>
-      <Text style={styles.sectionTitleText}>{label}</Text>
-    </View>
-    {actionLabel && onAction ? (
-      <TouchableOpacity onPress={onAction} style={styles.sectionActionBtn} activeOpacity={0.7}>
-        <Text style={styles.sectionActionText}>{actionLabel}</Text>
-        <FontAwesome5 name="chevron-right" size={10} color={colors.primary} />
-      </TouchableOpacity>
-    ) : null}
-  </View>
+    <Svg width={size} height={size}>
+      {total > 0 &&
+        data.map((d, i) => {
+          if (d.value <= 0) return null;
+          const sweep = (d.value / total) * Math.PI * 2;
+          const start = angle + pad / 2;
+          const end = angle + sweep - pad / 2;
+          angle += sweep;
+          return <Path key={i} d={arcPath(cx, cy, rOut, rIn, start, Math.max(end, start + 0.001))} fill={d.color} />;
+        })}
+    </Svg>
   );
 };
 
-const DashboardContentBody = ({
-  accentColor = colors.primary,
-  quickActions = [],
-  onQuickAction,
-  onNavigate,
-}: DashboardContentBodyProps) => {
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const { user } = useUser();
-  const currentRole = useAuthStore((s) => s.role);
-  const isAdmin = currentRole === "admin";
-  const isProfessor = currentRole === "professor" || currentRole === "tutor";
+const BarChartSvg = ({ data, width, height, p }: { data: { name: string; progression: number }[]; width: number; height: number; p: Palette }) => {
+  const left = 32;
+  const bottom = 22;
+  const top = 8;
+  const plotW = width - left;
+  const plotH = height - bottom - top;
+  const ticks = [0, 25, 50, 75, 100];
+  const slot = plotW / data.length;
+  const barW = Math.min(20, slot * 0.6);
+  const r = Math.min(6, barW / 2);
+  return (
+    <Svg width={width} height={height}>
+      <Defs>
+        <SvgGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0%" stopColor="#6366f1" />
+          <Stop offset="100%" stopColor="#3b82f6" />
+        </SvgGradient>
+      </Defs>
+      {ticks.map((t) => {
+        const y = top + plotH - (t / 100) * plotH;
+        return (
+          <G key={t}>
+            <Line x1={left} x2={width} y1={y} y2={y} stroke={p.grid} strokeDasharray="3 3" />
+            <SvgText x={left - 6} y={y + 4} fontSize={10} fill={p.axis} textAnchor="end">{t}</SvgText>
+          </G>
+        );
+      })}
+      {data.map((d, i) => {
+        const h = (d.progression / 100) * plotH;
+        const x = left + slot * i + (slot - barW) / 2;
+        const y = top + plotH - h;
+        // Rounded top corners only, like recharts' radius={[6, 6, 0, 0]}
+        const path = `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + barW - r},${y} Q${x + barW},${y} ${x + barW},${y + r} L${x + barW},${y + h} Z`;
+        return (
+          <G key={i}>
+            <Path d={path} fill="url(#barGrad)" />
+            <SvgText x={left + slot * i + slot / 2} y={height - 6} fontSize={9} fill={p.axis} textAnchor="middle">
+              {d.name}
+            </SvgText>
+          </G>
+        );
+      })}
+    </Svg>
+  );
+};
+
+type AreaPoint = { mois: string; cours: number; exercices: number };
+
+const AreaChartSvg = ({ data, width, height, p }: { data: AreaPoint[]; width: number; height: number; p: Palette }) => {
+  const left = 28;
+  const bottom = 22;
+  const top = 8;
+  const plotW = width - left - 8;
+  const plotH = height - bottom - top;
+  const ticks = niceTicks(Math.max(...data.map((d) => Math.max(d.cours, d.exercices))));
+  const yMax = ticks[ticks.length - 1];
+  const xAt = (i: number) => left + (data.length === 1 ? plotW / 2 : (plotW * i) / (data.length - 1));
+  const yAt = (v: number) => top + plotH - (v / yMax) * plotH;
+  const series = [
+    { key: "exercices" as const, color: "#10b981", grad: "gradExo" },
+    { key: "cours" as const, color: "#3b82f6", grad: "gradCours" },
+  ];
+  return (
+    <Svg width={width} height={height}>
+      <Defs>
+        <SvgGradient id="gradCours" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+          <Stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+        </SvgGradient>
+        <SvgGradient id="gradExo" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+          <Stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+        </SvgGradient>
+      </Defs>
+      {ticks.map((t) => (
+        <G key={t}>
+          <Line x1={left} x2={width} y1={yAt(t)} y2={yAt(t)} stroke={p.grid} strokeDasharray="3 3" />
+          <SvgText x={left - 6} y={yAt(t) + 4} fontSize={10} fill={p.axis} textAnchor="end">{t}</SvgText>
+        </G>
+      ))}
+      {series.map((s) => {
+        const pts = data.map((d, i) => ({ x: xAt(i), y: yAt(d[s.key]) }));
+        const line = smoothPath(pts);
+        const base = top + plotH;
+        const area = `${line} L${pts[pts.length - 1].x},${base} L${pts[0].x},${base} Z`;
+        return (
+          <G key={s.key}>
+            <Path d={area} fill={`url(#${s.grad})`} />
+            <Path d={line} stroke={s.color} strokeWidth={2.5} fill="none" />
+          </G>
+        );
+      })}
+      {data.map((d, i) => (
+        <SvgText key={d.mois} x={xAt(i)} y={height - 6} fontSize={10} fill={p.axis} textAnchor="middle">
+          {d.mois}
+        </SvgText>
+      ))}
+    </Svg>
+  );
+};
+
+// ─── Stat Card ───────────────────────────────────────────────────────────────
+const StatCard = ({
+  title,
+  value,
+  icon,
+  gradient,
+  trend,
+  subtitle,
+  width,
+  p,
+}: {
+  title: string;
+  value: number | string;
+  icon: string;
+  gradient: [string, string];
+  trend?: string;
+  subtitle?: string;
+  width: number;
+  p: Palette;
+}) => {
+  const styles = useMemo(() => createStyles(p), [p]);
+  return (
+    <View style={[styles.statCard, { width }]}>
+      {/* gradient blob */}
+      <View style={[styles.statBlob, { backgroundColor: gradient[0] }]} pointerEvents="none" />
+      <View style={styles.statTopRow}>
+        <View style={styles.statTextCol}>
+          <Text style={styles.statTitle}>{title}</Text>
+          <Text style={styles.statValue}>{typeof value === "number" ? value.toLocaleString("fr-FR") : value}</Text>
+          {subtitle ? (
+            <View style={styles.statSubRow}>
+              <View style={styles.statDot} />
+              <Text style={styles.statSub}>{subtitle}</Text>
+            </View>
+          ) : null}
+        </View>
+        <LinearGradient colors={gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.statIconBox}>
+          <FontAwesome5 name={icon as any} size={17} color="#FFFFFF" />
+        </LinearGradient>
+      </View>
+      {trend ? (
+        <View style={styles.statTrendRow}>
+          <View style={styles.trendPill}>
+            <FontAwesome5 name="chart-line" size={9} color="#047857" />
+            <Text style={styles.trendPillText}>{trend}</Text>
+          </View>
+          <Text style={styles.statSub}>ce mois</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+};
+
+// ─── Chart card wrapper ──────────────────────────────────────────────────────
+const ChartCard = ({ title, icon, children, p }: { title: string; icon: string; children: React.ReactNode; p: Palette }) => {
+  const styles = useMemo(() => createStyles(p), [p]);
+  return (
+    <View style={styles.chartCard}>
+      <View style={styles.chartHeader}>
+        <Text style={styles.chartTitle}>{title}</Text>
+        <FontAwesome5 name={icon as any} size={14} color="#94A3B8" />
+      </View>
+      {children}
+    </View>
+  );
+};
+
+// ─── Main component ──────────────────────────────────────────────────────────
+const DashboardContentBody = (_props: DashboardContentBodyProps) => {
+  const isDark = useThemeStore((s) => s.mode === "dark");
+  const p = useMemo(() => palette(isDark), [isDark]);
+  const styles = useMemo(() => createStyles(p), [p]);
+  const { width: windowW } = useWindowDimensions();
+  // This home is shared by admin and professor/tutor. Platform-wide figures
+  // (every professor, pending validations, every class, every establishment)
+  // are admin-only; a professor only sees their own classes.
+  const isAdmin = useAuthStore((s) => s.role) === "admin";
+  const userId = useAuthStore((s) => s.user?.userId);
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [professors, setProfessors] = useState<Professor[]>([]);
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [matieres, setMatieres] = useState<Matiere[]>([]);
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
-  const [myCoursCount, setMyCoursCount] = useState(0);
-  const [upcomingSeances, setUpcomingSeances] = useState<CoursProgramme[]>([]);
-
-  const navigate = (tab: string) => {
-    if (onNavigate) {
-      onNavigate(tab);
-    } else if (onQuickAction) {
-      onQuickAction({ icon: "circle", label: tab, color: colors.primary, tab });
-    }
-  };
 
   const load = useCallback(async () => {
-    setError("");
-    try {
-      if (isProfessor && user?.userId) {
-        // A professor doesn't care about platform-wide totals — mirrors web's
-        // Principal dashboard for this role, which is scoped to "my" data.
-        const [cls, cours, seances] = await Promise.all([
-          classService.getClassesWithPublicationRights(user.userId).catch(() => []),
-          coursService.getByProfessor(user.userId).catch(() => []),
-          coursProgrammerService.getByProfessor(user.userId).catch(() => []),
-        ]);
-        setClasses(cls);
-        setMyCoursCount(cours.length);
-        const now = Date.now();
-        const upcoming = seances
-          .filter((s) => {
-            const etat = s.etatCoursProgramme ?? "PLANIFIE";
-            if (etat === "TERMINE" || etat === "ANNULE") return false;
-            if (etat === "EN_COURS") return true;
-            const t = s.dateCoursPrevue ? new Date(s.dateCoursPrevue).getTime() : 0;
-            return t >= now;
-          })
-          .sort((a, b) => {
-            const ta = a.dateCoursPrevue ? new Date(a.dateCoursPrevue).getTime() : 0;
-            const tb = b.dateCoursPrevue ? new Date(b.dateCoursPrevue).getTime() : 0;
-            return ta - tb;
-          })
-          .slice(0, 4);
-        setUpcomingSeances(upcoming);
-      } else {
-        const [profs, cls, mats, ests, pending] = await Promise.all([
-          professorService.getAll().catch(() => []),
-          classAdminService.getAll().catch(() => []),
-          matiereService.getAll().catch(() => []),
-          establishmentService.getAll().catch(() => []),
-          userService.getPendingProfessors().catch(() => [] as unknown[]),
-        ]);
-        setProfessors(profs);
-        setClasses(cls);
-        setMatieres(mats);
-        setEstablishments(ests);
-        setPendingCount(Array.isArray(pending) ? pending.length : ((pending as any)?.content ?? []).length);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur lors du chargement des données.");
-    } finally {
-      setLoading(false);
-    }
-  }, [isProfessor, user?.userId]);
+    const [profs, cls, mats, ests, pending] = await Promise.all([
+      isAdmin ? professorService.getAll().catch(() => [] as Professor[]) : Promise.resolve([] as Professor[]),
+      isAdmin
+        ? classAdminService.getAll().catch(() => [] as ClassEntity[])
+        : userId
+          ? classService.getClassesWithPublicationRights(userId).catch(() => [] as ClassEntity[])
+          : Promise.resolve([] as ClassEntity[]),
+      matiereService.getAll().catch(() => [] as Matiere[]),
+      isAdmin ? establishmentService.getAll().catch(() => [] as Etablissement[]) : Promise.resolve([] as Etablissement[]),
+      // Admin-only endpoint — other roles would just get a 403.
+      isAdmin ? userService.getPendingProfessors().catch(() => [] as unknown[]) : Promise.resolve([] as unknown[]),
+    ]);
+    setProfessors(profs || []);
+    setClasses(cls || []);
+    setMatieres(mats || []);
+    setEstablishments(ests || []);
+    setPendingCount(Array.isArray(pending) ? pending.length : ((pending as any)?.content ?? []).length);
+    setLoading(false);
+  }, [isAdmin, userId]);
 
   useEffect(() => {
     load();
@@ -173,552 +367,286 @@ const DashboardContentBody = ({
     setRefreshing(false);
   };
 
-  if (loading) return <LoadingSpinner label="Chargement du tableau de bord..." fullScreen />;
+  // Same figures as web: course/exercise/progress totals aren't wired to an
+  // endpoint there yet either, so they stay at 0.
+  const stats = {
+    totalCourses: 0,
+    totalExercises: 0,
+    activeClasses: classes.filter((c) => (c.etat as string) === "ACTIF").length,
+    averageProgress: 0,
+    totalMatieres: matieres.length,
+    totalStudents: 0,
+    totalProfessors: professors.length,
+    pendingProfessors: pendingCount,
+    completionRate: 0,
+  };
 
-  const activeClasses = classes.filter((c) => (c.etat as string) === "ACTIF").length;
-  const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-  const todayFormatted = today.charAt(0).toUpperCase() + today.slice(1);
+  // ── Chart data (mirrors web, which fills these with placeholder values) ───
+  // Memoised on the source lists so the random placeholders don't reshuffle
+  // on every re-render.
+  const pieData: Slice[] = useMemo(
+    () =>
+      matieres.slice(0, 10).map((m, i) => ({
+        name: m.nom || `Matière ${i + 1}`,
+        value: Math.floor(Math.random() * 40) + 10,
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      })),
+    [matieres]
+  );
+  const barData = useMemo(
+    () =>
+      classes.slice(0, 8).map((c) => ({
+        name: c.nom ? (c.nom.length > 6 ? c.nom.slice(0, 6) + "…" : c.nom) : "Classe",
+        progression: Math.floor(Math.random() * 35) + 60,
+      })),
+    [classes]
+  );
+  const areaData: AreaPoint[] = [
+    { mois: "Jan", cours: 4, exercices: 8 },
+    { mois: "Fév", cours: 7, exercices: 14 },
+    { mois: "Mar", cours: 5, exercices: 11 },
+    { mois: "Avr", cours: 9, exercices: 18 },
+    { mois: "Mai", cours: 12, exercices: 22 },
+    { mois: "Jun", cours: stats.totalCourses || 10, exercices: stats.totalExercises || 20 },
+  ];
+  const statusData: Slice[] = [
+    { name: "Terminés", value: stats.completionRate || 0, color: "#10B981" },
+    { name: "En cours", value: 15, color: "#6366F1" },
+    { name: "Non démarrés", value: 6, color: "#F43F5E" },
+  ];
 
-  // Greeting title & role text
-  let greetingTitle = "Bonjour 👋";
-  let greetingSubtitle = "Tableau de bord";
-  let roleBadgeLabel = "Utilisateur";
+  const recentItems = [
+    {
+      icon: "book-open",
+      color: "#2563EB",
+      bg: isDark ? "rgba(37,99,235,0.15)" : "#EFF6FF",
+      label: "Nouveau cours publié",
+      sub: professors[0] ? `${professors[0].prenom} ${professors[0].nom}` : "Professeur",
+      time: "Il y a 2h",
+    },
+    {
+      icon: "check-circle",
+      color: "#059669",
+      bg: isDark ? "rgba(5,150,105,0.15)" : "#ECFDF5",
+      label: "Exercices complétés",
+      sub: classes[0]?.nom || "Classe 3ème A",
+      time: "Il y a 3h",
+    },
+    {
+      icon: "users",
+      color: "#9333EA",
+      bg: isDark ? "rgba(147,51,234,0.15)" : "#FAF5FF",
+      label: "Nouvelle classe créée",
+      sub: "Admin",
+      time: "Il y a 5h",
+    },
+    {
+      icon: "award",
+      color: "#D97706",
+      bg: isDark ? "rgba(217,119,6,0.15)" : "#FFFBEB",
+      label: "Jalon de progression atteint",
+      sub: "Système",
+      time: "Hier",
+    },
+    {
+      icon: "file-alt",
+      color: "#4F46E5",
+      bg: isDark ? "rgba(79,70,229,0.15)" : "#EEF2FF",
+      label: "Matière mise à jour",
+      sub: professors[1] ? `${professors[1].prenom} ${professors[1].nom}` : "Professeur",
+      time: "Il y a 2j",
+    },
+  ];
 
-  if (isAdmin) {
-    greetingTitle = "Bonjour Admin 👋";
-    greetingSubtitle = "Tableau de bord d'administration générale";
-    roleBadgeLabel = "👑 Administrateur Système";
-  } else if (isProfessor) {
-    const profName = user?.prenom ? ` ${user.prenom}` : "";
-    greetingTitle = `Bonjour Professeur${profName} 👋`;
-    greetingSubtitle = "Espace pédagogique & suivi des cours";
-    roleBadgeLabel = "👨‍🏫 Enseignant";
-  } else {
-    const name = user?.prenom ? ` ${user.prenom}` : "";
-    greetingTitle = `Bonjour${name} 👋`;
-    greetingSubtitle = "Bienvenue sur SchoolChat";
-    roleBadgeLabel = user?.role || "Membre";
-  }
+  if (loading) return <LoadingSpinner label="Chargement du tableau de bord…" fullScreen />;
+
+  const today = new Date().toLocaleDateString("fr-FR", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const BODY_PAD = 16;
+  const GAP = 12;
+  const halfW = (windowW - BODY_PAD * 2 - GAP) / 2;
+  // Chart card: 20px padding + 1px border each side
+  const chartW = windowW - BODY_PAD * 2 - 42;
+
+  const secondary = isAdmin
+    ? [
+        { label: "Professeurs", value: stats.totalProfessors, icon: "graduation-cap", color: "#3b82f6" },
+        { label: "En attente valid.", value: stats.pendingProfessors, icon: "clock", color: "#f59e0b" },
+        { label: "Matières", value: stats.totalMatieres, icon: "layer-group", color: "#8b5cf6" },
+        { label: "Établissements", value: establishments.length, icon: "school", color: "#10b981" },
+      ]
+    : [
+        { label: "Mes classes", value: classes.length, icon: "school", color: "#3b82f6" },
+        { label: "Matières", value: stats.totalMatieres, icon: "layer-group", color: "#8b5cf6" },
+      ];
 
   return (
     <ScrollView
       style={styles.scroll}
       showsVerticalScrollIndicator={false}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
     >
-      {/* ── Hero Banner with Prominent Greeting ────────────────────── */}
-      <LinearGradient
-        colors={[colors.heroStart, colors.heroMid, colors.heroEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.hero}
-      >
-        <View style={styles.heroHeaderRow}>
-          <View style={styles.heroTextCol}>
-            <View style={styles.rolePill}>
-              <Text style={styles.rolePillText}>{roleBadgeLabel}</Text>
-            </View>
-            <Text style={styles.heroGreetingText}>{greetingTitle}</Text>
-            <Text style={styles.heroSubtitleText}>{greetingSubtitle}</Text>
-            <View style={styles.dateRow}>
-              <FontAwesome5 name="calendar-alt" size={11} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.dateText}>{todayFormatted}</Text>
+      <View style={styles.body}>
+        {/* ── Page Header ─────────────────────────────────────────────── */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerIcon}>
+              <FontAwesome5 name="heartbeat" size={17} color="#FFFFFF" />
+            </LinearGradient>
+            <View style={{ flexShrink: 1 }}>
+              <Text style={styles.headerTitle}>Tableau de Bord</Text>
+              <View style={styles.headerDateRow}>
+                <FontAwesome5 name="calendar-alt" size={10} color={p.muted} />
+                <Text style={styles.headerDate}>{today}</Text>
+              </View>
             </View>
           </View>
-
-          <TouchableOpacity onPress={handleRefresh} style={styles.refreshBtn} activeOpacity={0.8}>
-            <FontAwesome5 name="sync-alt" size={13} color={colors.primary} />
+          <TouchableOpacity onPress={handleRefresh} activeOpacity={0.85}>
+            <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.refreshBtn}>
+              <FontAwesome5 name="sync-alt" size={14} color="#FFFFFF" />
+            </LinearGradient>
           </TouchableOpacity>
         </View>
 
-        {/* Inline Quick Action shortcuts if provided */}
-        {quickActions.length > 0 && onQuickAction && (
-          <View style={styles.quickActionsWrap}>
-            <QuickActionGrid items={quickActions} onSelect={onQuickAction} />
-          </View>
-        )}
-      </LinearGradient>
-
-      <View style={styles.body}>
-        {error ? (
-          <View style={styles.errorBox}>
-            <FontAwesome5 name="exclamation-circle" size={14} color={colors.danger} />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : null}
-
-        {/* ── Attention / Validation Alert Banner for Admin ────────────── */}
-        {isAdmin && (
-          pendingCount > 0 ? (
-            <TouchableOpacity
-              style={styles.alertBanner}
-              onPress={() => navigate("users-pending")}
-              activeOpacity={0.85}
-            >
-              <View style={styles.alertIconBox}>
-                <FontAwesome5 name="user-clock" size={18} color="#D97706" />
-              </View>
-              <View style={styles.alertContent}>
-                <View style={styles.alertTitleRow}>
-                  <Text style={styles.alertTitle}>Validations requises</Text>
-                  <View style={styles.alertBadge}>
-                    <Text style={styles.alertBadgeText}>{pendingCount} en attente</Text>
-                  </View>
-                </View>
-                <Text style={styles.alertSub}>
-                  {pendingCount === 1
-                    ? "1 inscription nécessite votre approbation."
-                    : `${pendingCount} inscriptions nécessitent votre approbation.`}
-                </Text>
-              </View>
-              <FontAwesome5 name="chevron-right" size={13} color="#D97706" />
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.successBanner}>
-              <View style={styles.successIconBox}>
-                <FontAwesome5 name="check-circle" size={16} color={colors.success} solid />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.successTitle}>Système à jour</Text>
-                <Text style={styles.successSub}>Aucune demande d'inscription en attente de validation.</Text>
-              </View>
-            </View>
-          )
-        )}
-
-        {/* ── Key Metrics Overview (Real Data KPIs) ───────────────────── */}
-        <SectionTitle icon="tachometer-alt" label="Vue d'ensemble" />
-        {isProfessor ? (
-          <View style={styles.metricsGrid}>
-            {/* Mes classes */}
-            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("classes")} activeOpacity={0.8}>
-              <View style={[styles.metricAccent, { backgroundColor: "#6366F1" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#EEF2FF" }]}>
-                    <FontAwesome5 name="chalkboard" size={16} color="#6366F1" />
-                  </View>
-                  <View style={styles.metricTag}>
-                    <Text style={[styles.metricTagText, { color: "#6366F1" }]}>{activeClasses} actives</Text>
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>{classes.length}</Text>
-                <Text style={styles.metricLabel}>Mes classes</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Mes cours */}
-            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("cours")} activeOpacity={0.8}>
-              <View style={[styles.metricAccent, { backgroundColor: "#0EA5E9" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#F0F9FF" }]}>
-                    <FontAwesome5 name="book-open" size={16} color="#0EA5E9" />
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>{myCoursCount}</Text>
-                <Text style={styles.metricLabel}>Mes cours</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Séances à venir */}
-            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("cours")} activeOpacity={0.8}>
-              <View style={[styles.metricAccent, { backgroundColor: "#10B981" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#ECFDF5" }]}>
-                    <FontAwesome5 name="calendar-alt" size={16} color="#10B981" />
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>{upcomingSeances.length}</Text>
-                <Text style={styles.metricLabel}>Séances à venir</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Messages */}
-            <TouchableOpacity style={styles.metricCard} onPress={() => navigate("messages")} activeOpacity={0.8}>
-              <View style={[styles.metricAccent, { backgroundColor: "#64748B" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#F1F5F9" }]}>
-                    <FontAwesome5 name="envelope" size={16} color="#475569" />
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>—</Text>
-                <Text style={styles.metricLabel}>Messagerie</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.metricsGrid}>
-            {/* Classes Card */}
-            <TouchableOpacity
-              style={styles.metricCard}
-              onPress={() => navigate("classes")}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.metricAccent, { backgroundColor: "#6366F1" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#EEF2FF" }]}>
-                    <FontAwesome5 name="chalkboard" size={16} color="#6366F1" />
-                  </View>
-                  <View style={styles.metricTag}>
-                    <Text style={[styles.metricTagText, { color: "#6366F1" }]}>{activeClasses} actives</Text>
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>{classes.length}</Text>
-                <Text style={styles.metricLabel}>Classes au total</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Professeurs Card */}
-            <TouchableOpacity
-              style={styles.metricCard}
-              onPress={() => navigate("users-professeurs")}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.metricAccent, { backgroundColor: "#0EA5E9" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#F0F9FF" }]}>
-                    <FontAwesome5 name="user-graduate" size={16} color="#0EA5E9" />
-                  </View>
-                  <View style={[styles.metricTag, { backgroundColor: "#E0F2FE" }]}>
-                    <Text style={[styles.metricTagText, { color: "#0284C7" }]}>Inscrits</Text>
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>{professors.length}</Text>
-                <Text style={styles.metricLabel}>Professeurs</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Établissements Card */}
-            <TouchableOpacity
-              style={styles.metricCard}
-              onPress={() => navigate("schools")}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.metricAccent, { backgroundColor: "#10B981" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#ECFDF5" }]}>
-                    <FontAwesome5 name="school" size={16} color="#10B981" />
-                  </View>
-                  <View style={[styles.metricTag, { backgroundColor: "#D1FAE5" }]}>
-                    <Text style={[styles.metricTagText, { color: "#059669" }]}>Écoles</Text>
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>{establishments.length}</Text>
-                <Text style={styles.metricLabel}>Établissements</Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Matières Card */}
-            <TouchableOpacity
-              style={styles.metricCard}
-              onPress={() => navigate("matieres")}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.metricAccent, { backgroundColor: "#64748B" }]} />
-              <View style={styles.metricCardBody}>
-                <View style={styles.metricTopRow}>
-                  <View style={[styles.metricIconBox, { backgroundColor: "#F1F5F9" }]}>
-                    <FontAwesome5 name="book" size={16} color="#475569" />
-                  </View>
-                  <View style={[styles.metricTag, { backgroundColor: "#E2E8F0" }]}>
-                    <Text style={[styles.metricTagText, { color: "#334155" }]}>Programmes</Text>
-                  </View>
-                </View>
-                <Text style={styles.metricNumber}>{matieres.length}</Text>
-                <Text style={styles.metricLabel}>Matières</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ── Admin Management Hub (Role based) ────────────────────────── */}
-        {isAdmin && (
-          <>
-            <SectionTitle icon="th" label="Espace de Gestion" />
-            <View style={styles.hubGrid}>
-              {[
-                {
-                  id: "users",
-                  title: "Utilisateurs",
-                  sub: "Admins, Professeurs, Parents, Élèves",
-                  icon: "users",
-                  gradient: ["#4F46E5", "#6366F1"],
-                  tab: "users",
-                  badge: pendingCount > 0 ? `${pendingCount} en attente` : undefined,
-                },
-                {
-                  id: "schools",
-                  title: "Établissements & Offres",
-                  sub: "Souscriptions, Forfaits, Tarifs",
-                  icon: "school",
-                  gradient: ["#0D9488", "#10B981"],
-                  tab: "schools",
-                },
-                {
-                  id: "classes",
-                  title: "Gestion des Classes",
-                  sub: "Niveaux, effectifs & modération",
-                  icon: "chalkboard",
-                  gradient: ["#8B5CF6", "#A855F7"],
-                  tab: "classes",
-                },
-                {
-                  id: "matieres",
-                  title: "Matières & Disciplines",
-                  sub: "Gestion des programmes d'étude",
-                  icon: "book-open",
-                  gradient: ["#EC4899", "#F43F5E"],
-                  tab: "matieres",
-                },
-                {
-                  id: "gestionnaires",
-                  title: "Gestionnaires d'Écoles",
-                  sub: "Comptes délégués d'établissements",
-                  icon: "user-shield",
-                  gradient: ["#F59E0B", "#F97316"],
-                  tab: "gestionnaires",
-                },
-                {
-                  id: "motifs",
-                  title: "Motifs de Rejet",
-                  sub: "Configuration des motifs de refus",
-                  icon: "exclamation-triangle",
-                  gradient: ["#64748B", "#475569"],
-                  tab: "motifs",
-                },
-              ].map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.hubCard}
-                  onPress={() => navigate(item.tab)}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={item.gradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.hubIconBox}
-                  >
-                    <FontAwesome5 name={item.icon as any} size={18} color={colors.white} />
-                  </LinearGradient>
-                  <View style={styles.hubContent}>
-                    <View style={styles.hubTitleRow}>
-                      <Text style={styles.hubTitle}>{item.title}</Text>
-                      {item.badge ? (
-                        <View style={styles.hubBadge}>
-                          <Text style={styles.hubBadgeText}>{item.badge}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <Text style={styles.hubSub} numberOfLines={1}>{item.sub}</Text>
-                  </View>
-                  <FontAwesome5 name="chevron-right" size={12} color={colors.textMuted} />
-                </TouchableOpacity>
-              ))}
-            </View>
-          </>
-        )}
-
-        {/* ── Professor-only: Prochaines séances programmées ───────────── */}
-        {isProfessor && (
-          <>
-            <SectionTitle
-              icon="calendar-alt"
-              label="Prochaines séances"
-              actionLabel="Tout voir"
-              onAction={() => navigate("cours")}
-            />
-            <View style={styles.listCard}>
-              {upcomingSeances.length === 0 ? (
-                <View style={styles.emptyWrap}>
-                  <FontAwesome5 name="calendar-alt" size={24} color={colors.textMuted} />
-                  <Text style={styles.emptyText}>Aucune séance programmée à venir</Text>
-                </View>
-              ) : (
-                upcomingSeances.map((s, i) => {
-                  const etat = s.etatCoursProgramme ?? "PLANIFIE";
-                  return (
-                    <TouchableOpacity
-                      key={s.id || i}
-                      style={[styles.listItemRow, i > 0 && styles.listItemBorder]}
-                      onPress={() => navigate("cours")}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.listAvatar, { backgroundColor: colors.primaryLight }]}>
-                        <FontAwesome5 name={etat === "EN_COURS" ? "video" : "clock"} size={13} color={colors.primary} />
-                      </View>
-                      <View style={styles.listContent}>
-                        <Text style={styles.listTitle} numberOfLines={1}>
-                          {s.classes?.map((c) => c.nom).join(", ") || "Séance programmée"}
-                        </Text>
-                        <Text style={styles.listSub}>{fmtSeanceDate(s.dateCoursPrevue)}</Text>
-                      </View>
-                      <Badge
-                        label={SEANCE_STATUS_LABELS[etat] ?? etat}
-                        tone={SEANCE_STATUS_TONE[etat] ?? "neutral"}
-                      />
-                    </TouchableOpacity>
-                  );
-                })
-              )}
-            </View>
-          </>
-        )}
-
-        {/* ── Real Live Data: Dernières Classes ───────────────────────── */}
-        <SectionTitle
-          icon="chalkboard-teacher"
-          label={isProfessor ? "Mes classes" : "Dernières Classes"}
-          actionLabel={isProfessor ? "Voir toutes" : "Gérer toutes"}
-          onAction={() => navigate("classes")}
-        />
-        <View style={styles.listCard}>
-          {classes.length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <FontAwesome5 name="folder-open" size={24} color={colors.textMuted} />
-              <Text style={styles.emptyText}>Aucune classe trouvée</Text>
-            </View>
-          ) : (
-            classes.slice(0, 4).map((c, i) => {
-              const isActive = (c.etat as string)?.toUpperCase() === "ACTIF";
-              return (
-                <TouchableOpacity
-                  key={c.id || i}
-                  style={[styles.listItemRow, i > 0 && styles.listItemBorder]}
-                  onPress={() => navigate("classes")}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.listAvatar, { backgroundColor: isActive ? "#ECFDF5" : "#FFFBEB" }]}>
-                    <FontAwesome5
-                      name="users"
-                      size={13}
-                      color={isActive ? colors.success : colors.warning}
-                    />
-                  </View>
-                  <View style={styles.listContent}>
-                    <Text style={styles.listTitle} numberOfLines={1}>
-                      {c.nom || "Classe sans nom"}
-                    </Text>
-                    <Text style={styles.listSub}>
-                      {c.niveau ? `Niveau: ${c.niveau}` : "Niveau non spécifié"}
-                      {c.code ? ` · Code: ${c.code}` : ""}
-                    </Text>
-                  </View>
-                  <Badge
-                    label={isActive ? "Actif" : (c.etat as string) || "En attente"}
-                    tone={isActive ? "success" : "warning"}
-                  />
-                </TouchableOpacity>
-              );
-            })
-          )}
+        {/* ── KPI Cards ───────────────────────────────────────────────── */}
+        <View style={styles.grid}>
+          <StatCard
+            title="Cours disponibles"
+            value={stats.totalCourses}
+            icon="book-open"
+            gradient={["#3b82f6", "#6366f1"]}
+            trend="+12%"
+            subtitle={`${stats.totalMatieres} matières`}
+            width={halfW}
+            p={p}
+          />
+          <StatCard
+            title="Exercices"
+            value={stats.totalExercises}
+            icon="bullseye"
+            gradient={["#10b981", "#059669"]}
+            trend="+18%"
+            subtitle={`${stats.completionRate}% complété`}
+            width={halfW}
+            p={p}
+          />
+          <StatCard
+            title="Classes actives"
+            value={stats.activeClasses}
+            icon="users"
+            gradient={["#8b5cf6", "#7c3aed"]}
+            trend="+8%"
+            subtitle={`${stats.totalStudents} élèves`}
+            width={halfW}
+            p={p}
+          />
+          <StatCard
+            title="Progression moyenne"
+            value={`${stats.averageProgress}%`}
+            icon="chart-bar"
+            gradient={["#f59e0b", "#d97706"]}
+            trend="+5%"
+            subtitle="Toutes les classes"
+            width={halfW}
+            p={p}
+          />
         </View>
 
-        {/* ── Real Live Data: Récents Professeurs (not relevant to a professor's own dashboard) ── */}
-        {!isProfessor && (
-        <>
-        <SectionTitle
-          icon="user-check"
-          label="Professeurs Référents"
-          actionLabel="Voir tous"
-          onAction={() => navigate("users-professeurs")}
-        />
-        <View style={styles.listCard}>
-          {professors.length === 0 ? (
-            <View style={styles.emptyWrap}>
-              <FontAwesome5 name="user-friends" size={24} color={colors.textMuted} />
-              <Text style={styles.emptyText}>Aucun professeur enregistré</Text>
-            </View>
-          ) : (
-            professors.slice(0, 4).map((p, i) => {
-              const initials = `${p.prenom?.charAt(0) || ""}${p.nom?.charAt(0) || ""}`.toUpperCase() || "PR";
-              return (
-                <TouchableOpacity
-                  key={p.id || i}
-                  style={[styles.listItemRow, i > 0 && styles.listItemBorder]}
-                  onPress={() => navigate("users-professeurs")}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.listAvatarCircle, { backgroundColor: colors.primaryLight }]}>
-                    <Text style={styles.listAvatarText}>{initials}</Text>
-                  </View>
-                  <View style={styles.listContent}>
-                    <Text style={styles.listTitle} numberOfLines={1}>
-                      {p.prenom} {p.nom}
-                    </Text>
-                    <Text style={styles.listSub} numberOfLines={1}>
-                      {p.email || p.telephone || "Enseignant certifié"}
-                    </Text>
-                  </View>
-                  <Badge label="Certifié" tone="info" />
-                </TouchableOpacity>
-              );
-            })
-          )}
-        </View>
-        </>
-        )}
-
-        {/* ── Timeline des Activités Récentes (platform-wide, not shown to a professor) ── */}
-        {!isProfessor && (
-        <>
-        <SectionTitle
-          icon="history"
-          label="Activités Récentes"
-          actionLabel="Journal complet"
-          onAction={() => navigate("activities")}
-        />
-        <View style={styles.activityCard}>
-          {[
-            {
-              icon: "user-plus",
-              color: "#4F46E5",
-              title: "Nouveau compte enseignant",
-              sub: professors[0] ? `${professors[0].prenom} ${professors[0].nom}` : "Professeur inscrit",
-              time: "Il y a 1h",
-            },
-            {
-              icon: "chalkboard",
-              color: "#10B981",
-              title: "Classe mise à jour",
-              sub: classes[0]?.nom ? `Classe ${classes[0].nom}` : "Structure de classe",
-              time: "Il y a 3h",
-            },
-            {
-              icon: "school",
-              color: "#0EA5E9",
-              title: "Établissement rattaché",
-              sub: establishments[0]?.nom ? establishments[0].nom : "Plateforme ScholChat",
-              time: "Aujourd'hui",
-            },
-            {
-              icon: "book",
-              color: "#8B5CF6",
-              title: "Programme & Matière",
-              sub: matieres[0]?.nom ? `Matière ${matieres[0].nom}` : "Discipline validée",
-              time: "Hier",
-            },
-          ].map((act, i) => (
-            <View key={i} style={styles.activityItem}>
-              <View style={[styles.activityDot, { backgroundColor: act.color }]}>
-                <FontAwesome5 name={act.icon as any} size={11} color={colors.white} />
+        {/* ── Secondary KPIs ──────────────────────────────────────────── */}
+        <View style={styles.grid}>
+          {secondary.map((item) => (
+            <View key={item.label} style={[styles.miniCard, { width: halfW }]}>
+              <View style={[styles.miniIcon, { backgroundColor: item.color + "20" }]}>
+                <FontAwesome5 name={item.icon as any} size={14} color={item.color} />
               </View>
-              <View style={styles.activityDetails}>
-                <Text style={styles.activityTitle}>{act.title}</Text>
-                <Text style={styles.activitySub}>{act.sub}</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.miniLabel} numberOfLines={1}>{item.label}</Text>
+                <Text style={styles.miniValue}>{item.value}</Text>
               </View>
-              <Text style={styles.activityTime}>{act.time}</Text>
             </View>
           ))}
         </View>
-        </>
-        )}
+
+        {/* ── Distribution des cours (donut) ──────────────────────────── */}
+        <ChartCard title="Distribution des Cours" icon="chart-bar" p={p}>
+          {pieData.length === 0 ? (
+            <View style={styles.emptyChart}>
+              <Text style={styles.emptyText}>Aucune matière disponible</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.centered}>
+                <DonutChart data={pieData} size={Math.min(chartW, 240)} inner={0.4} outer={0.7} padAngle={2} />
+              </View>
+              <View style={styles.legendWrap}>
+                {pieData.slice(0, 6).map((d, i) => (
+                  <View key={i} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                    <Text style={styles.legendText} numberOfLines={1}>{d.name}</Text>
+                  </View>
+                ))}
+                {pieData.length > 6 && <Text style={styles.legendMore}>+{pieData.length - 6} autres</Text>}
+              </View>
+            </>
+          )}
+        </ChartCard>
+
+        {/* ── Progression des élèves (bar) ────────────────────────────── */}
+        <ChartCard title="Progression des Élèves" icon="chart-line" p={p}>
+          {barData.length === 0 ? (
+            <View style={styles.emptyChart}>
+              <Text style={styles.emptyText}>Aucune classe disponible</Text>
+            </View>
+          ) : (
+            <BarChartSvg data={barData} width={chartW} height={256} p={p} />
+          )}
+        </ChartCard>
+
+        {/* ── Tendances mensuelles (area) ─────────────────────────────── */}
+        <ChartCard title="Tendances Mensuelles" icon="heartbeat" p={p}>
+          <AreaChartSvg data={areaData} width={chartW} height={224} p={p} />
+        </ChartCard>
+
+        {/* ── Statut des exercices (donut + list) ─────────────────────── */}
+        <ChartCard title="Statut des Exercices" icon="bullseye" p={p}>
+          <View style={styles.centered}>
+            <DonutChart data={statusData} size={176} inner={0.45} outer={0.7} padAngle={3} />
+          </View>
+          <View style={{ gap: 8, marginTop: 4 }}>
+            {statusData.map((d) => (
+              <View key={d.name} style={styles.statusRow}>
+                <View style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: d.color }]} />
+                  <Text style={styles.statusName}>{d.name}</Text>
+                </View>
+                <Text style={styles.statusValue}>{d.value}%</Text>
+              </View>
+            ))}
+          </View>
+        </ChartCard>
+
+        {/* ── Activités récentes ──────────────────────────────────────── */}
+        <ChartCard title="Activités Récentes" icon="heartbeat" p={p}>
+          <View style={{ gap: 4 }}>
+            {recentItems.map((item, i) => (
+              <View key={i} style={styles.activityRow}>
+                <View style={[styles.activityIcon, { backgroundColor: item.bg }]}>
+                  <FontAwesome5 name={item.icon as any} size={14} color={item.color} />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.activityLabel} numberOfLines={1}>{item.label}</Text>
+                  <Text style={styles.activitySub} numberOfLines={1}>{item.sub}</Text>
+                </View>
+                <Text style={styles.activityTime}>{item.time}</Text>
+              </View>
+            ))}
+          </View>
+        </ChartCard>
 
         <View style={{ height: 110 }} />
       </View>
@@ -726,363 +654,165 @@ const DashboardContentBody = ({
   );
 };
 
-const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: colors.background },
+const createStyles = (p: Palette) =>
+  StyleSheet.create({
+    scroll: { flex: 1, backgroundColor: p.page },
+    body: { paddingHorizontal: 16, paddingTop: 16, gap: 20 },
 
-  // Hero Header
-  hero: {
-    // Fallback if LinearGradient ever fails — keeps the white greeting text
-    // readable instead of white-on-white.
-    backgroundColor: colors.heroStart,
-    paddingTop: 54,
-    paddingBottom: 22,
-    paddingHorizontal: spacing.lg,
-    borderBottomLeftRadius: radius.xxl,
-    borderBottomRightRadius: radius.xxl,
-    ...shadow.hero,
-  },
-  heroHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  heroTextCol: { flex: 1 },
-  rolePill: {
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(255,255,255,0.18)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.full,
-    marginBottom: 8,
-  },
-  rolePillText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: colors.white,
-    letterSpacing: 0.3,
-  },
-  heroGreetingText: {
-    fontSize: 27,
-    fontWeight: "800",
-    color: colors.white,
-    letterSpacing: -0.6,
-  },
-  heroSubtitleText: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.8)",
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  dateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 8,
-  },
-  dateText: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.7)",
-  },
-  refreshBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.white,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
-    ...shadow.sm,
-  },
-  quickActionsWrap: {
-    marginTop: 18,
-  },
+    // Header
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: p.card,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: p.isDark ? "#334155" : "#E2E8F0",
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+      ...shadow.sm,
+    },
+    headerLeft: { flexDirection: "row", alignItems: "center", gap: 12, flexShrink: 1 },
+    headerIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#3B82F6",
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
+    },
+    headerTitle: { fontSize: 20, fontWeight: "900", color: p.title, letterSpacing: -0.4 },
+    headerDateRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+    headerDate: { fontSize: 12, color: p.muted },
+    refreshBtn: {
+      paddingHorizontal: 16,
+      paddingVertical: 11,
+      borderRadius: 12,
+      shadowColor: "#3B82F6",
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
+    },
 
-  // Body
-  body: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-  },
-  errorBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.dangerLight,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    marginBottom: 16,
-  },
-  errorText: {
-    color: colors.danger,
-    fontSize: 13,
-    flex: 1,
-  },
+    grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
 
-  // Alert Banners
-  alertBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFBEB",
-    borderWidth: 1.5,
-    borderColor: "#FCD34D",
-    borderRadius: radius.xl,
-    padding: 14,
-    marginBottom: 20,
-    gap: 12,
-    ...shadow.sm,
-  },
-  alertIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#FEF3C7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  alertContent: { flex: 1 },
-  alertTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  alertTitle: { fontSize: 14, fontWeight: "700", color: "#92400E" },
-  alertBadge: {
-    backgroundColor: "#F59E0B",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-  },
-  alertBadgeText: { fontSize: 10, fontWeight: "800", color: colors.white },
-  alertSub: { fontSize: 12, color: "#B45309", marginTop: 2 },
+    // Stat card
+    statCard: {
+      backgroundColor: p.card,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: p.border,
+      padding: 16,
+      overflow: "hidden",
+      ...shadow.md,
+    },
+    statBlob: {
+      position: "absolute",
+      top: -24,
+      right: -24,
+      width: 112,
+      height: 112,
+      borderRadius: 56,
+      opacity: 0.1,
+    },
+    statTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 6 },
+    statTextCol: { flex: 1, minWidth: 0 },
+    statTitle: {
+      fontSize: 10,
+      fontWeight: "700",
+      textTransform: "uppercase",
+      letterSpacing: 1.2,
+      color: p.muted,
+      marginBottom: 4,
+    },
+    statValue: { fontSize: 28, fontWeight: "900", color: p.title, lineHeight: 32 },
+    statSubRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
+    statDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#3B82F6" },
+    statSub: { fontSize: 11, color: p.muted, flexShrink: 1 },
+    statIconBox: {
+      width: 42,
+      height: 42,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      ...shadow.md,
+    },
+    statTrendRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 14,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: p.border,
+    },
+    trendPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: "#D1FAE5",
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: radius.full,
+    },
+    trendPillText: { fontSize: 11, fontWeight: "800", color: "#047857" },
 
-  successBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#ECFDF5",
-    borderWidth: 1,
-    borderColor: "#A7F3D0",
-    borderRadius: radius.xl,
-    padding: 12,
-    marginBottom: 20,
-    gap: 10,
-  },
-  successIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "#D1FAE5",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  successTitle: { fontSize: 13, fontWeight: "700", color: "#065F46" },
-  successSub: { fontSize: 11, color: "#047857", marginTop: 1 },
+    // Secondary KPI
+    miniCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      backgroundColor: p.card,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: p.border,
+      padding: 16,
+      ...shadow.sm,
+    },
+    miniIcon: { padding: 10, borderRadius: 12 },
+    miniLabel: {
+      fontSize: 9,
+      fontWeight: "700",
+      textTransform: "uppercase",
+      letterSpacing: 0.8,
+      color: p.muted,
+    },
+    miniValue: { fontSize: 20, fontWeight: "900", color: p.title },
 
-  // Section Header
-  sectionHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-    marginTop: 8,
-  },
-  sectionTitleWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  sectionIconBox: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
-    backgroundColor: colors.primaryLight,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sectionTitleText: {
-    ...typography.h4,
-    color: colors.text,
-    fontSize: 15,
-  },
-  sectionActionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  sectionActionText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.primary,
-  },
+    // Chart card
+    chartCard: {
+      backgroundColor: p.card,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: p.border,
+      padding: 20,
+      ...shadow.sm,
+    },
+    chartHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
+    chartTitle: { fontSize: 14, fontWeight: "800", color: p.heading },
+    centered: { alignItems: "center" },
+    emptyChart: { height: 256, alignItems: "center", justifyContent: "center" },
+    emptyText: { fontSize: 13, color: p.faint },
+    legendWrap: { flexDirection: "row", flexWrap: "wrap", columnGap: 16, rowGap: 6, marginTop: 8 },
+    legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+    legendDot: { width: 10, height: 10, borderRadius: 5 },
+    legendText: { fontSize: 11, color: p.legend, maxWidth: 80 },
+    legendMore: { fontSize: 11, color: p.faint },
+    statusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    statusName: { fontSize: 12, color: p.legend },
+    statusValue: { fontSize: 12, fontWeight: "800", color: p.heading },
 
-  // Metrics Grid
-  metricsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 22,
-  },
-  metricCard: {
-    width: (SCREEN_W - 42) / 2,
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.card,
-  },
-  metricAccent: {
-    height: 3.5,
-  },
-  metricCardBody: {
-    padding: 14,
-  },
-  metricTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  metricIconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  metricTag: {
-    backgroundColor: "#EEF2FF",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: radius.full,
-  },
-  metricTagText: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  metricNumber: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: colors.text,
-    letterSpacing: -0.5,
-  },
-  metricLabel: {
-    fontSize: 11,
-    color: colors.textMuted,
-    fontWeight: "600",
-    marginTop: 2,
-  },
-
-  // Management Hub
-  hubGrid: {
-    gap: 10,
-    marginBottom: 22,
-  },
-  hubCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
-    ...shadow.sm,
-  },
-  hubIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  hubContent: { flex: 1 },
-  hubTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  hubTitle: { fontSize: 14, fontWeight: "700", color: colors.text },
-  hubBadge: {
-    backgroundColor: "#F59E0B",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-  },
-  hubBadgeText: { fontSize: 9, fontWeight: "800", color: colors.white },
-  hubSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-
-  // List Cards
-  listCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 22,
-    overflow: "hidden",
-    ...shadow.card,
-  },
-  listItemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    gap: 12,
-  },
-  listItemBorder: {
-    borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
-  },
-  listAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  listAvatarCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  listAvatarText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: colors.primary,
-  },
-  listContent: { flex: 1 },
-  listTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
-  listSub: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  emptyWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 24,
-    gap: 8,
-  },
-  emptyText: {
-    fontSize: 12,
-    color: colors.textMuted,
-    fontWeight: "500",
-  },
-
-  // Activities Card
-  activityCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 20,
-    gap: 12,
-    ...shadow.card,
-  },
-  activityItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  activityDot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  activityDetails: { flex: 1 },
-  activityTitle: { fontSize: 13, fontWeight: "700", color: colors.text },
-  activitySub: { fontSize: 11, color: colors.textMuted, marginTop: 1 },
-  activityTime: { fontSize: 11, color: colors.textMuted, fontWeight: "500" },
-});
+    // Recent activity
+    activityRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 10, borderRadius: 12 },
+    activityIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+    activityLabel: { fontSize: 14, fontWeight: "700", color: p.heading },
+    activitySub: { fontSize: 12, color: p.muted, marginTop: 1 },
+    activityTime: { fontSize: 12, color: p.faint },
+  });
 
 export default DashboardContentBody;

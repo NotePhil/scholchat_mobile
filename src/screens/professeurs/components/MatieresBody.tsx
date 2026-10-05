@@ -1,61 +1,73 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from "../../../components/ui";
-import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../../styles/theme";
 import { matiereService } from "../../../services/api";
 import { useAuthStore } from "../../../store/useAuthStore";
+import { useThemeStore } from "../../../store/useThemeStore";
 import { Matiere } from "../../../types";
+import { formatDate as formatServerDate } from "../../../utils/dates";
 
 // LinearGradient with safe fallback
 let LinearGradient: any;
 try {
   LinearGradient = require("expo-linear-gradient").LinearGradient;
 } catch {
-  LinearGradient = ({ children, style }: any) => <View style={style}>{children}</View>;
+  LinearGradient = ({ children, style, colors: c }: any) => (
+    <View style={[style, { backgroundColor: c?.[0] }]}>{children}</View>
+  );
 }
 
-const MATIERE_GRADIENT = ["#8B5CF6", "#6D28D9"];
+// Web's default colour scheme gradient (from-blue-500 to-blue-600)
+const GRADIENT = ["#3B82F6", "#2563EB"];
+const ITEMS_PER_PAGE = 10;
 
 const formatDate = (dateString?: string) => {
   if (!dateString) return "N/A";
   try {
-    return new Date(dateString).toLocaleDateString("fr-FR", { year: "numeric", month: "short", day: "numeric" });
+    return formatServerDate(dateString, { year: "numeric", month: "short", day: "numeric" }, "Date invalide");
   } catch {
-    return "N/A";
+    return "Date invalide";
   }
 };
 
-interface ActionChipProps {
-  icon: string;
-  label: string;
-  color: string;
-  onPress: () => void;
-}
+// Web's Tailwind gray palette, light vs dark
+const makePalette = (isDark: boolean) => ({
+  isDark,
+  page: isDark ? "#111827" : "#F9FAFB", // gray-900 / gray-50
+  card: isDark ? "#1F2937" : "#FFFFFF", // gray-800 / white
+  border: isDark ? "#374151" : "#E5E7EB", // gray-700 / gray-200
+  divider: isDark ? "#374151" : "#F3F4F6", // gray-100
+  text: isDark ? "#FFFFFF" : "#111827", // white / gray-900
+  sub: isDark ? "#D1D5DB" : "#4B5563", // gray-300 / gray-600
+  input: isDark ? "#374151" : "#F9FAFB", // gray-700 / gray-50
+  action: "#94A3B8", // slate-400
+});
+type Palette = ReturnType<typeof makePalette>;
 
-const ActionChip = ({ icon, label, color, onPress }: ActionChipProps) => {
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  return (
-  <TouchableOpacity
-    onPress={onPress}
-    style={[styles.actionChip, { borderColor: color + "30", backgroundColor: color + "0D" }]}
-    activeOpacity={0.7}
-  >
-    <FontAwesome5 name={icon as any} size={11} color={color} />
-    <Text style={[styles.actionChipText, { color }]}>{label}</Text>
-  </TouchableOpacity>
-  );
-};
+type Message = { text: string; type: "" | "success" | "error" };
 
 /**
- * Matches web's MatiereContent.jsx exactly: Admin + Gestionnaire can
- * create/edit/delete, Professor (view-only via "canView"), everyone else
- * (Parent/Student/Établissement) has no access at all.
+ * Port of web's MatiereContent.jsx (mobile card view): header card, search +
+ * refresh card, one list card with pagination, and centred create / edit /
+ * delete dialogs. Admin + Gestionnaire can manage, Professor can only view,
+ * everyone else has no access.
  */
 const MatieresBody = () => {
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const isDark = useThemeStore((s) => s.mode === "dark");
+  const p = useMemo(() => makePalette(isDark), [isDark]);
+  const styles = useMemo(() => createStyles(p), [p]);
   const role = useAuthStore((state) => state.role);
   const canManage = role === "admin" || role === "gestionnaire";
   const canView = canManage || role === "professor" || role === "tutor";
@@ -63,23 +75,24 @@ const MatieresBody = () => {
   const [matieres, setMatieres] = useState<Matiere[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIF" | "INACTIF">("ALL");
-  const [showCreate, setShowCreate] = useState(false);
-  const [editing, setEditing] = useState<Matiere | null>(null);
+  const [message, setMessage] = useState<Message>({ text: "", type: "" });
+  const [currentPage, setCurrentPage] = useState(1);
+  const [modal, setModal] = useState<"" | "create" | "edit" | "delete">("");
+  const [selected, setSelected] = useState<Matiere | null>(null);
   const [nom, setNom] = useState("");
   const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
       const data = await matiereService.getAll();
       setMatieres(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec du chargement des matières.");
+      setMessage({ text: "", type: "" });
+    } catch {
+      setMessage({ text: "Erreur lors du chargement des matières", type: "error" });
+      setMatieres([]);
     } finally {
       setLoading(false);
     }
@@ -90,505 +103,515 @@ const MatieresBody = () => {
     else setLoading(false);
   }, [canView, load]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await load();
     setRefreshing(false);
   };
 
-  const filtered = matieres.filter((m) => {
-    const matchesSearch =
-      (m.nom ?? "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (m.description ?? "").toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      statusFilter === "ALL" ||
-      (statusFilter === "ACTIF" ? m.etat?.toUpperCase() !== "INACTIF" : m.etat?.toUpperCase() === "INACTIF");
-    return matchesSearch && matchesStatus;
-  });
-
-  const resetForm = () => {
+  const closeModals = () => {
+    setModal("");
+    setSelected(null);
     setNom("");
     setDescription("");
-    setEditing(null);
-  };
-
-  const closeSheets = () => {
-    setShowCreate(false);
-    resetForm();
   };
 
   const openCreate = () => {
-    resetForm();
-    setShowCreate(true);
+    closeModals();
+    setModal("create");
   };
 
-  const openEdit = (matiere: Matiere) => {
-    setEditing(matiere);
-    setNom(matiere.nom ?? "");
-    setDescription(matiere.description ?? "");
+  const openEdit = (m: Matiere) => {
+    setSelected(m);
+    setNom(m.nom ?? "");
+    setDescription(m.description ?? "");
+    setModal("edit");
   };
 
-  const handleCreate = async () => {
+  const openDelete = (m: Matiere) => {
+    setSelected(m);
+    setModal("delete");
+  };
+
+  const handleSave = async () => {
     if (!nom.trim()) {
-      Alert.alert("Erreur", "Le nom de la matière est requis.");
+      setMessage({ text: "Le nom de la matière est requis", type: "error" });
       return;
     }
-    setSubmitting(true);
+    const isEdit = modal === "edit";
+    setSaving(true);
     try {
-      await matiereService.create(nom.trim(), description.trim() || undefined);
-      closeSheets();
+      if (isEdit && selected) {
+        await matiereService.update(selected.id, nom.trim(), description.trim() || undefined);
+      } else {
+        await matiereService.create(nom.trim(), description.trim() || undefined);
+      }
+      setMessage({ text: isEdit ? "Matière modifiée avec succès" : "Matière créée avec succès", type: "success" });
+      closeModals();
       await load();
     } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la création.");
+      setMessage({
+        text: err instanceof Error ? err.message : isEdit ? "Erreur lors de la modification" : "Erreur lors de la création",
+        type: "error",
+      });
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const handleUpdate = async () => {
-    if (!editing) return;
-    if (!nom.trim()) {
-      Alert.alert("Erreur", "Le nom de la matière est requis.");
-      return;
-    }
-    setSubmitting(true);
+  const confirmDelete = async () => {
+    if (!selected) return;
+    setSaving(true);
     try {
-      await matiereService.update(editing.id, nom.trim(), description.trim() || undefined);
-      resetForm();
+      await matiereService.remove(selected.id);
+      setMessage({ text: "Matière supprimée avec succès", type: "success" });
+      closeModals();
       await load();
     } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la modification.");
+      setMessage({ text: err instanceof Error ? err.message : "Erreur lors de la suppression", type: "error" });
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
-  };
-
-  const handleDelete = (matiere: Matiere) => {
-    Alert.alert("Supprimer", `Supprimer la matière "${matiere.nom}" ?`, [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await matiereService.remove(matiere.id);
-            setMatieres((prev) => prev.filter((m) => m.id !== matiere.id));
-          } catch (err) {
-            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
-          }
-        },
-      },
-    ]);
   };
 
   if (!canView) {
     return (
-      <View style={styles.restrictedContainer}>
-        <View style={styles.restrictedIconBox}>
-          <FontAwesome5 name="lock" size={32} color={colors.danger} />
+      <View style={[styles.container, styles.centerFill]}>
+        <View style={styles.restrictedCard}>
+          <FontAwesome5 name="exclamation-circle" size={48} color="#EF4444" />
+          <Text style={styles.restrictedTitle}>Accès Restreint</Text>
+          <Text style={styles.restrictedText}>
+            Vous n'avez pas les permissions nécessaires pour accéder à cette section.
+          </Text>
         </View>
-        <Text style={styles.restrictedTitle}>Accès Restreint</Text>
-        <Text style={styles.restrictedText}>
-          Vous n'avez pas les permissions nécessaires pour accéder à cette section.
-        </Text>
       </View>
     );
   }
 
-  const activeCount = matieres.filter((m) => m.etat?.toUpperCase() !== "INACTIF").length;
+  const q = searchTerm.toLowerCase();
+  const filtered = matieres.filter(
+    (m) => (m.nom ?? "").toLowerCase().includes(q) || (m.description ?? "").toLowerCase().includes(q)
+  );
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const endIndex = startIndex + ITEMS_PER_PAGE;
+  const current = filtered.slice(startIndex, endIndex);
+  const showPagination = filtered.length > ITEMS_PER_PAGE;
+
+  // Same page-number list as web: first, last, current ±1, with "…" gaps
+  const pageItems = Array.from({ length: totalPages }, (_, i) => i + 1)
+    .filter((pg) => pg === 1 || pg === totalPages || Math.abs(pg - currentPage) <= 1)
+    .reduce<(number | "…")[]>((acc, pg, idx, arr) => {
+      if (idx > 0 && pg - arr[idx - 1] > 1) acc.push("…");
+      acc.push(pg);
+      return acc;
+    }, []);
 
   return (
     <View style={styles.container}>
-      {/* Hero Header */}
-      <LinearGradient
-        colors={[colors.heroStart, colors.heroMid]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.pageHeader}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
       >
-        <View style={styles.headerRow}>
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <View style={[styles.card, styles.header]}>
           <View style={styles.headerLeft}>
-            <Text style={styles.pageTitle}>Matières</Text>
-            <View style={styles.headerMetaRow}>
-              <View style={styles.countBadge}>
-                <FontAwesome5 name="book-open" size={10} color={colors.white} />
-                <Text style={styles.countBadgeText}>{matieres.length} au total</Text>
-              </View>
-              <View style={[styles.countBadge, { backgroundColor: "rgba(16, 185, 129, 0.25)" }]}>
-                <View style={styles.activeDot} />
-                <Text style={styles.countBadgeText}>{activeCount} actives</Text>
-              </View>
+            <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerIcon}>
+              <FontAwesome5 name="book-open" size={18} color="#FFFFFF" />
+            </LinearGradient>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.title}>Gestion des Matières</Text>
+              <Text style={styles.subtitle} numberOfLines={1}>
+                Gérez les matières scolaires de votre établissement
+              </Text>
             </View>
           </View>
           {canManage && (
-            <TouchableOpacity onPress={openCreate} style={styles.addButton} activeOpacity={0.85}>
-              <LinearGradient
-                colors={MATIERE_GRADIENT}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.addButtonGradient}
-              >
-                <FontAwesome5 name="plus" size={13} color={colors.white} />
-                <Text style={styles.addButtonText}>Nouvelle</Text>
+            <TouchableOpacity onPress={openCreate} activeOpacity={0.85}>
+              <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.newBtn}>
+                <FontAwesome5 name="plus" size={13} color="#FFFFFF" />
+                <Text style={styles.newBtnText}>Nouveau</Text>
               </LinearGradient>
             </TouchableOpacity>
           )}
         </View>
-      </LinearGradient>
 
-      {/* Search & Filter Bar */}
-      <View style={styles.searchSection}>
-        <View style={styles.searchRow}>
-          <FontAwesome5 name="search" size={13} color={colors.textMuted} />
-          <Input
-            placeholder="Rechercher une matière..."
-            value={searchTerm}
-            onChangeText={setSearchTerm}
-            style={styles.searchInput}
-          />
-          {searchTerm ? (
-            <TouchableOpacity onPress={() => setSearchTerm("")} style={styles.clearBtn}>
-              <FontAwesome5 name="times-circle" size={14} color={colors.textMuted} />
+        {/* ── Message ────────────────────────────────────────────── */}
+        {message.text ? (
+          <View style={[styles.message, message.type === "success" ? styles.messageSuccess : styles.messageError]}>
+            <FontAwesome5
+              name={message.type === "success" ? "check-circle" : "exclamation-circle"}
+              size={14}
+              color={message.type === "success" ? "#15803D" : "#B91C1C"}
+            />
+            <Text style={[styles.messageText, { color: message.type === "success" ? "#15803D" : "#B91C1C" }]}>
+              {message.text}
+            </Text>
+            <TouchableOpacity onPress={() => setMessage({ text: "", type: "" })} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <FontAwesome5 name="times" size={13} color={message.type === "success" ? "#15803D" : "#B91C1C"} />
             </TouchableOpacity>
-          ) : null}
-        </View>
-
-        <View style={styles.filterPillsRow}>
-          {(
-            [
-              { key: "ALL", label: "Toutes", count: matieres.length },
-              { key: "ACTIF", label: "Actives", count: activeCount },
-              { key: "INACTIF", label: "Inactives", count: matieres.length - activeCount },
-            ] as const
-          ).map((filter) => {
-            const isSelected = statusFilter === filter.key;
-            return (
-              <TouchableOpacity
-                key={filter.key}
-                onPress={() => setStatusFilter(filter.key)}
-                style={[styles.filterPill, isSelected && styles.filterPillActive]}
-              >
-                <Text style={[styles.filterPillText, isSelected && styles.filterPillTextActive]}>
-                  {filter.label} ({filter.count})
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </View>
-
-      {/* List */}
-      <ScrollView
-        style={styles.list}
-        contentContainerStyle={{ paddingBottom: 120 }}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
-      >
-        {error ? (
-          <View style={styles.errorBox}>
-            <FontAwesome5 name="exclamation-triangle" size={14} color={colors.danger} />
-            <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
-        {loading ? (
-          <LoadingSpinner label="Chargement des matières..." />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            icon="book"
-            title={searchTerm ? "Aucun résultat" : "Aucune matière trouvée"}
-            actionLabel={canManage ? "Ajouter une matière" : undefined}
-            onAction={canManage ? openCreate : undefined}
-          />
-        ) : (
-          filtered.map((m) => {
-            const isInactive = m.etat?.toUpperCase() === "INACTIF";
-            return (
-              <View key={m.id} style={styles.card}>
-                {/* Top Accent Strip */}
-                <LinearGradient
-                  colors={isInactive ? [colors.border, colors.borderLight] : MATIERE_GRADIENT}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.cardTopAccent}
-                />
+        {/* ── Search + Refresh ───────────────────────────────────── */}
+        <View style={[styles.card, styles.searchCard]}>
+          <View style={styles.searchBox}>
+            <FontAwesome5 name="search" size={13} color={p.sub} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Rechercher une matière..."
+              placeholderTextColor="#9CA3AF"
+              value={searchTerm}
+              onChangeText={setSearchTerm}
+            />
+          </View>
+          <TouchableOpacity style={styles.refreshBtn} onPress={load} disabled={loading} accessibilityLabel="Actualiser">
+            <FontAwesome5 name="sync-alt" size={14} color={p.text} />
+          </TouchableOpacity>
+        </View>
 
-                <View style={styles.cardMain}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={styles.iconWrapper}>
-                      <FontAwesome5
-                        name="book"
-                        size={15}
-                        color={isInactive ? colors.textMuted : colors.primary}
-                      />
-                    </View>
-                    <View style={styles.cardBody}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>
-                        {m.nom}
-                      </Text>
+        {/* ── Content ────────────────────────────────────────────── */}
+        <View style={[styles.card, styles.listCard]}>
+          {loading ? (
+            <View style={styles.stateBox}>
+              <ActivityIndicator size="large" color="#2563EB" />
+              <Text style={styles.stateDesc}>Chargement...</Text>
+            </View>
+          ) : current.length === 0 ? (
+            <View style={styles.stateBox}>
+              <FontAwesome5 name="book-open" size={40} color={p.sub} />
+              <Text style={styles.stateTitle}>{searchTerm ? "Aucune matière trouvée" : "Aucune matière"}</Text>
+              <Text style={styles.stateDesc}>
+                {searchTerm ? "Essayez de modifier vos critères de recherche" : "Commencez par créer votre première matière"}
+              </Text>
+            </View>
+          ) : (
+            current.map((m, i) => {
+              const actif = (m.etat ?? "ACTIF") === "ACTIF";
+              return (
+                <View key={m.id ?? i} style={[styles.row, i > 0 && styles.rowBorder]}>
+                  <View style={styles.rowTop}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.rowName} numberOfLines={1}>{m.nom}</Text>
                       {m.description ? (
-                        <Text style={styles.cardDesc} numberOfLines={2}>
-                          {m.description}
-                        </Text>
-                      ) : (
-                        <Text style={styles.cardDescEmpty}>Aucune description fournie</Text>
-                      )}
+                        <Text style={styles.rowDesc} numberOfLines={2}>{m.description}</Text>
+                      ) : null}
                     </View>
-                    <Badge
-                      label={isInactive ? "Inactif" : "Actif"}
-                      tone={isInactive ? "neutral" : "success"}
-                    />
+                    <View style={[styles.statusPill, { backgroundColor: actif ? "#DCFCE7" : "#FEE2E2" }]}>
+                      <Text style={[styles.statusText, { color: actif ? "#15803D" : "#B91C1C" }]}>{m.etat || "ACTIF"}</Text>
+                    </View>
                   </View>
-
-                  <View style={styles.cardFooter}>
+                  <View style={styles.rowBottom}>
                     <View style={styles.dateRow}>
-                      <FontAwesome5 name="calendar-alt" size={11} color={colors.textMuted} />
-                      <Text style={styles.dateText}>Ajouté le {formatDate(m.dateCreation)}</Text>
+                      <FontAwesome5 name="calendar-alt" size={10} color={p.sub} />
+                      <Text style={styles.dateText}>{formatDate(m.dateCreation)}</Text>
                     </View>
-
                     {canManage && (
-                      <View style={styles.cardActions}>
-                        <ActionChip
-                          icon="pen"
-                          label="Modifier"
-                          color={colors.primary}
-                          onPress={() => openEdit(m)}
-                        />
-                        <ActionChip
-                          icon="trash"
-                          label="Supprimer"
-                          color={colors.danger}
-                          onPress={() => handleDelete(m)}
-                        />
+                      <View style={styles.rowActions}>
+                        <TouchableOpacity style={styles.iconBtn} onPress={() => openEdit(m)} accessibilityLabel="Modifier">
+                          <FontAwesome5 name="pencil-alt" size={14} color={p.action} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.iconBtn} onPress={() => openDelete(m)} accessibilityLabel="Supprimer">
+                          <FontAwesome5 name="trash-alt" size={14} color={p.action} />
+                        </TouchableOpacity>
                       </View>
                     )}
                   </View>
                 </View>
+              );
+            })
+          )}
+
+          {/* Pagination */}
+          {showPagination && !loading && current.length > 0 && (
+            <View style={styles.pagination}>
+              <Text style={styles.pageInfo}>
+                {startIndex + 1}–{Math.min(endIndex, filtered.length)} / {filtered.length}
+              </Text>
+              <View style={styles.pageBtns}>
+                <TouchableOpacity
+                  style={[styles.pageBtn, currentPage === 1 && styles.pageBtnDisabled]}
+                  disabled={currentPage === 1}
+                  onPress={() => setCurrentPage((c) => c - 1)}
+                >
+                  <FontAwesome5 name="chevron-left" size={11} color={p.text} />
+                </TouchableOpacity>
+                {pageItems.map((pg, idx) =>
+                  pg === "…" ? (
+                    <Text key={`e-${idx}`} style={styles.pageEllipsis}>…</Text>
+                  ) : currentPage === pg ? (
+                    <LinearGradient key={pg} colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.pageNum}>
+                      <Text style={[styles.pageNumText, { color: "#FFFFFF" }]}>{pg}</Text>
+                    </LinearGradient>
+                  ) : (
+                    <TouchableOpacity key={pg} style={[styles.pageNum, styles.pageNumIdle]} onPress={() => setCurrentPage(pg)}>
+                      <Text style={styles.pageNumText}>{pg}</Text>
+                    </TouchableOpacity>
+                  )
+                )}
+                <TouchableOpacity
+                  style={[styles.pageBtn, currentPage === totalPages && styles.pageBtnDisabled]}
+                  disabled={currentPage === totalPages}
+                  onPress={() => setCurrentPage((c) => c + 1)}
+                >
+                  <FontAwesome5 name="chevron-right" size={11} color={p.text} />
+                </TouchableOpacity>
               </View>
-            );
-          })
-        )}
+            </View>
+          )}
+        </View>
       </ScrollView>
 
-      {/* Create Modal */}
-      <BottomSheet visible={showCreate} onClose={closeSheets} title="Nouvelle matière">
-        <View style={styles.modalContent}>
-          <Input
-            label="Nom de la matière"
-            value={nom}
-            onChangeText={setNom}
-            placeholder="Ex: Mathématiques, Sciences..."
-          />
-          <Input
-            label="Description (optionnelle)"
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Précisez les objectifs ou le programme..."
-            multiline
-            numberOfLines={3}
-            style={{ height: 90, textAlignVertical: "top" }}
-          />
-          <Button
-            label="Créer la matière"
-            onPress={handleCreate}
-            loading={submitting}
-            fullWidth
-            style={{ marginTop: spacing.md, marginBottom: spacing.lg }}
-          />
-        </View>
-      </BottomSheet>
+      {/* ── Create / Edit dialog ─────────────────────────────────── */}
+      <Modal visible={modal === "create" || modal === "edit"} transparent animationType="fade" onRequestClose={closeModals}>
+        <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={styles.dialog}>
+            <View style={styles.dialogHeader}>
+              <Text style={styles.dialogTitle}>{modal === "edit" ? "Modifier la Matière" : "Nouvelle Matière"}</Text>
+              <TouchableOpacity onPress={closeModals} style={styles.dialogClose} accessibilityLabel="Fermer">
+                <FontAwesome5 name="times" size={16} color={p.sub} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.dialogBody}>
+              <Text style={styles.label}>Nom de la matière *</Text>
+              <TextInput
+                style={styles.input}
+                value={nom}
+                onChangeText={setNom}
+                placeholder="Ex: Mathématiques"
+                placeholderTextColor="#9CA3AF"
+              />
+              <Text style={[styles.label, { marginTop: 16 }]}>Description</Text>
+              <TextInput
+                style={[styles.input, styles.textarea]}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Description de la matière..."
+                placeholderTextColor="#9CA3AF"
+                multiline
+                numberOfLines={3}
+              />
+            </View>
+            <View style={styles.dialogFooter}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={closeModals}>
+                <Text style={styles.cancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSave}
+                disabled={saving || !nom.trim()}
+                style={(saving || !nom.trim()) && { opacity: 0.5 }}
+                activeOpacity={0.85}
+              >
+                <LinearGradient colors={GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtn}>
+                  {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : <FontAwesome5 name="save" size={13} color="#FFFFFF" />}
+                  <Text style={styles.primaryText}>
+                    {modal === "edit" ? (saving ? "Modification..." : "Modifier") : saving ? "Création..." : "Créer"}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
-      {/* Edit Modal */}
-      <BottomSheet visible={!!editing} onClose={resetForm} title="Modifier la matière">
-        <View style={styles.modalContent}>
-          <Input
-            label="Nom de la matière"
-            value={nom}
-            onChangeText={setNom}
-            placeholder="Ex: Mathématiques"
-          />
-          <Input
-            label="Description (optionnelle)"
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Description de la matière..."
-            multiline
-            numberOfLines={3}
-            style={{ height: 90, textAlignVertical: "top" }}
-          />
-          <Button
-            label="Enregistrer les modifications"
-            onPress={handleUpdate}
-            loading={submitting}
-            fullWidth
-            style={{ marginTop: spacing.md, marginBottom: spacing.lg }}
-          />
+      {/* ── Delete dialog ────────────────────────────────────────── */}
+      <Modal visible={modal === "delete"} transparent animationType="fade" onRequestClose={closeModals}>
+        <View style={styles.overlay}>
+          <View style={styles.dialog}>
+            <View style={styles.dialogHeader}>
+              <Text style={styles.dialogTitle}>Confirmer la suppression</Text>
+            </View>
+            <View style={styles.dialogBody}>
+              <Text style={styles.confirmText}>
+                Êtes-vous sûr de vouloir supprimer la matière <Text style={{ fontWeight: "800" }}>{selected?.nom}</Text> ?
+              </Text>
+              <Text style={styles.confirmWarn}>Cette action est irréversible.</Text>
+            </View>
+            <View style={styles.dialogFooter}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={closeModals}>
+                <Text style={styles.cancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={confirmDelete} disabled={saving} style={saving && { opacity: 0.5 }} activeOpacity={0.85}>
+                <LinearGradient colors={["#EF4444", "#DC2626"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.primaryBtn}>
+                  {saving ? <ActivityIndicator size="small" color="#FFFFFF" /> : <FontAwesome5 name="trash-alt" size={13} color="#FFFFFF" />}
+                  <Text style={styles.primaryText}>{saving ? "Suppression..." : "Supprimer"}</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
-      </BottomSheet>
+      </Modal>
     </View>
   );
 };
 
-const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  // Hero Header
-  pageHeader: {
-    // Fallback if LinearGradient ever fails — keeps the white header text
-    // readable instead of white-on-white.
-    backgroundColor: colors.heroStart,
-    paddingTop: 52,
-    paddingBottom: 20,
-    paddingHorizontal: spacing.lg,
-    borderBottomLeftRadius: radius.xxl,
-    borderBottomRightRadius: radius.xxl,
-    marginBottom: 12,
-    ...shadow.hero,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  headerLeft: { flex: 1 },
-  pageTitle: { fontSize: 26, fontWeight: "800", color: colors.white, letterSpacing: -0.5 },
-  headerMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
-  countBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: radius.full,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  countBadgeText: { fontSize: 11, fontWeight: "700", color: colors.white },
-  activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#34D399" },
-  addButton: { borderRadius: radius.full, overflow: "hidden", ...shadow.md },
-  addButtonGradient: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  addButtonText: { color: colors.white, fontWeight: "700", fontSize: 12 },
+const createStyles = (p: Palette) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: p.page },
+    centerFill: { alignItems: "center", justifyContent: "center", padding: 24 },
+    scrollContent: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 140, gap: 16 },
 
-  // Search & Filters
-  searchSection: { paddingHorizontal: 16, marginBottom: 12, gap: 10 },
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingLeft: 12,
-    ...shadow.sm,
-  },
-  searchInput: { flex: 1, borderWidth: 0, shadowOpacity: 0, backgroundColor: "transparent" },
-  clearBtn: { paddingRight: 12 },
-  filterPillsRow: { flexDirection: "row", gap: 8 },
-  filterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  filterPillText: { fontSize: 12, fontWeight: "600", color: colors.textMuted },
-  filterPillTextActive: { color: colors.white },
+    card: {
+      backgroundColor: p.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: p.border,
+      shadowColor: "#000",
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 1 },
+      elevation: 1,
+    },
 
-  // List & Cards
-  list: { flex: 1, paddingHorizontal: 16 },
-  errorBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: colors.dangerLight,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  errorText: { color: colors.danger, fontSize: 13, flex: 1 },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    marginBottom: 12,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.card,
-  },
-  cardTopAccent: { height: 4 },
-  cardMain: { padding: spacing.md },
-  cardHeaderRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  iconWrapper: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: colors.primaryLight,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardBody: { flex: 1 },
-  cardTitle: { ...typography.h3, color: colors.text, fontSize: 15 },
-  cardDesc: { ...typography.caption, color: colors.textMuted, marginTop: 4, lineHeight: 17 },
-  cardDescEmpty: { ...typography.caption, color: colors.textMuted, marginTop: 4, fontStyle: "italic" },
-  cardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
-  },
-  dateRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  dateText: { ...typography.caption, color: colors.textMuted, fontSize: 11 },
-  cardActions: { flexDirection: "row", gap: 8 },
-  actionChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radius.full,
-    borderWidth: 1,
-  },
-  actionChipText: { fontSize: 11, fontWeight: "700" },
+    // Header
+    header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 16 },
+    headerLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1, minWidth: 0 },
+    headerIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.12,
+      shadowRadius: 4,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 3,
+    },
+    title: { fontSize: 18, fontWeight: "800", color: p.text, lineHeight: 22 },
+    subtitle: { fontSize: 12, color: p.sub },
+    newBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
+    newBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
 
-  // Modal
-  modalContent: { paddingVertical: spacing.xs },
+    // Message
+    message: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1 },
+    messageSuccess: { backgroundColor: "#F0FDF4", borderColor: "#BBF7D0" },
+    messageError: { backgroundColor: "#FEF2F2", borderColor: "#FECACA" },
+    messageText: { flex: 1, fontSize: 13 },
 
-  // Restricted Access
-  restrictedContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.xl,
-    backgroundColor: colors.background,
-  },
-  restrictedIconBox: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.dangerLight,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.md,
-  },
-  restrictedTitle: { ...typography.h2, color: colors.text, marginBottom: spacing.xs },
-  restrictedText: { ...typography.body, color: colors.textMuted, textAlign: "center", lineHeight: 20 },
-});
+    // Search
+    searchCard: { flexDirection: "row", gap: 8, padding: 12 },
+    searchBox: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      backgroundColor: p.input,
+      borderWidth: 1,
+      borderColor: p.border,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      height: 40,
+    },
+    searchInput: { flex: 1, fontSize: 14, color: p.text, paddingVertical: 0 },
+    refreshBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: p.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    // List
+    listCard: { overflow: "hidden" },
+    stateBox: { padding: 40, alignItems: "center", gap: 8 },
+    stateTitle: { fontSize: 16, fontWeight: "700", color: p.text, marginTop: 4 },
+    stateDesc: { fontSize: 13, color: p.sub, textAlign: "center" },
+    row: { padding: 16 },
+    rowBorder: { borderTopWidth: 1, borderTopColor: p.divider },
+    rowTop: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 8 },
+    rowName: { fontSize: 14, fontWeight: "700", color: p.text },
+    rowDesc: { fontSize: 12, color: p.sub, marginTop: 2 },
+    statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+    statusText: { fontSize: 11, fontWeight: "600" },
+    rowBottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
+    dateRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+    dateText: { fontSize: 12, color: p.sub },
+    rowActions: { flexDirection: "row", gap: 4 },
+    iconBtn: { padding: 6, borderRadius: 8 },
+
+    // Pagination
+    pagination: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderTopWidth: 1,
+      borderTopColor: p.border,
+    },
+    pageInfo: { fontSize: 12, color: p.sub },
+    pageBtns: { flexDirection: "row", alignItems: "center", gap: 4 },
+    pageBtn: { width: 28, height: 28, borderRadius: 8, borderWidth: 1, borderColor: p.border, alignItems: "center", justifyContent: "center" },
+    pageBtnDisabled: { opacity: 0.4 },
+    pageNum: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+    pageNumIdle: { borderWidth: 1, borderColor: p.border },
+    pageNumText: { fontSize: 12, fontWeight: "600", color: p.text },
+    pageEllipsis: { paddingHorizontal: 2, fontSize: 12, color: p.sub },
+
+    // Dialogs
+    overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 16 },
+    dialog: { backgroundColor: p.card, borderRadius: 16, overflow: "hidden", maxHeight: "90%" },
+    dialogHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: p.border,
+    },
+    dialogTitle: { fontSize: 18, fontWeight: "800", color: p.text },
+    dialogClose: { padding: 6, borderRadius: 8 },
+    dialogBody: { padding: 20 },
+    dialogFooter: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: 12,
+      padding: 16,
+      borderTopWidth: 1,
+      borderTopColor: p.border,
+    },
+    label: { fontSize: 14, fontWeight: "700", color: p.text, marginBottom: 8 },
+    input: {
+      backgroundColor: p.input,
+      borderWidth: 1,
+      borderColor: p.border,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      fontSize: 14,
+      color: p.text,
+    },
+    textarea: { height: 90, textAlignVertical: "top" },
+    cancelBtn: { paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: p.border, justifyContent: "center" },
+    cancelText: { fontSize: 14, color: p.text },
+    primaryBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12 },
+    primaryText: { color: "#FFFFFF", fontWeight: "700", fontSize: 14 },
+    confirmText: { fontSize: 14, color: p.text, lineHeight: 20 },
+    confirmWarn: { fontSize: 13, color: p.sub, marginTop: 8 },
+
+    // Restricted
+    restrictedCard: {
+      backgroundColor: p.card,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: p.border,
+      padding: 28,
+      alignItems: "center",
+      gap: 8,
+      maxWidth: 420,
+    },
+    restrictedTitle: { fontSize: 22, fontWeight: "800", color: p.text, marginTop: 8 },
+    restrictedText: { fontSize: 14, color: p.sub, textAlign: "center" },
+  });
 
 export default MatieresBody;

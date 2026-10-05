@@ -263,9 +263,10 @@ export const CreateClassSheet = ({
                   </TouchableOpacity>
                 </View>
                 {periodicite === "ANNUEL" && offreReduction != null && offreReduction > 0 && (
-                  <Text style={styles.reductionText}>
-                    🎉 Réduction de {Math.round(offreReduction * 100)}% pour l'offre annuelle !
-                  </Text>
+                  <View style={styles.reductionRow}>
+                    <FontAwesome5 name="tags" size={12} color={styles.reductionText.color as string} />
+                    <Text style={styles.reductionText}>Réduction de {Math.round(offreReduction * 100)}% pour l'offre annuelle !</Text>
+                  </View>
                 )}
               </>
             )}
@@ -332,15 +333,21 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   periodBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   periodBtnText: { ...typography.caption, color: colors.text, fontWeight: "600" },
   periodBtnTextActive: { color: colors.white },
-  reductionText: {
-    ...typography.caption,
-    color: colors.successDark,
+  reductionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     backgroundColor: colors.successLight,
     borderWidth: 1,
     borderColor: colors.successLight,
     borderRadius: 8,
     padding: spacing.sm,
     marginTop: spacing.sm,
+  },
+  reductionText: {
+    ...typography.caption,
+    color: colors.successDark,
+    flexShrink: 1,
     fontWeight: "700",
   },
 });

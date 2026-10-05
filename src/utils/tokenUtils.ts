@@ -42,6 +42,9 @@ export const normalizeRole = (rawRole: string | null | undefined): AppRole => {
       return 'admin';
     case 'PROFESSOR':
     case 'PROFESSEUR':
+    // Professor profile not validated by the admin yet: still a professor session (shown the
+    // verification status screen instead of the dashboard), just without professor rights.
+    case 'PROFESSOR_PENDING':
       return 'professor';
     case 'PARENT':
       return 'parent';
@@ -62,6 +65,19 @@ export const normalizeRole = (rawRole: string | null | undefined): AppRole => {
 };
 
 export const getAppRole = (token: string): AppRole => normalizeRole(getUserRole(token));
+
+/**
+ * The role a session runs as. The JWT carries EVERY active role of a multi-role
+ * account (e.g. professor + parent), so the token alone can't tell which one the
+ * user picked — the login/switch-role response's `selectedRole` does. Falls back
+ * to the token's first role for older stored sessions.
+ */
+export const resolveSessionRole = (token: string, selectedRole?: string | null): AppRole => {
+  const tokenRoles = getUserRoles(token).map(normalizeRole);
+  const picked = normalizeRole(selectedRole);
+  if (picked !== 'unknown' && (tokenRoles.length === 0 || tokenRoles.includes(picked))) return picked;
+  return tokenRoles[0] ?? 'unknown';
+};
 
 export const getNavigationRoute = (token: string): NavigationRoute => {
   const role = getAppRole(token);

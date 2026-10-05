@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Badge, BottomSheet, Button, EmptyState, Input, LoadingSpinner } from "../../../components/ui";
+import { Badge, BottomSheet, Button, DropdownField, EmptyState, Input, LoadingSpinner } from "../../../components/ui";
 import DocumentPreview from "../../../components/common/DocumentPreview";
 import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../../styles/theme";
 import {
   accederService, gestionnaireService, parentService, professorService,
   rejectionService, studentService, userService,
 } from "../../../services/api";
-import { ClassEntity, RejectionMotif } from "../../../types";
+import { ClassEntity, ProfessorVerificationStatus, RejectionMotif } from "../../../types";
+import { formatDate as formatServerDate } from "../../../utils/dates";
+import { translate, useT } from "../../../i18n";
+import CreateUserSheet, { CreatableUserKind } from "./CreateUserSheet";
 
 // LinearGradient with safe fallback
 let LinearGradient: any;
@@ -51,10 +54,21 @@ interface Row {
   etat?: string; dateCreation?: string;
   classes?: SimpleClass[]; etablissementsGeres?: SimpleEstablishment[];
   enfants?: SimpleChild[]; cniUrlRecto?: string; cniUrlVerso?: string; selfieUrl?: string;
+  /** Professor identity-documents review (separate from the account state `etat`). */
+  statutVerification?: ProfessorVerificationStatus; motifRejetVerification?: string;
 }
 
+const VERIFICATION_TONE: Record<ProfessorVerificationStatus, "success" | "warning" | "danger" | "info"> = {
+  VALIDE: "success", EN_ATTENTE_VALIDATION: "warning", DOCUMENTS_MANQUANTS: "info", REJETE: "danger",
+};
+const VERIFICATION_ICON: Record<ProfessorVerificationStatus, string> = {
+  VALIDE: "user-check", EN_ATTENTE_VALIDATION: "hourglass-half", DOCUMENTS_MANQUANTS: "file-upload", REJETE: "user-times",
+};
+const asVerificationStatus = (raw: unknown): ProfessorVerificationStatus | undefined =>
+  typeof raw === "string" && raw.toUpperCase() in VERIFICATION_TONE ? (raw.toUpperCase() as ProfessorVerificationStatus) : undefined;
+
 const getInitials = (name: string) => name.split(" ").filter(Boolean).map((n) => n[0]).join("").toUpperCase().slice(0, 2);
-const formatDate = (d?: string) => (d ? new Date(d).toLocaleDateString("fr-FR") : undefined);
+const formatDate = (d?: string) => formatServerDate(d) || undefined;
 
 const toRow = (raw: Record<string, any>): Row => ({
   id: raw.id, prenom: raw.prenom ?? "", nom: raw.nom ?? "",
@@ -64,14 +78,18 @@ const toRow = (raw: Record<string, any>): Row => ({
   dateCreation: raw.dateCreation ?? raw.creationDate,
   classes: raw.moderatedClasses, etablissementsGeres: raw.etablissementsGeres,
   cniUrlRecto: raw.cniUrlRecto, cniUrlVerso: raw.cniUrlVerso, selfieUrl: raw.selfieUrl,
+  statutVerification: asVerificationStatus(raw.statutVerification), motifRejetVerification: raw.motifRejetVerification,
 });
 
 const getValidationState = (row: Row, activeTab: RoleTab) => {
   const etatUpper = row.etat?.toUpperCase() ?? "";
   const isClearlyActive = etatUpper === "ACTIVE" || etatUpper === "ACTIF";
-  const isPendingProfessorRow = (activeTab === "professeurs" || activeTab === "pending") && !isClearlyActive;
+  const isProfessorTab = activeTab === "professeurs" || activeTab === "pending";
+  const isPendingProfessorRow = isProfessorTab && !isClearlyActive;
   const awaitingEmail = isPendingProfessorRow && etatUpper === "PENDING";
-  const awaitingValidation = isPendingProfessorRow && !awaitingEmail;
+  // An ACTIVE professor whose documents are under review must still be validated/rejected.
+  const awaitingValidation =
+    (isPendingProfessorRow && !awaitingEmail) || (isProfessorTab && row.statutVerification === "EN_ATTENTE_VALIDATION");
   return { awaitingEmail, awaitingValidation };
 };
 
@@ -83,11 +101,19 @@ const statusTone = (etat?: string): "success" | "warning" | "neutral" => {
   return "neutral";
 };
 
+/** Tabs whose web page (ProfessorsContent / ParentsContent / StudentsContent) has an "Ajouter" button. */
+const CREATE_KIND_BY_TAB: Partial<Record<RoleTab, CreatableUserKind>> = {
+  professeurs: "professeur",
+  parents: "parent",
+  eleves: "eleve",
+};
+
 interface AdminUsersBodyProps { initialTab?: RoleTab; }
 
 const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useT();
   const [activeTab, setActiveTab] = useState<RoleTab>(initialTab ?? "professeurs");
   const [searchTerm, setSearchTerm] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
@@ -98,6 +124,7 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
   const [editingRow, setEditingRow] = useState<Row | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [showCreateAdmin, setShowCreateAdmin] = useState(false);
+  const [createKind, setCreateKind] = useState<CreatableUserKind | null>(null);
 
   useEffect(() => { if (initialTab) setActiveTab(initialTab); }, [initialTab]);
 
@@ -137,12 +164,25 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
   const filteredRows = rows.filter((r) => r.name.toLowerCase().includes(searchTerm.toLowerCase()) || r.email.toLowerCase().includes(searchTerm.toLowerCase()));
 
   const handleValidate = (row: Row) => {
-    Alert.alert("Valider le professeur", `Êtes-vous sûr de vouloir valider ${row.name} ?`, [
-      { text: "Annuler", style: "cancel" },
-      { text: "Valider", onPress: async () => {
+    Alert.alert(translate("profVerification.admin.validateTitle"), translate("profVerification.admin.validateConfirm", { name: row.name }), [
+      { text: translate("common.cancel"), style: "cancel" },
+      { text: translate("profVerification.admin.validate"), onPress: async () => {
         setActionLoadingId(row.id);
-        try { await userService.validateProfessor(row.id); setRows((prev) => prev.filter((r) => r.id !== row.id)); setViewingRow((prev) => (prev?.id === row.id ? null : prev)); }
-        catch (err) { Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la validation."); }
+        try {
+          const result = await userService.validateProfessor(row.id);
+          const statut = asVerificationStatus(result?.statutVerification);
+          // Pending tab: the professor leaves the list either way (validated, or account activated
+          // without documents — he will come back here once he has uploaded them).
+          if (activeTab === "pending") setRows((prev) => prev.filter((r) => r.id !== row.id));
+          else setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, etat: "ACTIVE", statutVerification: statut ?? r.statutVerification } : r)));
+          setViewingRow((prev) => (prev?.id === row.id ? null : prev));
+          if (statut === "DOCUMENTS_MANQUANTS") {
+            Alert.alert(translate("profVerification.admin.partialTitle"), translate("profVerification.admin.partialMessage", { name: row.name }));
+          } else {
+            Alert.alert(translate("profVerification.admin.validatedTitle"), translate("profVerification.admin.validatedMessage", { name: row.name }));
+          }
+        }
+        catch (err) { Alert.alert(translate("common.error"), err instanceof Error ? err.message : translate("profVerification.admin.actionFailed")); }
         finally { setActionLoadingId(null); }
       }},
     ]);
@@ -152,8 +192,14 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
 
   const handleConfirmReject = async (codeErreur: string, motifSupplementaire: string) => {
     if (!rejectingRow) return;
-    try { await userService.rejectProfessor(rejectingRow.id, codeErreur, motifSupplementaire || undefined); setRows((prev) => prev.filter((r) => r.id !== rejectingRow.id)); setRejectingRow(null); }
-    catch (err) { Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du rejet."); }
+    const rejectedId = rejectingRow.id;
+    try {
+      await userService.rejectProfessor(rejectedId, codeErreur, motifSupplementaire || undefined);
+      if (activeTab === "pending") setRows((prev) => prev.filter((r) => r.id !== rejectedId));
+      else setRows((prev) => prev.map((r) => (r.id === rejectedId ? { ...r, statutVerification: "REJETE" } : r)));
+      setRejectingRow(null);
+    }
+    catch (err) { Alert.alert(translate("common.error"), err instanceof Error ? err.message : translate("profVerification.admin.actionFailed")); }
   };
 
   const handleResendActivation = async (row: Row) => {
@@ -211,8 +257,12 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
             </View>
           </View>
         </View>
-        {activeTab === "admins" ? (
-          <TouchableOpacity style={styles.addFab} onPress={() => setShowCreateAdmin(true)} activeOpacity={0.8}>
+        {activeTab === "admins" || CREATE_KIND_BY_TAB[activeTab] ? (
+          <TouchableOpacity
+            style={styles.addFab}
+            onPress={() => (activeTab === "admins" ? setShowCreateAdmin(true) : setCreateKind(CREATE_KIND_BY_TAB[activeTab] ?? null))}
+            activeOpacity={0.8}
+          >
             <FontAwesome5 name="plus" size={16} color={colors.white} />
           </TouchableOpacity>
         ) : null}
@@ -262,6 +312,8 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
           filteredRows.map((row) => {
             const { awaitingEmail, awaitingValidation } = getValidationState(row, activeTab);
             const hasDocs = !!(row.cniUrlRecto || row.cniUrlVerso || row.selfieUrl);
+            const isProfessorTab = activeTab === "professeurs" || activeTab === "pending";
+            const showDocuments = activeTab === "pending" || (activeTab === "professeurs" && awaitingValidation);
             return (
               <View key={row.id} style={styles.card}>
                 {/* Card top accent */}
@@ -281,20 +333,45 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
                   </View>
                   {row.etat ? <Badge label={STATUS_LABELS[row.etat.toUpperCase()] ?? row.etat} tone={statusTone(row.etat)} /> : null}
                 </View>
+                {isProfessorTab && row.statutVerification ? (
+                  <View style={styles.verificationRow}>
+                    <Text style={styles.verificationLabel}>{t("profVerification.admin.verification")}</Text>
+                    <Badge label={t(`profVerification.statuses.${row.statutVerification}`)} icon={VERIFICATION_ICON[row.statutVerification]} tone={VERIFICATION_TONE[row.statutVerification]} />
+                  </View>
+                ) : null}
+                {isProfessorTab && row.statutVerification === "REJETE" && row.motifRejetVerification ? (
+                  <Text style={styles.rejectReason} numberOfLines={3}>{t("profVerification.rejected.reason")} : {row.motifRejetVerification}</Text>
+                ) : null}
 
                 {/* Validation actions */}
                 {(awaitingValidation || awaitingEmail) && (
                   <View style={styles.validationRow}>
                     {awaitingValidation ? (
                       <>
-                        <Button label="✓ Valider" onPress={() => handleValidate(row)} loading={actionLoadingId === row.id} style={{ flexGrow: 1, backgroundColor: colors.success }} />
-                        <Button label="✕ Rejeter" variant="danger" onPress={() => handleReject(row)} style={{ flexGrow: 1 }} />
+                        <Button label={t("profVerification.admin.validate")} icon="check" onPress={() => handleValidate(row)} loading={actionLoadingId === row.id} style={{ flexGrow: 1, backgroundColor: colors.success }} />
+                        <Button label={t("profVerification.admin.reject")} icon="times" variant="danger" onPress={() => handleReject(row)} style={{ flexGrow: 1 }} />
                       </>
                     ) : (
                       <Button label="Renvoyer l'email d'activation" onPress={() => handleResendActivation(row)} loading={actionLoadingId === row.id} fullWidth />
                     )}
                   </View>
                 )}
+
+                {/* Identity documents (professor validation) */}
+                {showDocuments ? (
+                  <View style={styles.sectionBox}>
+                    <UserSectionHeader icon="id-card" label={t("profVerification.admin.documents")} color={activeTabDef?.color ?? colors.primary} />
+                    {hasDocs ? (
+                      <View style={styles.documentsRow}>
+                        {row.cniUrlRecto ? <DocumentPreview path={row.cniUrlRecto} label={t("auth.signup.verification.docs.cniRecto.label")} /> : null}
+                        {row.cniUrlVerso ? <DocumentPreview path={row.cniUrlVerso} label={t("auth.signup.verification.docs.cniVerso.label")} /> : null}
+                        {row.selfieUrl ? <DocumentPreview path={row.selfieUrl} label={t("auth.signup.verification.docs.selfie.label")} /> : null}
+                      </View>
+                    ) : (
+                      <Text style={styles.dimText}>{t("profVerification.admin.noDocuments")}</Text>
+                    )}
+                  </View>
+                ) : null}
 
                 {/* Info section */}
                 <View style={styles.sectionBox}>
@@ -303,10 +380,10 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
                   {row.adresse ? <InfoLine icon="map-marker-alt" text={row.adresse} /> : null}
                   {row.niveau ? <InfoLine icon="layer-group" text={`Niveau: ${row.niveau}`} /> : null}
                   {formatDate(row.dateCreation) ? <InfoLine icon="calendar-alt" text={`Créé le ${formatDate(row.dateCreation)}`} /> : null}
-                  {hasDocs ? (
+                  {hasDocs && !showDocuments ? (
                     <View style={styles.docBadgeRow}>
-                      {row.cniUrlRecto || row.cniUrlVerso ? <Badge label="CNI ✓" tone="info" /> : null}
-                      {row.selfieUrl ? <Badge label="Selfie ✓" tone="success" /> : null}
+                      {row.cniUrlRecto || row.cniUrlVerso ? <Badge label="CNI" icon="id-card" tone="info" /> : null}
+                      {row.selfieUrl ? <Badge label="Selfie" icon="camera" tone="success" /> : null}
                     </View>
                   ) : null}
                 </View>
@@ -383,7 +460,13 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
           <ScrollView style={{ maxHeight: 520 }} showsVerticalScrollIndicator={false}>
             <View style={styles.viewBadgeRow}>
               {viewingRow.etat ? <Badge label={STATUS_LABELS[viewingRow.etat.toUpperCase()] ?? viewingRow.etat} tone={statusTone(viewingRow.etat)} /> : null}
+              {viewingRow.statutVerification ? (
+                <Badge label={t(`profVerification.statuses.${viewingRow.statutVerification}`)} icon={VERIFICATION_ICON[viewingRow.statutVerification]} tone={VERIFICATION_TONE[viewingRow.statutVerification]} />
+              ) : null}
             </View>
+            {viewingRow.statutVerification === "REJETE" && viewingRow.motifRejetVerification ? (
+              <Text style={styles.rejectReason}>{t("profVerification.rejected.reason")} : {viewingRow.motifRejetVerification}</Text>
+            ) : null}
             {(() => {
               const { awaitingEmail, awaitingValidation } = getValidationState(viewingRow, activeTab);
               if (!awaitingEmail && !awaitingValidation) return null;
@@ -391,8 +474,8 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
                 <View style={styles.validationRow}>
                   {awaitingValidation ? (
                     <>
-                      <Button label="Valider" onPress={() => handleValidate(viewingRow)} loading={actionLoadingId === viewingRow.id} style={{ flexGrow: 1, backgroundColor: colors.success }} />
-                      <Button label="Rejeter" variant="danger" onPress={() => handleReject(viewingRow)} style={{ flexGrow: 1 }} />
+                      <Button label={t("profVerification.admin.validate")} icon="check" onPress={() => handleValidate(viewingRow)} loading={actionLoadingId === viewingRow.id} style={{ flexGrow: 1, backgroundColor: colors.success }} />
+                      <Button label={t("profVerification.admin.reject")} icon="times" variant="danger" onPress={() => handleReject(viewingRow)} style={{ flexGrow: 1 }} />
                     </>
                   ) : (
                     <Button label="Renvoyer l'email d'activation" onPress={() => handleResendActivation(viewingRow)} loading={actionLoadingId === viewingRow.id} fullWidth />
@@ -408,11 +491,11 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
             <ViewRow icon="calendar-alt" label="Créé le" value={formatDate(viewingRow.dateCreation)} />
             {(viewingRow.cniUrlRecto || viewingRow.cniUrlVerso || viewingRow.selfieUrl) && (
               <View style={{ marginTop: spacing.md }}>
-                <Text style={styles.viewSectionLabel}>Documents d'identité</Text>
+                <Text style={styles.viewSectionLabel}>{t("profVerification.admin.documents")}</Text>
                 <View style={styles.documentsRow}>
-                  {viewingRow.cniUrlRecto ? <DocumentPreview path={viewingRow.cniUrlRecto} label="CNI Recto" /> : null}
-                  {viewingRow.cniUrlVerso ? <DocumentPreview path={viewingRow.cniUrlVerso} label="CNI Verso" /> : null}
-                  {viewingRow.selfieUrl ? <DocumentPreview path={viewingRow.selfieUrl} label="Selfie" /> : null}
+                  {viewingRow.cniUrlRecto ? <DocumentPreview path={viewingRow.cniUrlRecto} label={t("auth.signup.verification.docs.cniRecto.label")} /> : null}
+                  {viewingRow.cniUrlVerso ? <DocumentPreview path={viewingRow.cniUrlVerso} label={t("auth.signup.verification.docs.cniVerso.label")} /> : null}
+                  {viewingRow.selfieUrl ? <DocumentPreview path={viewingRow.selfieUrl} label={t("auth.signup.verification.docs.selfie.label")} /> : null}
                 </View>
               </View>
             )}
@@ -459,6 +542,7 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
       <EditUserSheet row={editingRow} activeTab={activeTab} onClose={() => setEditingRow(null)} onSave={handleSaveEdit} />
 
       <CreateAdminSheet visible={showCreateAdmin} onClose={() => setShowCreateAdmin(false)} onCreated={load} />
+      <CreateUserSheet kind={createKind} onClose={() => setCreateKind(null)} onCreated={load} />
     </View>
   );
 };
@@ -598,32 +682,36 @@ const RejectMotifSheet = ({ row, onCancel, onSubmit }: RejectMotifSheetProps) =>
 };
 
 // ── CreateAdminSheet ──────────────────────────────────────────────────────────
-// Mirrors GestionnairesBody.tsx's CreateGestionnaireSheet exactly — same
-// POST /utilisateurs call, but with `admin: true` instead of `type:
-// 'gestionnaire'`, since the backend has no distinct "Admin" entity class:
-// an admin is just a base Utilisateurs record with its `admin` boolean set
-// (UtilisateursBusiness.java: `if (utilisateur.isAdmin()) return "ADMIN"`).
-// This tab previously had no create flow at all, unlike every other tab.
+// Mirrors web's AdminContent.jsx AdminModal (create mode) exactly: nom*, prénom*,
+// email*, téléphone, adresse, statut (ACTIVE/INACTIVE/PENDING, default ACTIVE),
+// admin: true → POST /utilisateurs. No password field: the account is activated
+// via the activation email, like on web. `type: "utilisateur"` is the base-entity
+// discriminator (web's raw payload omits it, but the backend's polymorphic DTO
+// requires a type id to deserialize).
 interface CreateAdminSheetProps { visible: boolean; onClose: () => void; onCreated: () => void; }
+
+const ADMIN_ETATS = [
+  { label: "Actif", value: "ACTIVE" },
+  { label: "Inactif", value: "INACTIVE" },
+  { label: "En attente", value: "PENDING" },
+];
 
 const CreateAdminSheet = ({ visible, onClose, onCreated }: CreateAdminSheetProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [nom, setNom] = useState(""); const [prenom, setPrenom] = useState(""); const [email, setEmail] = useState("");
-  const [telephone, setTelephone] = useState(""); const [password, setPassword] = useState("");
+  const [telephone, setTelephone] = useState(""); const [adresse, setAdresse] = useState(""); const [etat, setEtat] = useState("ACTIVE");
   const [loading, setLoading] = useState(false); const [error, setError] = useState("");
 
-  const reset = () => { setNom(""); setPrenom(""); setEmail(""); setTelephone(""); setPassword(""); setError(""); };
+  const reset = () => { setNom(""); setPrenom(""); setEmail(""); setTelephone(""); setAdresse(""); setEtat("ACTIVE"); setError(""); };
 
   const handleCreate = async () => {
-    if (!nom.trim() || !prenom.trim() || !email.trim() || !password) { setError("Nom, prénom, email et mot de passe sont obligatoires."); return; }
+    if (!nom.trim() || !prenom.trim() || !email.trim()) { setError("Nom, prénom et email sont obligatoires."); return; }
     setLoading(true); setError("");
     try {
       await userService.createUser({
         type: "utilisateur", admin: true,
-        nom: nom.trim(), prenom: prenom.trim(), email: email.trim(),
-        telephone: telephone.trim() ? (telephone.startsWith("+") ? telephone.trim() : `+237${telephone.trim()}`) : null,
-        motDePasse: password, etat: "ACTIVE",
+        nom, prenom, email, telephone, adresse, etat,
       });
       reset(); onCreated(); onClose();
     } catch (err) { setError(err instanceof Error ? err.message : "Échec de la création."); }
@@ -634,12 +722,13 @@ const CreateAdminSheet = ({ visible, onClose, onCreated }: CreateAdminSheetProps
     <BottomSheet visible={visible} onClose={onClose} title="Nouvel Administrateur">
       <ScrollView contentContainerStyle={{ paddingBottom: spacing.lg }} keyboardShouldPersistTaps="handled">
         {error ? <View style={styles.errorBox}><Text style={styles.errorText}>{error}</Text></View> : null}
-        <Input label="Nom *" placeholder="Ex: Dupont" value={nom} onChangeText={setNom} />
-        <Input label="Prénom *" placeholder="Ex: Jean" value={prenom} onChangeText={setPrenom} />
-        <Input label="Email *" placeholder="admin@scholchat.cm" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-        <Input label="Téléphone" placeholder="Ex: 6XXXXXXXX" value={telephone} onChangeText={setTelephone} keyboardType="phone-pad" />
-        <Input label="Mot de passe temporaire *" placeholder="Mot de passe d'accès" value={password} onChangeText={setPassword} secureTextEntry />
-        <Button label="Créer l'administrateur" onPress={handleCreate} loading={loading} fullWidth style={{ marginTop: spacing.md }} />
+        <Input label="Nom *" placeholder="Entrez le nom" value={nom} onChangeText={setNom} />
+        <Input label="Prénom *" placeholder="Entrez le prénom" value={prenom} onChangeText={setPrenom} />
+        <Input label="Email *" placeholder="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+        <Input label="Téléphone" placeholder="Téléphone" value={telephone} onChangeText={setTelephone} keyboardType="phone-pad" />
+        <Input label="Adresse" placeholder="Adresse" value={adresse} onChangeText={setAdresse} />
+        <DropdownField label="Statut" value={etat} options={ADMIN_ETATS} onChange={setEtat} sheetTitle="Statut" />
+        <Button label="Créer" onPress={handleCreate} loading={loading} fullWidth style={{ marginTop: spacing.md }} />
       </ScrollView>
     </BottomSheet>
   );
@@ -652,7 +741,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     // Fallback if LinearGradient ever fails — keeps the white header text
     // readable instead of white-on-white.
     backgroundColor: colors.heroStart,
-    paddingTop: 52, paddingBottom: 20, paddingHorizontal: spacing.lg,
+    paddingTop: 16, paddingBottom: 20, paddingHorizontal: spacing.lg,
     flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between",
     borderBottomLeftRadius: radius.xxl, borderBottomRightRadius: radius.xxl,
     marginBottom: 14, ...shadow.hero,
@@ -717,6 +806,9 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   viewValue: { ...typography.body, color: colors.text, flex: 1 },
   viewSectionLabel: { ...typography.captionBold, color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
   documentsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
+  verificationRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginHorizontal: spacing.md, marginTop: spacing.xs },
+  verificationLabel: { ...typography.caption, color: colors.textMuted },
+  rejectReason: { ...typography.caption, color: colors.danger, marginHorizontal: spacing.md, marginTop: spacing.xs },
   // Reject modal
   fieldLabel: { ...typography.bodyBold, color: colors.text, marginBottom: spacing.sm },
   motifRow: { flexDirection: "row", alignItems: "flex-start", padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },

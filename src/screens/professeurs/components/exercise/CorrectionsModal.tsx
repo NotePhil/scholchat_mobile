@@ -6,6 +6,7 @@ import { colors, spacing, typography, useThemeColors } from '../../../../styles/
 import { exerciseProgrammerService, participationService, reponseService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
 import { Participation, Question, Reponse } from '../../../../types';
+import { formatDateTime } from '../../../../utils/dates';
 
 interface CorrectionsModalProps {
   visible: boolean;
@@ -72,7 +73,7 @@ const CorrectionsModal = ({ visible, onClose }: CorrectionsModalProps) => {
               </View>
               <Text style={styles.cardSubtitle}>{p.exerciseProgrammerNom ?? 'Exercice'}</Text>
               {p.dateSoumission ? (
-                <Text style={styles.cardMeta}>Soumis le {new Date(p.dateSoumission).toLocaleString('fr-FR')}</Text>
+                <Text style={styles.cardMeta}>Soumis le {formatDateTime(p.dateSoumission)}</Text>
               ) : null}
             </TouchableOpacity>
           ))

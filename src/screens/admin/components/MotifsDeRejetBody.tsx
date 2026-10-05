@@ -5,6 +5,7 @@ import { BottomSheet, Button, EmptyState, Input, LoadingSpinner } from "../../..
 import { colors, radius, shadow, spacing, typography, useThemeColors } from "../../../styles/theme";
 import { rejectionClassService, rejectionService } from "../../../services/api";
 import { RejectionMotif } from "../../../types";
+import { formatDateTime as formatServerDateTime } from "../../../utils/dates";
 
 // LinearGradient with safe fallback
 let LinearGradient: any;
@@ -20,7 +21,7 @@ const TYPE_CONFIG: Record<MotifType, { label: string; icon: string; gradient: st
 const formatDate = (dateString?: string) => {
   if (!dateString) return "N/A";
   try {
-    return new Date(dateString).toLocaleDateString("fr-FR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return formatServerDateTime(dateString, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }, "N/A");
   } catch { return "N/A"; }
 };
 
@@ -247,7 +248,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     // readable instead of white-on-white (doesn't need to match the active
     // tab's exact gradient, just needs to stay dark).
     backgroundColor: colors.heroStart,
-    paddingTop: 52, paddingBottom: 20, paddingHorizontal: spacing.lg,
+    paddingTop: 16, paddingBottom: 20, paddingHorizontal: spacing.lg,
     flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between",
     borderBottomLeftRadius: radius.xxl, borderBottomRightRadius: radius.xxl,
     marginBottom: 16, ...shadow.hero,

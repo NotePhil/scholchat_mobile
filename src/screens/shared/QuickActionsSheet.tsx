@@ -4,6 +4,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { BottomSheet, Button } from '../../components/ui';
 import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { confirmLogout } from '../../utils/confirmLogout';
+import { useT } from '../../i18n';
 
 export interface QuickAction {
   icon: React.ComponentProps<typeof FontAwesome5>['name'];
@@ -37,6 +38,7 @@ const QuickActionsSheet = ({ visible, onClose, onSelectTab, onLogout, items, sub
   const themeColors = useThemeColors();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
   const [submenuKey, setSubmenuKey] = useState<string | null>(null);
+  const { t } = useT();
 
   useEffect(() => {
     if (visible) setSubmenuKey(null);
@@ -56,7 +58,7 @@ const QuickActionsSheet = ({ visible, onClose, onSelectTab, onLogout, items, sub
   };
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Accès Rapide">
+    <BottomSheet visible={visible} onClose={onClose} title={t('nav.quickActions')}>
       <View style={styles.grid}>
         {activeItems.map((item, index) => (
           <TouchableOpacity key={`${item.label}-${index}`} style={styles.cell} onPress={() => handlePress(item)}>
@@ -73,13 +75,13 @@ const QuickActionsSheet = ({ visible, onClose, onSelectTab, onLogout, items, sub
             <View style={[styles.iconChip, { backgroundColor: themeColors.gray }]}>
               <FontAwesome5 name="arrow-left" size={16} color={themeColors.white} />
             </View>
-            <Text style={styles.cellLabel}>Retour</Text>
+            <Text style={styles.cellLabel}>{t('common.back')}</Text>
           </TouchableOpacity>
         ) : null}
       </View>
 
       {!submenuKey && (
-        <Button label="Déconnexion" variant="danger" onPress={() => confirmLogout(onLogout)} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
+        <Button label={t('logout.title')} variant="danger" onPress={() => confirmLogout(onLogout)} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
       )}
     </BottomSheet>
   );

@@ -5,18 +5,21 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Input } from '../../components/ui';
 import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
 import { authService } from '../../services/home/authService';
+import { translate, useT } from '../../i18n';
+import { resetToLogin } from '../../navigation/authRoutes';
 
-const PASSWORD_RULES: { test: (v: string) => boolean; label: string }[] = [
-  { test: (v) => v.length >= 8, label: '8+ caractères' },
-  { test: (v) => /[A-Z]/.test(v), label: 'Majuscule' },
-  { test: (v) => /[0-9]/.test(v), label: 'Chiffre' },
-  { test: (v) => /[!@#$%^&*(),.?":{}|<>]/.test(v), label: 'Caractère spécial' },
+const PASSWORD_RULES: { test: (v: string) => boolean; key: 'length' | 'uppercase' | 'digit' | 'special' }[] = [
+  { test: (v) => v.length >= 8, key: 'length' },
+  { test: (v) => /[A-Z]/.test(v), key: 'uppercase' },
+  { test: (v) => /[0-9]/.test(v), key: 'digit' },
+  { test: (v) => /[!@#$%^&*(),.?":{}|<>]/.test(v), key: 'special' },
 ];
 
 /** The equivalent of scholchat_front's PasswordPage — sets the initial password right after activation. */
 const SetPasswordScreen = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useT();
   const navigation = useNavigation();
   const route = useRoute<any>();
   const email: string = route.params?.email ?? '';
@@ -30,21 +33,23 @@ const SetPasswordScreen = () => {
 
   const handleSubmit = async () => {
     setError('');
-    if (!PASSWORD_RULES.every((rule) => rule.test(password))) {
-      setError('Mot de passe trop faible. Utilisez des caractères variés.');
+    // Lowercase is required too (web PasswordPage / backend policy), though not listed as a rule chip.
+    if (!PASSWORD_RULES.every((rule) => rule.test(password)) || !/[a-z]/.test(password)) {
+      setError(t('auth.setPassword.tooWeak'));
       return;
     }
     if (password !== confirmPassword) {
-      setError('Les mots de passe ne correspondent pas.');
+      setError(t('auth.common.passwordMismatch'));
       return;
     }
     setLoading(true);
     try {
       await authService.registerPassword(email, password, activationToken);
       setSuccess(true);
-      setTimeout(() => navigation.goBack(), 1500);
+      // Web PasswordPage goes to the login form (goBack would return to the activation screen).
+      setTimeout(() => resetToLogin(navigation as any), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur lors de la définition du mot de passe.');
+      setError(err instanceof Error ? err.message : translate('auth.setPassword.failed'));
     } finally {
       setLoading(false);
     }
@@ -55,39 +60,39 @@ const SetPasswordScreen = () => {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <FontAwesome5 name="shield-alt" size={40} color={colors.primary} style={styles.icon} />
-          <Text style={styles.title}>Sécurisez votre compte</Text>
+          <Text style={styles.title}>{t('auth.setPassword.title')}</Text>
           {email ? <Text style={styles.email}>{email}</Text> : null}
 
           {success ? (
             <View style={styles.center}>
               <FontAwesome5 name="check-circle" size={32} color={colors.success} />
-              <Text style={styles.successText}>Mot de passe défini avec succès !</Text>
+              <Text style={styles.successText}>{t('auth.setPassword.success')}</Text>
             </View>
           ) : (
             <>
-              <Input label="Nouveau mot de passe" placeholder="Minimum 8 caractères" value={password} onChangeText={setPassword} secureTextEntry />
+              <Input label={t('auth.reset.title')} placeholder={t('auth.password.placeholder')} value={password} onChangeText={setPassword} secureTextEntry />
               <View style={styles.rules}>
                 {PASSWORD_RULES.map((rule) => (
-                  <View key={rule.label} style={styles.ruleItem}>
+                  <View key={rule.key} style={styles.ruleItem}>
                     <FontAwesome5
                       name={rule.test(password) ? 'check-circle' : 'circle'}
                       size={12}
                       color={rule.test(password) ? colors.success : colors.grayLight}
                       solid={rule.test(password)}
                     />
-                    <Text style={[styles.ruleText, rule.test(password) && styles.ruleTextMet]}>{rule.label}</Text>
+                    <Text style={[styles.ruleText, rule.test(password) && styles.ruleTextMet]}>{t(`auth.setPassword.rules.${rule.key}`)}</Text>
                   </View>
                 ))}
               </View>
               <Input
-                label="Confirmer le mot de passe"
-                placeholder="Répétez votre mot de passe"
+                label={t('auth.common.confirmPassword')}
+                placeholder={t('auth.setPassword.repeat')}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry
                 error={error}
               />
-              <Button label="Valider mon profil" onPress={handleSubmit} loading={loading} fullWidth />
+              <Button label={t('auth.setPassword.submit')} onPress={handleSubmit} loading={loading} fullWidth />
             </>
           )}
         </ScrollView>

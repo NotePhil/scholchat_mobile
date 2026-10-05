@@ -1,17 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
 import { Badge, EmptyState, LoadingSpinner } from "../../components/ui";
 import JoinClassSheet from "../shared/JoinClassSheet";
-import StudentClassDetailModal, { getLevelStyle } from "../shared/StudentClassDetailModal";
+import { getLevelStyle } from "../shared/StudentClassDetailModal";
+import StudentClassDetailPage from "../student/StudentClassDetailPage";
 import ChildSelectorRow from "./ChildSelectorRow";
 import AddChildSheet from "./AddChildSheet";
-import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
+import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService, classAdminService, parentService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
+import { serverDateMs } from "../../utils/dates";
+import { useT } from "../../i18n";
 
 type AccessState = "APPROVED" | "EN_ATTENTE" | "REJETEE" | "NONE";
 
@@ -25,7 +27,7 @@ const ParentClassesBody = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
-  const navigation = useNavigation<any>();
+  const { t } = useT();
   const { children, selectedChildId, loadChildren } = useSelectedChildStore();
   const [rows, setRows] = useState<ClassWithAccess[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,10 +41,11 @@ const ParentClassesBody = () => {
     if (user?.userId) loadChildren(user.userId);
   }, [user?.userId, loadChildren]);
 
-  // Mirrors web's StudentClassList.jsx (isParentView): every class is shown,
-  // not just the ones the child is already in, with a per-class access
-  // status (APPROVED/EN_ATTENTE/REJETEE) — mobile previously only fetched
-  // the approved subset, so a pending or rejected request was invisible.
+  // Mirrors web's StudentClassList.jsx (isParentView): only the child's classes are
+  // listed — the ones they're in, plus those with a pending/rejected request — each with
+  // its access status. Other classes are joined with the class code via "+".
+  // Requests come from GET /acceder/utilisateurs/{id}/demandes: the parent's own requests
+  // made for this child (minor classes: eleveAssocieId) and the child's own (adult).
   const loadClasses = useCallback(async () => {
     if (!selectedChildId) {
       setRows([]);
@@ -52,45 +55,49 @@ const ParentClassesBody = () => {
     setLoading(true);
     setError("");
     try {
-      const [approved, all] = await Promise.all([
+      const [approved, all, parentRequests, childRequests] = await Promise.all([
         parentService.getChildClasses(selectedChildId),
         classAdminService.getAll(),
+        user?.userId ? accederService.getMyRequests(user.userId).catch(() => []) : Promise.resolve([]),
+        accederService.getMyRequests(selectedChildId).catch(() => []),
       ]);
       const approvedIds = new Set(approved.map((c) => c.id));
-      const pending = all.filter((c) => !approvedIds.has(c.id));
+      const requests = [
+        ...parentRequests.filter((r) => r.eleveAssocieId === selectedChildId),
+        ...childRequests,
+      ];
 
-      const requestResults = await Promise.all(
-        pending.map((c) =>
-          accederService.getRequestsForClass(c.id).catch(() => [])
-        )
-      );
-
-      const built: ClassWithAccess[] = all.map((cls) => {
-        if (approvedIds.has(cls.id)) {
-          return { cls, access: "APPROVED" as const };
-        }
-        const idx = pending.findIndex((c) => c.id === cls.id);
-        const requests = idx >= 0 ? requestResults[idx] : [];
-        const mine = requests
-          .filter((r) => r.utilisateurId === selectedChildId)
-          .sort((a, b) => new Date(b.dateDemande ?? 0).getTime() - new Date(a.dateDemande ?? 0).getTime())[0];
-        if (!mine) return { cls, access: "NONE" as const };
-        if (mine.etat === "APPROUVEE") return { cls, access: "APPROVED" as const };
-        if (mine.etat === "REJETEE") return { cls, access: "REJETEE" as const, motifRejet: mine.motifRejet };
-        return { cls, access: "EN_ATTENTE" as const };
-      });
+      const built: ClassWithAccess[] = [];
+      all
+        .filter((cls) => cls.etat === "ACTIF" || approvedIds.has(cls.id))
+        .forEach((cls) => {
+          if (approvedIds.has(cls.id)) {
+            built.push({ cls, access: "APPROVED" });
+            return;
+          }
+          const mine = requests
+            .filter((r) => r.classeId === cls.id)
+            .sort((a, b) => serverDateMs(b.dateDemande ?? 0) - serverDateMs(a.dateDemande ?? 0))[0];
+          if (!mine) return;
+          if (mine.etat === "APPROUVEE") built.push({ cls, access: "APPROVED" });
+          else if (mine.etat === "REJETEE") built.push({ cls, access: "REJETEE", motifRejet: mine.motifRejet });
+          else built.push({ cls, access: "EN_ATTENTE" });
+        });
 
       setRows(built);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec du chargement des classes.");
+      setError(err instanceof Error ? err.message : t("studentClasses.loadError"));
     } finally {
       setLoading(false);
     }
-  }, [selectedChildId]);
+  }, [selectedChildId, user?.userId, t]);
 
   useEffect(() => {
     loadClasses();
   }, [loadClasses]);
+
+  // Switching child closes the class that was open for the previous one.
+  useEffect(() => setSelectedClass(null), [selectedChildId]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -102,29 +109,49 @@ const ParentClassesBody = () => {
     if (row.access === "APPROVED") {
       setSelectedClass(row.cls);
     } else if (row.access === "EN_ATTENTE") {
-      Alert.alert("Demande en attente", `Votre demande d'accès à "${row.cls.nom}" est en attente de validation par le modérateur.`);
+      Alert.alert(t("parentClasses.pendingTitle"), t("parentClasses.pendingMsg", { name: row.cls.nom ?? "" }));
     } else if (row.access === "REJETEE") {
       Alert.alert(
-        "Demande refusée",
+        t("parentClasses.rejectedTitle"),
         row.motifRejet
-          ? `Votre demande d'accès à "${row.cls.nom}" a été refusée : ${row.motifRejet}`
-          : `Votre demande d'accès à "${row.cls.nom}" a été refusée.`
+          ? t("parentClasses.rejectedMsgReason", { name: row.cls.nom ?? "", reason: row.motifRejet })
+          : t("parentClasses.rejectedMsg", { name: row.cls.nom ?? "" })
       );
     } else {
       setShowJoin(true);
     }
   };
 
+  const child = children.find((c) => c.id === selectedChildId);
+  const childName = child?.prenom || child?.nom || "";
+
+  // Entering an approved class: same full page as the student (web: StudentClassList → CoursProgrammeManagement), fed with the child's id.
+  if (selectedClass && selectedChildId) {
+    return <StudentClassDetailPage classe={selectedClass} learnerId={selectedChildId} onBack={() => setSelectedClass(null)} />;
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Classes</Text>
+        <Text style={styles.title} numberOfLines={1}>
+          {childName ? t("parentClasses.childTitle", { name: childName }) : t("parentClasses.title")}
+        </Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerIconButton} onPress={() => setShowAddChild(true)} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.headerIconButton}
+            onPress={() => setShowAddChild(true)}
+            activeOpacity={0.7}
+            accessibilityLabel={t("parentClasses.addChild")}
+          >
             <FontAwesome5 name="child" size={14} color={colors.primary} />
           </TouchableOpacity>
           {selectedChildId ? (
-            <TouchableOpacity style={styles.addButton} onPress={() => setShowJoin(true)} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => setShowJoin(true)}
+              activeOpacity={0.7}
+              accessibilityLabel={t("parentClasses.joinForChild")}
+            >
               <FontAwesome5 name="plus" size={14} color={colors.white} />
             </TouchableOpacity>
           ) : null}
@@ -141,19 +168,19 @@ const ParentClassesBody = () => {
         {children.length === 0 ? (
           <EmptyState
             icon="child"
-            title="Aucun enfant"
-            message="Ajoutez le profil de votre enfant pour voir ses classes."
-            actionLabel="Ajouter un enfant"
+            title={t("parentClasses.noChildrenTitle")}
+            message={t("parentClasses.noChildrenText")}
+            actionLabel={t("parentClasses.addChild")}
             onAction={() => setShowAddChild(true)}
           />
         ) : loading && !refreshing ? (
-          <LoadingSpinner label="Chargement des classes..." />
+          <LoadingSpinner label={t("studentClasses.loading")} />
         ) : rows.length === 0 ? (
           <EmptyState
             icon="chalkboard"
-            title="Aucune classe"
-            message="Aucune classe n'est disponible pour le moment."
-            actionLabel="Rejoindre une classe"
+            title={t("parentClasses.emptyTitle")}
+            message={t("parentClasses.emptyText", { name: childName || t("parentClasses.yourChild") })}
+            actionLabel={t("studentClasses.joinClass")}
             onAction={() => setShowJoin(true)}
           />
         ) : (
@@ -161,20 +188,20 @@ const ParentClassesBody = () => {
             const levelStyle = getLevelStyle(cls.niveau);
             const badge =
               access === "APPROVED"
-                ? { label: "Inscrit", tone: "success" as const }
+                ? { label: t("parentClasses.enrolled"), tone: "success" as const }
                 : access === "EN_ATTENTE"
-                ? { label: "Demande en attente", tone: "warning" as const }
+                ? { label: t("studentClasses.requestPending"), tone: "warning" as const }
                 : access === "REJETEE"
-                ? { label: "Demande refusée", tone: "danger" as const }
+                ? { label: t("parentClasses.rejectedTitle"), tone: "danger" as const }
                 : null;
             const actionLabel =
               access === "APPROVED"
-                ? "Voir les détails"
+                ? t("parentClasses.viewCourses")
                 : access === "EN_ATTENTE"
-                ? "Demande en attente"
+                ? t("parentClasses.pendingAction")
                 : access === "REJETEE"
-                ? "Voir le motif"
-                : "Demander l'accès";
+                ? t("parentClasses.seeReason")
+                : t("studentClasses.requestAccess");
             const actionIcon =
               access === "APPROVED" ? "eye" : access === "EN_ATTENTE" ? "clock" : access === "REJETEE" ? "info-circle" : "paper-plane";
             return (
@@ -189,7 +216,7 @@ const ParentClassesBody = () => {
                     <FontAwesome5 name="graduation-cap" size={18} color={colors.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.className}>{cls.nom ?? "Classe"}</Text>
+                    <Text style={styles.className}>{cls.nom ?? t("parentClasses.classFallback")}</Text>
                     {cls.niveau && (
                       <View style={[styles.levelBadge, { backgroundColor: levelStyle.bg }]}>
                         <Text style={[styles.levelBadgeText, { color: levelStyle.text }]}>{cls.niveau}</Text>
@@ -225,13 +252,6 @@ const ParentClassesBody = () => {
         onSubmitted={loadClasses}
         utilisateurId={selectedChildId ?? undefined}
         estParent
-      />
-
-      <StudentClassDetailModal
-        visible={!!selectedClass}
-        classe={selectedClass}
-        onClose={() => setSelectedClass(null)}
-        onOpenLiveSession={(coursId) => navigation.navigate("LiveSession", { coursId, isHost: false })}
       />
 
       <AddChildSheet

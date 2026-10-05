@@ -1,36 +1,71 @@
-import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { Button, Input } from '../../components/ui';
-import { colors, spacing, typography, useThemeColors } from '../../styles/theme';
+import { BrandColors, ff, useBrandColors } from '../../components/brand';
 import { forgotPasswordService } from '../../services/api';
+import { useAuthStore } from '../../store/useAuthStore';
+import { resetToLogin } from '../../navigation/authRoutes';
+import { AuthScreen, AuthTitle, Banner, GradientButton, Illustration, TextField, TextLink } from './components/AuthKit';
+import { TranslationKey, useT } from '../../i18n';
 
-/** Reached via the emailed reset link (?token=...). */
+type RuleKey = 'length' | 'uppercase' | 'lowercase' | 'number';
+
+/** Same checklist as web ResetPassword.jsx (checkPasswordStrength). */
+const RULES: { key: RuleKey; label: TranslationKey; test: (v: string) => boolean }[] = [
+  { key: 'length', label: 'auth.reset.rules.length', test: (v) => v.length >= 8 },
+  { key: 'uppercase', label: 'auth.reset.rules.uppercase', test: (v) => /[A-Z]/.test(v) },
+  { key: 'lowercase', label: 'auth.reset.rules.lowercase', test: (v) => /[a-z]/.test(v) },
+  { key: 'number', label: 'auth.reset.rules.number', test: (v) => /[0-9]/.test(v) },
+];
+
+/**
+ * "Nouveau mot de passe" — mirror of web ResetPassword.jsx, reached from the e-mailed reset link
+ * through the deep link scholchat://schoolchat/reset-password?token=… (same path as the web page).
+ * Token from the link, new password + confirmation, the web's 4 rules, then
+ * POST /auth/reset-password { token, newPassword } and back to the login screen.
+ */
 const ResetPasswordScreen = () => {
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const navigation = useNavigation();
+  const c = useBrandColors();
+  const s = useMemo(() => createStyles(c), [c]);
+  const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const token: string | undefined = route.params?.token;
+  const { width } = useWindowDimensions();
+  const { t } = useT();
+  const token: string = typeof route.params?.token === 'string' ? route.params.token : '';
 
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(token ? '' : t('auth.reset.invalidLink'));
   const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
+
+  const rules = RULES.map((r) => ({ ...r, ok: r.test(password) }));
+  const allRulesOk = rules.every((r) => r.ok);
+
+  // Web clears the stored session when the reset page opens (localStorage.clear()).
+  useEffect(() => {
+    const { isAuthenticated, logout } = useAuthStore.getState();
+    if (isAuthenticated) logout();
+  }, []);
+
+  useEffect(() => {
+    if (!success) return;
+    const timer = setTimeout(() => resetToLogin(navigation), 3000);
+    return () => clearTimeout(timer);
+  }, [success, navigation]);
 
   const handleSubmit = async () => {
     if (!token) {
-      setError('Lien invalide : jeton manquant.');
+      setError(t('auth.reset.invalidToken'));
       return;
     }
-    if (password.length < 8) {
-      setError('Le mot de passe doit contenir au moins 8 caractères.');
+    if (!allRulesOk) {
+      setError(t('auth.reset.weak'));
       return;
     }
-    if (password !== confirmPassword) {
-      setError('Les mots de passe ne correspondent pas.');
+    if (password !== confirm) {
+      setError(t('auth.common.passwordMismatch'));
       return;
     }
     setLoading(true);
@@ -38,60 +73,90 @@ const ResetPasswordScreen = () => {
     try {
       await forgotPasswordService.resetPassword(token, password);
       setSuccess(true);
-      setTimeout(() => navigation.goBack(), 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Échec de la réinitialisation.');
+      setError(err instanceof Error && err.message ? err.message : t('auth.reset.failed'));
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <FontAwesome5 name="lock" size={40} color={colors.primary} style={styles.icon} />
-          <Text style={styles.title}>Réinitialiser le mot de passe</Text>
+  if (success) {
+    return (
+      <AuthScreen center>
+        <Illustration name="newPassword" width={Math.min(width * 0.42, 200)} style={s.illustration} />
+        <AuthTitle title={t('auth.reset.success')} subtitle={t('auth.reset.redirecting')} />
+        <View style={s.links}>
+          <TextLink label={t('auth.common.backToLogin')} onPress={() => resetToLogin(navigation)} />
+        </View>
+      </AuthScreen>
+    );
+  }
 
-          {success ? (
-            <View style={styles.successBox}>
-              <FontAwesome5 name="check-circle" size={32} color={colors.success} />
-              <Text style={styles.successText}>Mot de passe mis à jour avec succès !</Text>
-            </View>
-          ) : (
-            <>
-              <Input
-                label="Nouveau mot de passe"
-                placeholder="Minimum 8 caractères"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
-              <Input
-                label="Confirmer le mot de passe"
-                placeholder="Répétez le mot de passe"
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                error={error}
-              />
-              <Button label="Réinitialiser" onPress={handleSubmit} loading={loading} fullWidth />
-            </>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+  return (
+    <AuthScreen onBack={() => resetToLogin(navigation)}>
+      <Illustration name="newPassword" width={Math.min(width * 0.42, 200)} style={s.illustration} />
+      <AuthTitle title={t('auth.reset.title')} subtitle={t('auth.reset.subtitle')} />
+      <Banner message={error} />
+      <TextField
+        label={t('auth.reset.newPassword')}
+        required
+        secure
+        placeholder="••••••••"
+        value={password}
+        onChangeText={(v) => {
+          setPassword(v);
+          if (error && token) setError('');
+        }}
+        textContentType="newPassword"
+        autoComplete="new-password"
+      />
+      <TextField
+        label={t('auth.reset.confirmPassword')}
+        required
+        secure
+        placeholder="••••••••"
+        value={confirm}
+        onChangeText={(v) => {
+          setConfirm(v);
+          if (error && token) setError('');
+        }}
+        textContentType="newPassword"
+        returnKeyType="done"
+        onSubmitEditing={handleSubmit}
+      />
+      <View style={s.rules}>
+        {rules.map((r) => (
+          <View key={r.key} style={s.rule}>
+            <FontAwesome5
+              name={r.ok ? 'check-circle' : 'circle'}
+              solid={r.ok}
+              size={13}
+              color={r.ok ? c.success : c.textSecondary}
+            />
+            <Text style={[s.ruleText, r.ok && { color: c.success }]}>{t(r.label)}</Text>
+          </View>
+        ))}
+      </View>
+      <GradientButton
+        label={t('auth.reset.submit')}
+        onPress={handleSubmit}
+        loading={loading}
+        disabled={!allRulesOk}
+      />
+      <View style={s.links}>
+        <TextLink label={t('auth.common.backToLogin')} onPress={() => resetToLogin(navigation)} />
+      </View>
+    </AuthScreen>
   );
 };
 
-const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  flex: { flex: 1 },
-  content: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl },
-  icon: { alignSelf: 'center', marginBottom: spacing.lg },
-  title: { ...typography.h1, color: colors.text, textAlign: 'center', marginBottom: spacing.xl },
-  successBox: { alignItems: 'center', gap: spacing.md },
-  successText: { ...typography.body, color: colors.text, textAlign: 'center' },
-});
+const createStyles = (c: BrandColors) =>
+  StyleSheet.create({
+    illustration: { marginTop: 8, marginBottom: 20 },
+    rules: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 18, rowGap: 8 },
+    rule: { flexDirection: 'row', alignItems: 'center', gap: 6, width: '50%' },
+    ruleText: { ...ff('medium'), fontSize: 12, color: c.textSecondary },
+    links: { alignItems: 'center', marginTop: 22 },
+  });
 
 export default ResetPasswordScreen;

@@ -7,6 +7,8 @@ import { colors, spacing, typography, useThemeColors } from '../../styles/theme'
 import { authService } from '../../services/home/authService';
 import { userService } from '../../services/api';
 import { decodeToken } from '../../utils/tokenUtils';
+import { translate, useT } from '../../i18n';
+import { resetToLogin } from '../../navigation/authRoutes';
 
 type Status = 'loading' | 'success' | 'error';
 
@@ -14,6 +16,7 @@ type Status = 'loading' | 'success' | 'error';
 const AccountActivationScreen = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useT();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const activationToken: string | undefined = route.params?.activationToken;
@@ -28,7 +31,7 @@ const AccountActivationScreen = () => {
     const run = async () => {
       if (!activationToken) {
         setStatus('error');
-        setMessage("Aucun jeton d'activation fourni.");
+        setMessage(translate('auth.activation.noToken'));
         return;
       }
       const decoded = decodeToken(activationToken);
@@ -39,8 +42,15 @@ const AccountActivationScreen = () => {
         await authService.activateAccount(activationToken);
         setStatus('success');
       } catch (err) {
+        const msg = err instanceof Error ? err.message : '';
+        // Link opened again after activation but before the password was set ("must be in PENDING
+        // state"): like web AccountActivation.jsx, go on to the password page with the same token.
+        if (msg.includes('PENDING') || msg.includes('ACTIVE')) {
+          setStatus('success');
+          return;
+        }
         setStatus('error');
-        setMessage(err instanceof Error ? err.message : "L'activation a échoué.");
+        setMessage(msg || translate('auth.activation.failed'));
       }
     };
     run();
@@ -60,15 +70,15 @@ const AccountActivationScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
-        {status === 'loading' && <LoadingSpinner label="Vérification en cours..." />}
+        {status === 'loading' && <LoadingSpinner label={t('auth.activation.verifying')} />}
 
         {status === 'success' && (
           <View style={styles.center}>
             <FontAwesome5 name="check-circle" size={48} color={colors.success} />
-            <Text style={styles.title}>Compte activé !</Text>
-            <Text style={styles.subtitle}>Définissez maintenant votre mot de passe pour terminer.</Text>
+            <Text style={styles.title}>{t('auth.activation.successTitle')}</Text>
+            <Text style={styles.subtitle}>{t('auth.activation.successSubtitle')}</Text>
             <Button
-              label="Définir mon mot de passe"
+              label={t('auth.activation.setPassword')}
               fullWidth
               style={styles.action}
               onPress={() => navigation.navigate('SetPassword', { email, activationToken })}
@@ -79,25 +89,25 @@ const AccountActivationScreen = () => {
         {status === 'error' && (
           <View style={styles.center}>
             <FontAwesome5 name="exclamation-triangle" size={48} color={colors.danger} />
-            <Text style={styles.title}>Erreur d'activation</Text>
+            <Text style={styles.title}>{t('auth.activation.errorTitle')}</Text>
             <Text style={styles.subtitle}>{message}</Text>
 
             <Input
-              label="Recevoir un nouveau lien d'activation"
-              placeholder="Votre email"
+              label={t('auth.activation.resendLabel')}
+              placeholder={t('auth.activation.yourEmail')}
               value={resendEmail}
               onChangeText={setResendEmail}
               keyboardType="email-address"
               autoCapitalize="none"
             />
             <Button
-              label={resendStatus === 'sent' ? 'Email envoyé' : 'Renvoyer le lien'}
+              label={resendStatus === 'sent' ? t('auth.activation.emailSent') : t('auth.activation.resendLink')}
               onPress={handleResend}
               loading={resendStatus === 'sending'}
               disabled={resendStatus === 'sent'}
               fullWidth
             />
-            <Button label="Aller à la connexion" variant="ghost" fullWidth onPress={() => navigation.goBack()} />
+            <Button label={t('auth.activation.goToLogin')} variant="ghost" fullWidth onPress={() => resetToLogin(navigation)} />
           </View>
         )}
       </View>

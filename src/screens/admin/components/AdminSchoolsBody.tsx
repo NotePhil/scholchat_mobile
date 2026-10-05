@@ -451,7 +451,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     // Fallback if LinearGradient ever fails — keeps the white header text
     // readable instead of white-on-white.
     backgroundColor: colors.heroStart,
-    paddingTop: 52, paddingBottom: 20, paddingHorizontal: spacing.lg,
+    paddingTop: 16, paddingBottom: 20, paddingHorizontal: spacing.lg,
     flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between",
     borderBottomLeftRadius: radius.xxl, borderBottomRightRadius: radius.xxl,
     marginBottom: 16, ...shadow.hero,

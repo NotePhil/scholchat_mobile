@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Keyboard, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, useThemeColors } from '../../styles/theme';
-import { useUser } from '../../context/UserContext';
 import { useMessagesStore } from '../../store/useMessagesStore';
+import { useT } from '../../i18n';
 
 interface MobileFooterNavProps {
   activeTab: string;
@@ -19,9 +19,8 @@ interface MobileFooterNavProps {
  * exactly: Home / Messages / center "+" FAB (opens the role's quick-actions
  * grid) / Alerts (activities) / Profile (settings). Every role gets this
  * same shape; what differs per role is only the QuickActionsSheet content.
- * Self-fetches the real unread-message count (same pattern RoleHeader
- * already uses for the notification bell) so every dashboard gets the badge
- * for free instead of each one having to wire it through as a prop.
+ * Reads the live unread-message count from useMessagesStore so every
+ * dashboard gets the badge for free.
  */
 const MobileFooterNav = ({
   activeTab,
@@ -31,23 +30,31 @@ const MobileFooterNav = ({
   accentColor = colors.primary,
 }: MobileFooterNavProps) => {
   const insets = useSafeAreaInsets();
-  const { user } = useUser();
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const unreadCount = useMessagesStore((s) => s.unreadCount);
-  const refreshUnread = useMessagesStore((s) => s.refresh);
-
+  const { t } = useT();
+  // Android: hide the bar while the keyboard is open, otherwise the app-wide
+  // KeyboardInsetView would lift it up on top of the keyboard.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   useEffect(() => {
-    refreshUnread(user?.userId);
-  }, [user?.userId, refreshUnread]);
+    if (Platform.OS !== 'android') return;
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardOpen(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardOpen(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  // Kept live app-wide by useMessagesRealtime (AppHeader) over the shared STOMP socket — no polling here.
 
   const items: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string; badgeCount?: number }[] = [
-    { icon: 'home', label: 'Accueil', tab: 'dashboard' },
-    { icon: 'envelope', label: 'Messages', tab: 'messages', badgeCount: unreadCount },
+    { icon: 'home', label: t('nav.home'), tab: 'dashboard' },
+    { icon: 'envelope', label: t('nav.messages'), tab: 'messages', badgeCount: unreadCount },
   ];
   const trailingItems: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string }[] = [
-    { icon: 'heartbeat', label: 'Activités', tab: 'activities' },
-    { icon: 'user', label: 'Profil', tab: 'settings' },
+    { icon: 'heartbeat', label: t('nav.activities'), tab: 'activities' },
+    { icon: 'user', label: t('nav.profile'), tab: 'settings' },
   ];
 
   const renderItem = (item: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string; badgeCount?: number }) => {
@@ -72,6 +79,8 @@ const MobileFooterNav = ({
     );
   };
 
+  if (keyboardOpen) return null;
+
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
       {items.map(renderItem)}
@@ -80,6 +89,8 @@ const MobileFooterNav = ({
         <TouchableOpacity
           style={[styles.fab, { backgroundColor: accentColor }]}
           onPress={onOpenQuickActions}
+          accessibilityRole="button"
+          accessibilityLabel={t('nav.quickActions')}
         >
           <FontAwesome5 name={quickActionsOpen ? 'times' : 'th-large'} size={22} color={colors.white} />
         </TouchableOpacity>

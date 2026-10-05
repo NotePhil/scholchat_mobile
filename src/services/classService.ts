@@ -114,6 +114,10 @@ export const classService = {
     moderatorId?: string;
     creatorId: string;
     accesMajeur?: boolean;
+    /** Independent class (no establishment): simulated payment + chosen offer, as web's CreateClassContent sends. */
+    paymentInfo?: import('./api/contratService').PaymentInfo;
+    offreId?: string;
+    periodicite?: 'MENSUEL' | 'ANNUEL';
   }): Promise<{ classe: ClassEntity; token?: string; etat?: string; paymentRequired: boolean; message?: string }> => {
     try {
       const { data } = await apiClient.post('/classes/nouvelle', payload);

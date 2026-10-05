@@ -13,6 +13,8 @@ import { StudentProfile } from '../types';
  * effect on the others, and the list was fetched up to 5 times per visit.
  */
 interface SelectedChildState {
+  /** Parent whose children are loaded — a different account logging in must not inherit them. */
+  ownerId: string | null;
   children: StudentProfile[];
   loading: boolean;
   loaded: boolean;
@@ -22,15 +24,20 @@ interface SelectedChildState {
 }
 
 export const useSelectedChildStore = create<SelectedChildState>((set, get) => ({
+  ownerId: null,
   children: [],
   loading: false,
   loaded: false,
   selectedChildId: null,
   setSelectedChildId: (selectedChildId) => set({ selectedChildId }),
   loadChildren: async (parentId: string) => {
+    if (get().ownerId !== parentId) {
+      set({ ownerId: parentId, children: [], loaded: false, selectedChildId: null });
+    }
     set({ loading: true });
     try {
       const data = await parentService.getChildren(parentId);
+      if (get().ownerId !== parentId) return; // another account took over meanwhile
       const current = get().selectedChildId;
       const stillValid = current && data.some((c) => c.id === current);
       set({
@@ -40,7 +47,7 @@ export const useSelectedChildStore = create<SelectedChildState>((set, get) => ({
         selectedChildId: stillValid ? current : data[0]?.id ?? null,
       });
     } catch {
-      set({ loading: false, loaded: true });
+      if (get().ownerId === parentId) set({ loading: false, loaded: true });
     }
   },
 }));

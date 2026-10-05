@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { FontAwesome5 } from '@expo/vector-icons';
 import { radius, spacing, typography, useThemeColors } from '../../styles/theme';
 import BottomSheet from './BottomSheet';
+import { useT } from '../../i18n';
 
 export interface DropdownOption {
   label: string;
@@ -31,9 +32,10 @@ interface DropdownFieldProps {
  * field on web is a real dropdown (niveau, établissement, offre, etc.)
  * instead of the chip-picker pattern those forms used before.
  */
-const DropdownField = ({ label, value, options, onChange, placeholder = 'Sélectionner...', disabled, loading, error, sheetTitle }: DropdownFieldProps) => {
+const DropdownField = ({ label, value, options, onChange, placeholder, disabled, loading, error, sheetTitle }: DropdownFieldProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
 
@@ -46,16 +48,16 @@ const DropdownField = ({ label, value, options, onChange, placeholder = 'Sélect
         activeOpacity={0.7}
       >
         <Text style={[styles.value, !selected && styles.placeholder]} numberOfLines={1}>
-          {loading ? 'Chargement...' : selected ? selected.label : placeholder}
+          {loading ? t('common.loading') : selected ? selected.label : (placeholder ?? `${t('common.select')}...`)}
         </Text>
         <FontAwesome5 name={open ? 'chevron-up' : 'chevron-down'} size={12} color={colors.textMuted} />
       </TouchableOpacity>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      <BottomSheet visible={open} onClose={() => setOpen(false)} title={sheetTitle ?? label ?? 'Sélectionner'}>
+      <BottomSheet visible={open} onClose={() => setOpen(false)} title={sheetTitle ?? label ?? t('common.select')}>
         <ScrollView style={styles.optionsList} showsVerticalScrollIndicator={false}>
           {options.length === 0 ? (
-            <Text style={styles.emptyText}>Aucune option disponible.</Text>
+            <Text style={styles.emptyText}>{t('common.noOptions')}</Text>
           ) : (
             options.map((opt) => (
               <TouchableOpacity

@@ -12,6 +12,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { Badge, Button } from '../../../../components/ui';
 import { colors, radius, spacing, typography, useThemeColors } from '../../../../styles/theme';
 import { Cours } from './DashboardCoursBody';
+import { formatDate, formatDateTime } from '../../../../utils/dates';
 
 export interface CourseDetailViewProps {
   cours: Cours;
@@ -141,7 +142,7 @@ export const CourseDetailView = ({
                 <View style={styles.metaRow}>
                   <FontAwesome5 name="calendar-alt" size={13} color={colors.textMuted} />
                   <Text style={styles.metaText}>
-                    Créé le : {new Date(cours.dateCreation).toLocaleDateString('fr-FR')}
+                    Créé le : {formatDate(cours.dateCreation)}
                   </Text>
                 </View>
                 <View style={styles.metaRow}>
@@ -200,7 +201,7 @@ export const CourseDetailView = ({
             <DetailLine label="Identifiant" value={cours.id} />
             <DetailLine label="Statut" value={cours.etat} />
             <DetailLine label="Visibilité" value={cours.restriction || 'PUBLIC'} />
-            <DetailLine label="Date de création" value={new Date(cours.dateCreation).toLocaleString('fr-FR')} />
+            <DetailLine label="Date de création" value={formatDateTime(cours.dateCreation)} />
           </View>
         )}
 
@@ -225,7 +226,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 50,
+    paddingTop: 16,
     paddingBottom: 14,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,

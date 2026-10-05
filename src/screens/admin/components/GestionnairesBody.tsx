@@ -221,30 +221,27 @@ const CreateGestionnaireSheet = ({ visible, onClose, onCreated }: CreateGestionn
   const reset = () => { setNom(""); setPrenom(""); setEmail(""); setTelephone(""); setAdresse(""); setPassword(""); setError(""); };
 
   const handleCreate = async () => {
-    if (!nom.trim() || !prenom.trim() || !email.trim() || !password) { setError("Nom, prénom, email et mot de passe sont obligatoires."); return; }
+    if (!nom || !prenom || !email || !password) { setError("Nom, prenom, email et mot de passe sont obligatoires"); return; }
     setLoading(true); setError("");
     try {
-      await gestionnaireService.create({
-        nom: nom.trim(), prenom: prenom.trim(), email: email.trim(),
-        telephone: telephone.trim() ? (telephone.startsWith("+") ? telephone.trim() : `+237${telephone.trim()}`) : null,
-        adresse: adresse.trim() || null, motDePasse: password, etat: "ACTIVE",
-      });
+      await gestionnaireService.create({ nom, prenom, email, telephone, adresse }, password);
+      Alert.alert("Succès", `Gestionnaire ${prenom} ${nom} cree avec succes`);
       reset(); onCreated(); onClose();
-    } catch (err) { setError(err instanceof Error ? err.message : "Échec de la création."); }
+    } catch (err) { setError(err instanceof Error ? err.message : "Erreur lors de la creation"); }
     finally { setLoading(false); }
   };
 
   return (
-    <BottomSheet visible={visible} onClose={onClose} title="Nouveau Gestionnaire">
+    <BottomSheet visible={visible} onClose={onClose} title="Creer un Gestionnaire">
       <ScrollView contentContainerStyle={styles.sheetContent} keyboardShouldPersistTaps="handled">
         {error ? <View style={styles.sheetErrorBox}><FontAwesome5 name="exclamation-circle" size={13} color={colors.danger} /><Text style={styles.sheetError}>{error}</Text></View> : null}
-        <Input label="Nom *" placeholder="Ex: Dupont" value={nom} onChangeText={setNom} />
-        <Input label="Prénom *" placeholder="Ex: Jean" value={prenom} onChangeText={setPrenom} />
-        <Input label="Email *" placeholder="gestionnaire@ecole.cm" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-        <Input label="Téléphone" placeholder="Ex: 6XXXXXXXX" value={telephone} onChangeText={setTelephone} keyboardType="phone-pad" />
-        <Input label="Adresse" placeholder="Ex: Douala, Cameroun" value={adresse} onChangeText={setAdresse} />
-        <Input label="Mot de passe temporaire *" placeholder="Mot de passe d'accès" value={password} onChangeText={setPassword} secureTextEntry />
-        <Button label="Créer le gestionnaire" onPress={handleCreate} loading={loading} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
+        <Input label="Prenom *" placeholder="Prenom" value={prenom} onChangeText={setPrenom} />
+        <Input label="Nom *" placeholder="Nom" value={nom} onChangeText={setNom} />
+        <Input label="Email *" placeholder="email@exemple.com" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+        <Input label="Mot de passe *" placeholder="Mot de passe" value={password} onChangeText={setPassword} secureTextEntry />
+        <Input label="Telephone" placeholder="6XXXXXXXX" value={telephone} onChangeText={setTelephone} keyboardType="phone-pad" />
+        <Input label="Adresse" placeholder="Adresse" value={adresse} onChangeText={setAdresse} />
+        <Button label="Creer" onPress={handleCreate} loading={loading} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
       </ScrollView>
     </BottomSheet>
   );
@@ -257,7 +254,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     // Fallback if LinearGradient ever fails — keeps the white header text
     // readable instead of white-on-white.
     backgroundColor: TEAL_GRADIENT[0],
-    paddingTop: 52, paddingBottom: 20, paddingHorizontal: spacing.lg,
+    paddingTop: 16, paddingBottom: 20, paddingHorizontal: spacing.lg,
     flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between",
     borderBottomLeftRadius: radius.xxl, borderBottomRightRadius: radius.xxl,
     marginBottom: 16, ...shadow.hero,

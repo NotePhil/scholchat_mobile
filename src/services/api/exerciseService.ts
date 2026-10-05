@@ -1,5 +1,9 @@
 import { apiClient, extractErrorMessage } from './client';
 import { ApiSuccess, Exercise, ExerciseProgramme, Participation, Question, Reponse } from '../../types';
+import { withServerDateTimes } from '../../utils/dates';
+
+const EXO_PROG_DATES = ['dateExoPrevue', 'dateDebutExoEffectif', 'dateFinExoEffectif'] as const;
+const PARTICIPATION_DATES = ['dateDebut', 'dateFin'] as const;
 
 /**
  * Full exercise lifecycle. Field names verified directly against the Java
@@ -146,7 +150,10 @@ export const exerciseProgrammerService = {
     coursIds?: string[];
   }): Promise<ExerciseProgramme> => {
     try {
-      const { data } = await apiClient.post<ExerciseProgramme>('/exercises-programmer', payload);
+      const { data } = await apiClient.post<ExerciseProgramme>(
+        '/exercises-programmer',
+        withServerDateTimes(payload, EXO_PROG_DATES)
+      );
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de la programmation de l'exercice."));
@@ -167,7 +174,7 @@ export const exerciseProgrammerService = {
     try {
       const { data } = await apiClient.post<ExerciseProgramme>(
         '/exercises-programmer/programmer-et-diffuser',
-        payload
+        withServerDateTimes(payload, EXO_PROG_DATES)
       );
       return data;
     } catch (error) {
@@ -259,7 +266,15 @@ export const exerciseProgrammerService = {
 export const questionService = {
   create: async (
     exerciseId: string,
-    payload: { intitule: string; reponse?: string; typeQuestion: string; points?: number; choixReponses?: { texte: string; estCorrect: boolean; ordreAffichage?: number }[] }
+    payload: {
+      intitule: string;
+      reponse?: string;
+      typeQuestion: string;
+      points?: number;
+      choixReponses?: { texte: string; estCorrect: boolean; ordreAffichage?: number }[];
+      /** Uploaded attachments (image/PDF) — same objects web's minioS3Service.uploadFile returns. */
+      medias?: Record<string, any>[];
+    }
   ): Promise<Question> => {
     try {
       const { data } = await apiClient.post<Question>(`/questions/exercise/${exerciseId}`, payload);
@@ -397,7 +412,10 @@ export const participationService = {
     dateDebut?: string;
   }): Promise<Participation> => {
     try {
-      const { data } = await apiClient.post<Participation>('/participations-exercises', payload);
+      const { data } = await apiClient.post<Participation>(
+        '/participations-exercises',
+        withServerDateTimes(payload, PARTICIPATION_DATES)
+      );
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du démarrage de la participation.'));
@@ -414,7 +432,10 @@ export const participationService = {
     appreciation?: string;
   }): Promise<Participation> => {
     try {
-      const { data } = await apiClient.put<Participation>('/participations-exercises', payload);
+      const { data } = await apiClient.put<Participation>(
+        '/participations-exercises',
+        withServerDateTimes(payload, PARTICIPATION_DATES)
+      );
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la mise à jour de la participation.'));

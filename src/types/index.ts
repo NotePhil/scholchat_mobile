@@ -17,8 +17,26 @@ export interface LoginResponse {
   email?: string;
   telephone?: string;
   role?: string;
+  /** Multi-role accounts (AuthResponse): every ACTIVE role of the account, e.g. ["PROFESSOR","PARENT"]. */
+  availableRoles?: string[];
+  /** The role this session was opened with (always one of availableRoles). */
+  selectedRole?: string;
+  /** Requested roles not usable yet (e.g. "PROFESSOR" awaiting admin validation). */
+  pendingRoles?: string[] | null;
+  multiRole?: boolean;
+  /**
+   * Verification status of the account's professor profile (null when the account has no
+   * professor profile). Anything but VALIDE means no professor rights at all (the token then
+   * carries ROLE_PROFESSOR_PENDING) — DashboardShell shows the verification status screen.
+   */
+  professeurStatutVerification?: ProfessorVerificationStatus | null;
+  /** Rejection reason, only when professeurStatutVerification is REJETE. */
+  professeurMotifRejet?: string | null;
   [key: string]: any;
 }
+
+/** Admin review of a professor's identity documents (separate from the account state `etat`). */
+export type ProfessorVerificationStatus = 'DOCUMENTS_MANQUANTS' | 'EN_ATTENTE_VALIDATION' | 'VALIDE' | 'REJETE';
 
 export interface AuthUser extends LoginResponse {
   decodedToken?: DecodedToken | null;
@@ -115,6 +133,27 @@ export interface MessageAttachment {
   [key: string]: any;
 }
 
+export type MessageMediaType = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+
+/** A file attached to a message (MessageDto.medias). */
+export interface MessageMedia {
+  id?: string;
+  fileName?: string;
+  filePath?: string;
+  contentType?: string;
+  mediaType?: MessageMediaType | string;
+  fileSize?: number;
+  presignedUrl?: string | null;
+}
+
+/** Item of the `medias` array sent with POST /messages and POST /messages/group. */
+export interface MessageMediaPayload {
+  fileName: string;
+  filePath: string;
+  contentType: string;
+  fileSize?: number;
+}
+
 export interface MessageParty {
   id: string;
   nom?: string;
@@ -140,7 +179,36 @@ export interface MessageItem {
   dateLecture?: string;
   type?: MessageDirection;
   pieceJointes?: MessageAttachment[];
+  classeIds?: string[];
+  /** Attached files ([] when none). */
+  medias?: MessageMedia[];
+  /** Trash list: true when the sender deleted it for everyone. */
+  supprimePourTous?: boolean;
+  /** Trash list: when the caller deleted it. */
+  dateSuppression?: string | null;
   [key: string]: any;
+}
+
+/** Payload pushed on /topic/messages/{userId}. */
+export interface MessageRealtimeEvent {
+  type: 'NEW_MESSAGE' | 'MESSAGE_DELETED' | 'MESSAGE_RESTORED' | string;
+  message: MessageItem;
+}
+
+/** GET /messages/contacts item. */
+export interface MessageContact {
+  id: string;
+  nom?: string;
+  prenom?: string;
+  email?: string;
+  typeUtilisateur?: string;
+}
+
+/** GET /messages/contacts/classes item. */
+export interface MessageContactClass {
+  id: string;
+  nom?: string;
+  niveau?: string;
 }
 
 export interface ApiSuccess {

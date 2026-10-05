@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Badge, Button, EmptyState, LoadingSpinner } from "../../components/ui";
 import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
@@ -10,11 +10,10 @@ import { useUser } from "../../context/UserContext";
 import EstablishmentDetails from "./EstablishmentDetails";
 
 /**
- * Gestionnaire's own "Mes établissements" — reuses the exact same create/
- * edit form as admin's (CreateEstablishmentSheet), matching web's
- * CreateEstablishmentContent.jsx which both roles share verbatim. This used
- * to keep its own separate, much thinner create form (nom + localisation
- * only, no edit at all) instead of the real one.
+ * Gestionnaire's own "Mes établissements" — view and edit only, with the same
+ * edit form as admin's (CreateEstablishmentSheet). Creating and deleting an
+ * établissement is admin-only (backend POST/DELETE /etablissements require
+ * ADMIN), so there is no create or delete entry here.
  */
 const EstablishmentListBody = () => {
   const colors = useThemeColors();
@@ -23,7 +22,6 @@ const EstablishmentListBody = () => {
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
   const [editingEstablishment, setEditingEstablishment] = useState<Etablissement | null>(null);
   const [managedEstId, setManagedEstId] = useState<string | null>(null);
 
@@ -45,24 +43,6 @@ const EstablishmentListBody = () => {
     load();
   }, [load]);
 
-  const handleDelete = (est: Etablissement) => {
-    Alert.alert("Supprimer", `Voulez-vous vraiment supprimer "${est.nom}" ?`, [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await establishmentService.remove(est.id);
-            setEstablishments((prev) => prev.filter((e) => e.id !== est.id));
-          } catch (err) {
-            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
-          }
-        },
-      },
-    ]);
-  };
-
   if (managedEstId) {
     return <EstablishmentDetails establishmentId={managedEstId} onBack={() => setManagedEstId(null)} />;
   }
@@ -71,9 +51,6 @@ const EstablishmentListBody = () => {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Mes établissements</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowCreate(true)}>
-          <FontAwesome5 name="plus" size={14} color={colors.white} />
-        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.list}>
@@ -84,8 +61,7 @@ const EstablishmentListBody = () => {
           <EmptyState
             icon="school"
             title="Aucun établissement"
-            actionLabel="Créer un établissement"
-            onAction={() => setShowCreate(true)}
+            message="Aucun établissement ne vous est encore attribué."
           />
         ) : (
           establishments.map((est) => (
@@ -108,9 +84,6 @@ const EstablishmentListBody = () => {
                 <TouchableOpacity style={styles.iconBtn} onPress={() => setEditingEstablishment(est)}>
                   <FontAwesome5 name="edit" size={16} color={colors.success} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.iconBtn} onPress={() => handleDelete(est)}>
-                  <FontAwesome5 name="trash" size={16} color={colors.danger} />
-                </TouchableOpacity>
               </View>
             </View>
           ))
@@ -118,12 +91,6 @@ const EstablishmentListBody = () => {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      <CreateEstablishmentSheet
-        visible={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreated={load}
-        defaultGestionnaireId={user?.userId}
-      />
       <CreateEstablishmentSheet
         visible={!!editingEstablishment}
         onClose={() => setEditingEstablishment(null)}
@@ -145,7 +112,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     marginBottom: spacing.md,
   },
   title: { ...typography.h1, color: colors.text },
-  addButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   list: { flex: 1, paddingHorizontal: 16 },
   error: { color: colors.danger, marginBottom: spacing.md },
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: spacing.md, marginBottom: spacing.md },

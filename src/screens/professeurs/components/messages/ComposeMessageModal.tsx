@@ -1,35 +1,37 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  TextInput,
-  ScrollView,
-  Modal,
-  Animated,
+  ActivityIndicator,
   Alert,
+  Animated,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesome5 } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
-import * as DocumentPicker from "expo-document-picker";
 import AttachmentModal, { AttachmentType } from "./AttachmentModal";
 import PromptSheet from "../../../../components/common/PromptSheet";
-import { classService } from "../../../../services/classService";
 import { messageService } from "../../../../services/messageService";
-import { mediaService } from "../../../../services/api";
 import { useUser } from "../../../../context/UserContext";
-import { ClassEntity, ClassUser, MessageAttachment } from "../../../../types";
+import { useThemeColors } from "../../../../styles/theme";
+import { MessageContact, MessageContactClass } from "../../../../types";
+import { contactMatches, getInitials, getRoleLabel, toUtilisateurPayload } from "./messageHelpers";
+import { PendingAttachmentsBar, useMessageAttachments } from "./messageMedia";
 
-interface RecipientSuggestion {
+type ThemeColors = ReturnType<typeof useThemeColors>;
+
+interface Recipient {
   id: string;
-  name: string;
   nom: string;
   prenom: string;
   email: string;
-  type?: string;
+  role: string;
 }
 
 interface ComposeMessageModalProps {
@@ -37,585 +39,475 @@ interface ComposeMessageModalProps {
   onSend: () => void;
 }
 
+const toRecipient = (u: MessageContact): Recipient => ({
+  id: u.id,
+  nom: u.nom || "",
+  prenom: u.prenom || "",
+  email: u.email || "",
+  role: getRoleLabel(u),
+});
+
+const recipientName = (r: Recipient) => `${r.prenom} ${r.nom}`.trim() || r.email || "Utilisateur";
+
+const dedupeById = <T extends { id: string }>(items: T[]) => {
+  const seen = new Set<string>();
+  return items.filter((i) => i?.id && !seen.has(i.id) && seen.add(i.id));
+};
+
+/** Autocomplete results: nothing until the user types; already-picked people excluded. */
+const filterSuggestions = (contacts: Recipient[], query: string, excluded: Set<string>) =>
+  query.trim() ? contacts.filter((m) => !excluded.has(m.id) && contactMatches(m, query)).slice(0, 30) : [];
+
+/**
+ * New message. Who can be messaged comes straight from the server
+ * (GET /messages/contacts for individual recipients, GET /messages/contacts/classes
+ * for group messages) — the server enforces the same rule on send (403).
+ * Photos/videos/documents upload as soon as they're picked and go out as `medias`.
+ */
 const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
   const { user } = useUser();
-  const [selectedClasses, setSelectedClasses] = useState<ClassEntity[]>([]);
-  const [availableClasses, setAvailableClasses] = useState<ClassEntity[]>([]);
+  const userId = (user?.userId ?? user?.id) as string | undefined;
+  const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  const [contacts, setContacts] = useState<Recipient[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(true);
+  const [contactsError, setContactsError] = useState("");
+
+  const [availableClasses, setAvailableClasses] = useState<MessageContactClass[]>([]);
+  const [classesLoading, setClassesLoading] = useState(true);
+  const [classesError, setClassesError] = useState("");
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [showClassDropdown, setShowClassDropdown] = useState(false);
-  const [recipients, setRecipients] = useState<RecipientSuggestion[]>([]);
-  const [recipientSearch, setRecipientSearch] = useState("");
-  const [recipientSuggestions, setRecipientSuggestions] = useState<RecipientSuggestion[]>([]);
-  const [ccRecipients, setCcRecipients] = useState<RecipientSuggestion[]>([]);
-  const [ccSearch, setCcSearch] = useState("");
-  const [ccSuggestions, setCcSuggestions] = useState<RecipientSuggestion[]>([]);
+
+  const [isGroupMessage, setIsGroupMessage] = useState(false);
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [ccRecipients, setCcRecipients] = useState<Recipient[]>([]);
+  const [activeField, setActiveField] = useState<"to" | "cc" | null>(null);
+  const [toQuery, setToQuery] = useState("");
+  const [ccQuery, setCcQuery] = useState("");
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldY = useRef<{ to: number; cc: number }>({ to: 0, cc: 0 });
+
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
-  const [isGroupMessage, setIsGroupMessage] = useState(false);
+  const [links, setLinks] = useState<string[]>([]);
   const [showAttachmentModal, setShowAttachmentModal] = useState(false);
   const [showLinkPrompt, setShowLinkPrompt] = useState(false);
-  const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
-  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isBold, setIsBold] = useState(false);
-  const [isItalic, setIsItalic] = useState(false);
-  const [isUnderline, setIsUnderline] = useState(false);
-  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('left');
+  const [isSending, setIsSending] = useState(false);
+  const attachments = useMessageAttachments(userId);
   const slideAnim = useRef(new Animated.Value(600)).current;
 
   useEffect(() => {
-    Animated.timing(slideAnim, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-    loadClasses();
-  }, []);
+    Animated.timing(slideAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start();
+  }, [slideAnim]);
 
-  const loadClasses = async () => {
-    try {
-      const classesData = await classService.getClassesWithPublicationRights(user?.userId as string);
-      setAvailableClasses(classesData || []);
-    } catch (error) {
-      console.error('Error loading classes:', error);
-      Alert.alert('Erreur', 'Impossible de charger les classes');
-    }
+  useEffect(() => {
+    let cancelled = false;
+    messageService
+      .getContacts()
+      .then((list) => {
+        if (cancelled) return;
+        setContacts(
+          dedupeById(list.filter((u) => u?.id && u.id !== userId).map(toRecipient)).sort((a, b) =>
+            recipientName(a).localeCompare(recipientName(b), "fr")
+          )
+        );
+      })
+      .catch((err) => !cancelled && setContactsError(err instanceof Error ? err.message : "Impossible de charger les contacts."))
+      .finally(() => !cancelled && setContactsLoading(false));
+    messageService
+      .getContactClasses()
+      .then((list) => !cancelled && setAvailableClasses(dedupeById(list)))
+      .catch((err) => !cancelled && setClassesError(err instanceof Error ? err.message : "Impossible de charger les classes."))
+      .finally(() => !cancelled && setClassesLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  const toggleClass = (id: string) =>
+    setSelectedClassIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
+
+  /** Contacts matching the typed query, minus anyone already in À or CC. */
+  const selectedIds = useMemo(
+    () => new Set([...recipients, ...ccRecipients].map((r) => r.id)),
+    [recipients, ccRecipients]
+  );
+  const toSuggestions = useMemo(() => filterSuggestions(contacts, toQuery, selectedIds), [contacts, toQuery, selectedIds]);
+  const ccSuggestions = useMemo(() => filterSuggestions(contacts, ccQuery, selectedIds), [contacts, ccQuery, selectedIds]);
+
+  const addRecipient = (target: "to" | "cc", person: Recipient) => {
+    const setter = target === "cc" ? setCcRecipients : setRecipients;
+    setter((prev) => (prev.some((p) => p.id === person.id) ? prev : [...prev, person]));
+    if (target === "cc") setCcQuery("");
+    else setToQuery("");
   };
 
-  const handleClassSelection = (classItem: ClassEntity) => {
-    const isSelected = selectedClasses.find(c => c.id === classItem.id);
-    if (isSelected) {
-      setSelectedClasses(prev => prev.filter(c => c.id !== classItem.id));
-    } else {
-      setSelectedClasses(prev => [...prev, classItem]);
-    }
-    loadClassUsers();
-  };
-
-  const loadClassUsers = async () => {
-    if (selectedClasses.length === 0) {
-      setRecipientSuggestions([]);
-      return;
-    }
-
-    try {
-      const allUsers: ClassUser[] = [];
-      for (const classItem of selectedClasses) {
-        const users = await classService.getClassUsers(classItem.id);
-        allUsers.push(...users);
-      }
-
-      // Remove duplicates and format
-      const uniqueUsers: RecipientSuggestion[] = allUsers.filter((u, index, self) =>
-        index === self.findIndex(other => other.id === u.id)
-      ).map(u => ({
-        id: u.id,
-        name: `${u.prenom || ''} ${u.nom || ''}`.trim(),
-        nom: u.nom || '',
-        prenom: u.prenom || '',
-        email: u.email || u.telephone || 'Non spécifié',
-        type: u.type
-      }));
-
-      setRecipientSuggestions(uniqueUsers);
-    } catch (error) {
-      console.error('Error loading class users:', error);
-    }
-  };
-
-  const loadModerators = async () => {
-    if (selectedClasses.length === 0) {
-      setCcSuggestions([]);
-      return;
-    }
-
-    try {
-      const allModerators: ClassUser[] = [];
-      for (const classItem of selectedClasses) {
-        const moderators = await classService.getClassModerators(classItem.id);
-        allModerators.push(...moderators);
-      }
-
-      // Remove duplicates and format
-      const uniqueModerators: RecipientSuggestion[] = allModerators.filter((mod, index, self) =>
-        index === self.findIndex(m => m.id === mod.id)
-      ).map(mod => ({
-        id: mod.id,
-        name: `${mod.prenom || ''} ${mod.nom || ''}`.trim(),
-        nom: mod.nom || '',
-        prenom: mod.prenom || '',
-        email: mod.email || 'Non spécifié',
-        type: mod.type
-      }));
-
-      setCcSuggestions(uniqueModerators);
-    } catch (error) {
-      console.error('Error loading moderators:', error);
-    }
-  };
-
-  const addRecipient = (recipient: RecipientSuggestion) => {
-    if (!recipients.find(r => r.id === recipient.id)) {
-      setRecipients(prev => [...prev, recipient]);
-    }
-    setRecipientSearch('');
-  };
-
-  const removeRecipient = (userId: string) => {
-    setRecipients(prev => prev.filter(r => r.id !== userId));
-  };
-
-  const addCcRecipient = (recipient: RecipientSuggestion) => {
-    if (!ccRecipients.find(r => r.id === recipient.id)) {
-      setCcRecipients(prev => [...prev, recipient]);
-    }
-    setCcSearch('');
-  };
-
-  const removeCcRecipient = (userId: string) => {
-    setCcRecipients(prev => prev.filter(r => r.id !== userId));
-  };
-
-  const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  /** Keep the field (and its suggestion list) in the visible area above the keyboard. */
+  const scrollToField = (target: "to" | "cc") => {
+    const y = Math.max(fieldY.current[target] - 8, 0);
+    setTimeout(() => scrollRef.current?.scrollTo({ y, animated: true }), 120);
   };
 
   const handleAttach = async (type: AttachmentType) => {
     setShowAttachmentModal(false);
-
     if (type === "link") {
       setShowLinkPrompt(true);
       return;
     }
-
-    if (!user?.userId) {
-      Alert.alert("Erreur", "Utilisateur non identifié.");
-      return;
-    }
-
     try {
-      if (type === "image") {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!permission.granted) {
-          Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour joindre une image.");
-          return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
-        if (result.canceled || !result.assets?.length) return;
-        const asset = result.assets[0];
-        const name = asset.fileName ?? `image_${Date.now()}.jpg`;
-
-        setIsUploadingAttachment(true);
-        const url = await mediaService.uploadFile({ uri: asset.uri, mimeType: "image/jpeg", name }, user.userId, "IMAGE");
-        setAttachments((prev) => [...prev, { id: Date.now().toString(), name, uri: url, mimeType: "image/jpeg" }]);
-      } else {
-        const result = await DocumentPicker.getDocumentAsync({ type: "*/*", copyToCacheDirectory: true });
-        if (result.canceled || !result.assets?.length) return;
-        const asset = result.assets[0];
-
-        setIsUploadingAttachment(true);
-        const url = await mediaService.uploadFile(
-          { uri: asset.uri, mimeType: asset.mimeType ?? "application/octet-stream", name: asset.name },
-          user.userId,
-          "DOCUMENT"
-        );
-        setAttachments((prev) => [...prev, { id: Date.now().toString(), name: asset.name, uri: url, mimeType: asset.mimeType }]);
-      }
+      if (type === "media") await attachments.pickMedia();
+      else await attachments.pickDocument();
     } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du téléversement de la pièce jointe.");
-    } finally {
-      setIsUploadingAttachment(false);
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Impossible d'ajouter la pièce jointe.");
     }
   };
 
-  const getFilteredRecipients = () => {
-    return recipientSuggestions.filter(u =>
-      u.name.toLowerCase().includes(recipientSearch.toLowerCase()) ||
-      u.email.toLowerCase().includes(recipientSearch.toLowerCase())
-    );
-  };
-
-  const getFilteredModerators = () => {
-    return ccSuggestions.filter(mod =>
-      mod.name.toLowerCase().includes(ccSearch.toLowerCase()) ||
-      mod.email.toLowerCase().includes(ccSearch.toLowerCase())
-    );
-  };
-
-  /**
-   * Message bodies render as plain RN <Text> (no HTML/webview renderer anywhere
-   * downstream), so wrapping in an HTML <div style="..."> — as this used to do —
-   * made the literal tags show up as garbled text in the recipient's inbox.
-   * Attachments have no field on the backend Messages/GroupMessageDto models, so
-   * they're folded into the plain-text body instead of being silently dropped.
-   */
-  const formatMessage = () => {
+  /** Plain-text body; links are appended (rendered as tappable links in the thread). */
+  const buildBody = () => {
     let body = message.trim();
-    if (attachments.length > 0) {
-      const links = attachments.map((a) => `- ${a.name}: ${a.uri}`).join('\n');
-      body = `${body}\n\nPièces jointes:\n${links}`;
-    }
+    if (links.length > 0) body = `${body}${body ? "\n\n" : ""}${links.join("\n")}`;
     return body;
   };
 
-  const handleClose = () => {
-    Animated.timing(slideAnim, {
-      toValue: 600,
-      duration: 300,
-      useNativeDriver: true,
-    }).start(() => {
-      onClose();
-    });
+  const animateOut = (after: () => void) => {
+    Animated.timing(slideAnim, { toValue: 600, duration: 250, useNativeDriver: true }).start(() => after());
   };
 
   const handleSend = async () => {
-    if (selectedClasses.length === 0 || !subject || !message) {
-      Alert.alert("Erreur", "Veuillez remplir tous les champs obligatoires.");
+    if (!userId) {
+      Alert.alert("Erreur", "Utilisateur non identifié.");
       return;
     }
-
+    if (isGroupMessage && selectedClassIds.length === 0) {
+      Alert.alert("Champs manquants", "Sélectionnez au moins une classe.");
+      return;
+    }
     if (!isGroupMessage && recipients.length === 0) {
-      Alert.alert("Erreur", "Veuillez sélectionner au moins un destinataire.");
+      Alert.alert("Champs manquants", "Sélectionnez au moins un destinataire.");
+      return;
+    }
+    if (attachments.isUploading) {
+      Alert.alert("Patientez", "Les pièces jointes sont en cours de téléversement.");
+      return;
+    }
+    if (attachments.hasErrors) {
+      Alert.alert("Pièces jointes", "Certaines pièces jointes n'ont pas pu être téléversées. Retirez-les ou réessayez.");
+      return;
+    }
+    const body = buildBody();
+    const medias = attachments.toPayload();
+    if (!body && medias.length === 0) {
+      Alert.alert("Champs manquants", "Écrivez un message ou joignez un fichier.");
       return;
     }
 
-    setIsLoading(true);
+    setIsSending(true);
     try {
-      const formattedMessage = formatMessage();
-
       if (isGroupMessage) {
-        // POST /messages/group — GroupMessageDto field names exactly: content (not contenu),
-        // senderId (not expediteurId), classIds, copieRecipientIds (not ccRecipients). No
-        // attachment field exists on this DTO server-side.
         await messageService.sendGroupMessage({
-          objet: subject,
-          content: formattedMessage,
-          senderId: user?.userId,
-          classIds: selectedClasses.map((c) => c.id),
+          classIds: selectedClassIds,
+          objet: subject.trim() || undefined,
+          content: body,
           copieRecipientIds: ccRecipients.map((cc) => cc.id),
-        } as any);
+          medias: medias.length ? medias : undefined,
+        });
       } else {
-        // POST /messages — the Messages model requires expediteur/destinataires as full
-        // Utilisateurs objects (Jackson polymorphic "type" discriminator + @NonNull nom/prenom),
-        // not bare id strings. "utilisateur" is always a valid type (the base class).
-        const allRecipients = [...recipients, ...ccRecipients];
-
         await messageService.sendIndividualMessage({
-          contenu: formattedMessage,
-          objet: subject,
-          dateCreation: new Date().toISOString(),
-          etat: "envoyé",
-          expediteur: {
-            type: "utilisateur",
-            id: user?.userId,
-            nom: user?.nom || "",
-            prenom: user?.prenom || "",
-            email: user?.email || "",
-            telephone: user?.telephone || "",
-          },
-          destinataires: allRecipients.map((recipient) => ({
-            type: "utilisateur",
-            id: recipient.id,
-            nom: recipient.nom || "",
-            prenom: recipient.prenom || "",
-            email: recipient.email || "",
-          })),
-        } as any);
+          objet: subject.trim() || undefined,
+          contenu: body,
+          destinataires: dedupeById([...recipients, ...ccRecipients]).map((r) => toUtilisateurPayload(r)),
+          medias: medias.length ? medias : undefined,
+        });
       }
-
-      Alert.alert('Succès', 'Message envoyé avec succès');
-      onSend();
-      handleClose();
+      animateOut(onSend);
     } catch (error) {
-      console.error('Error sending message:', error);
-      Alert.alert('Erreur', 'Impossible d\'envoyer le message');
+      Alert.alert("Erreur", error instanceof Error ? error.message : "Impossible d'envoyer le message.");
     } finally {
-      setIsLoading(false);
+      setIsSending(false);
     }
   };
 
-  return (
-    <Modal
-      transparent
-      visible
-      animationType="none"
-      onRequestClose={handleClose}
-    >
-      <View style={styles.modalOverlay}>
-        <Animated.View
-          style={[
-            styles.composeModal,
-            { transform: [{ translateY: slideAnim }] },
-          ]}
-        >
-          <KeyboardAvoidingView
-            style={styles.flex}
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-          >
-          <View style={styles.composeHeader}>
-            <Text style={styles.composeTitle}>Nouveau message</Text>
-            <TouchableOpacity onPress={handleClose}>
-              <FontAwesome5 name="times" size={20} color="#6B7280" />
+  const renderChips = (list: Recipient[], onRemove: (id: string) => void) =>
+    list.length > 0 ? (
+      <View style={styles.chipsRow}>
+        {list.map((r) => (
+          <View key={r.id} style={styles.chip}>
+            <Text style={styles.chipText} numberOfLines={1}>
+              {recipientName(r)}
+            </Text>
+            <TouchableOpacity onPress={() => onRemove(r.id)} hitSlop={8}>
+              <FontAwesome5 name="times" size={11} color={colors.primary} />
             </TouchableOpacity>
           </View>
-          <ScrollView style={styles.composeForm} keyboardShouldPersistTaps="handled">
-            {/* Classes Selection */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Classes *</Text>
-              <TouchableOpacity
-                style={styles.classSelector}
-                onPress={() => setShowClassDropdown(!showClassDropdown)}
-              >
-                <Text style={styles.classSelectorText}>
-                  {selectedClasses.length > 0
-                    ? `${selectedClasses.length} classe(s) sélectionnée(s)`
-                    : "Sélectionner les classes"}
-                </Text>
-                <FontAwesome5 name="chevron-down" size={16} color="#6B7280" />
-              </TouchableOpacity>
-              {showClassDropdown && (
-                <View style={styles.classDropdown}>
-                  {availableClasses.map((classItem) => (
-                    <TouchableOpacity
-                      key={classItem.id}
-                      style={styles.classOption}
-                      onPress={() => handleClassSelection(classItem)}
-                    >
-                      <View style={styles.classCheckbox}>
-                        {selectedClasses.find(c => c.id === classItem.id) && (
-                          <FontAwesome5 name="check" size={12} color="#3B82F6" />
-                        )}
-                      </View>
-                      <Text style={styles.classOptionText}>{classItem.nom}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
+        ))}
+      </View>
+    ) : null;
 
-            {/* Group Message Toggle */}
-            <View style={styles.inputGroup}>
-              <TouchableOpacity
-                style={styles.groupMessageButton}
-                onPress={() => {
-                  setIsGroupMessage(!isGroupMessage);
-                  if (!isGroupMessage) {
-                    setRecipients([]);
-                    loadModerators();
-                  }
-                }}
-              >
-                <View style={styles.groupCheckbox}>
-                  {isGroupMessage && <FontAwesome5 name="check" size={12} color="#FFFFFF" />}
-                </View>
-                <Text style={styles.groupMessageText}>
-                  Message général (envoyé à tous les membres de la classe)
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Recipients */}
-            {!isGroupMessage && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>À: *</Text>
-                <View style={styles.recipientsContainer}>
-                  {recipients.map((recipient) => (
-                    <View key={recipient.id} style={styles.recipientChip}>
-                      <Text style={styles.recipientChipText}>{recipient.name}</Text>
-                      <TouchableOpacity onPress={() => removeRecipient(recipient.id)}>
-                        <FontAwesome5 name="times" size={12} color="#6B7280" />
-                      </TouchableOpacity>
+  const renderAutocomplete = (target: "to" | "cc") => {
+    const query = target === "cc" ? ccQuery : toQuery;
+    const setQuery = target === "cc" ? setCcQuery : setToQuery;
+    const picked = target === "cc" ? ccRecipients : recipients;
+    const suggestions = target === "cc" ? ccSuggestions : toSuggestions;
+    const showList = activeField === target && query.trim().length > 0;
+    return (
+      <View onLayout={(e) => (fieldY.current[target] = e.nativeEvent.layout.y)}>
+        <Text style={styles.inputLabel}>{target === "cc" ? "Copie (CC)" : "À *"}</Text>
+        {renderChips(picked, (id) =>
+          (target === "cc" ? setCcRecipients : setRecipients)((p) => p.filter((r) => r.id !== id))
+        )}
+        <View style={[styles.selector, activeField === target && styles.selectorFocused]}>
+          <FontAwesome5 name="search" size={13} color={colors.textLight} />
+          <TextInput
+            style={styles.autoInput}
+            value={query}
+            onChangeText={(text) => {
+              setQuery(text);
+              if (text.trim()) scrollToField(target);
+            }}
+            onFocus={() => {
+              setActiveField(target);
+              scrollToField(target);
+            }}
+            // Deferred so a tap on a suggestion still lands if the input blurs first.
+            onBlur={() => setTimeout(() => setActiveField((prev) => (prev === target ? null : prev)), 150)}
+            onSubmitEditing={() => suggestions[0] && addRecipient(target, suggestions[0])}
+            blurOnSubmit={false}
+            placeholder={
+              contactsLoading
+                ? "Chargement des contacts..."
+                : target === "cc"
+                  ? "Ajouter en copie : nom ou e-mail"
+                  : "Tapez un nom ou un e-mail"
+            }
+            placeholderTextColor={colors.textLight}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="done"
+            accessibilityLabel={target === "cc" ? "Rechercher un contact en copie" : "Rechercher un destinataire"}
+          />
+          {query.length > 0 ? (
+            <TouchableOpacity onPress={() => setQuery("")} hitSlop={8} accessibilityLabel="Effacer">
+              <FontAwesome5 name="times-circle" size={14} color={colors.textLight} solid />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {activeField === target && contactsError ? (
+          <Text style={[styles.pickerEmpty, { color: colors.danger }]}>{contactsError}</Text>
+        ) : null}
+        {showList && !contactsError ? (
+          <View style={styles.pickerBox}>
+            {contactsLoading ? (
+              <ActivityIndicator color={colors.primary} style={{ paddingVertical: 16 }} />
+            ) : suggestions.length === 0 ? (
+              <Text style={styles.pickerEmpty}>Aucun contact trouvé</Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled keyboardShouldPersistTaps="always">
+                {suggestions.map((m) => (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={styles.pickerItem}
+                    onPress={() => addRecipient(target, m)}
+                    accessibilityLabel={`Ajouter ${recipientName(m)}`}
+                  >
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>{getInitials(m)}</Text>
                     </View>
-                  ))}
-                </View>
-                <TextInput
-                  style={styles.textInput}
-                  value={recipientSearch}
-                  onChangeText={(text) => {
-                    setRecipientSearch(text);
-                    if (selectedClasses.length > 0) loadClassUsers();
-                  }}
-                  placeholder="Rechercher un destinataire..."
-                />
-                {recipientSearch && getFilteredRecipients().length > 0 && (
-                  <View style={styles.suggestionsContainer}>
-                    {getFilteredRecipients().slice(0, 5).map((u) => (
-                      <TouchableOpacity
-                        key={u.id}
-                        style={styles.suggestionItem}
-                        onPress={() => addRecipient(u)}
-                      >
-                        <Text style={styles.suggestionName}>{u.name}</Text>
-                        <Text style={styles.suggestionEmail}>{u.email}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* CC Recipients */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Copie (CC):</Text>
-              <View style={styles.recipientsContainer}>
-                {ccRecipients.map((recipient) => (
-                  <View key={recipient.id} style={styles.recipientChip}>
-                    <Text style={styles.recipientChipText}>{recipient.name}</Text>
-                    <TouchableOpacity onPress={() => removeCcRecipient(recipient.id)}>
-                      <FontAwesome5 name="times" size={12} color="#6B7280" />
-                    </TouchableOpacity>
-                  </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.pickerName} numberOfLines={1}>
+                        {recipientName(m)}
+                      </Text>
+                      {m.email ? (
+                        <Text style={styles.pickerSub} numberOfLines={1}>
+                          {m.email}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {m.role ? (
+                      <View style={styles.roleBadge}>
+                        <Text style={styles.roleBadgeText}>{m.role}</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
                 ))}
-              </View>
-              <TextInput
-                style={styles.textInput}
-                value={ccSearch}
-                onChangeText={(text) => {
-                  setCcSearch(text);
-                  if (selectedClasses.length > 0) loadModerators();
-                }}
-                placeholder="Rechercher un modérateur..."
-              />
-              {ccSearch && getFilteredModerators().length > 0 && (
-                <View style={styles.suggestionsContainer}>
-                  {getFilteredModerators().slice(0, 5).map((mod) => (
-                    <TouchableOpacity
-                      key={mod.id}
-                      style={styles.suggestionItem}
-                      onPress={() => addCcRecipient(mod)}
-                    >
-                      <Text style={styles.suggestionName}>{mod.name}</Text>
-                      <Text style={styles.suggestionEmail}>{mod.email}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
+              </ScrollView>
+            )}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const sendDisabled = isSending || attachments.isUploading;
+
+  return (
+    <Modal transparent visible animationType="none" onRequestClose={() => animateOut(onClose)}>
+      <View style={styles.modalOverlay}>
+        <Animated.View style={[styles.composeModal, { transform: [{ translateY: slideAnim }] }]}>
+          <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+            <View style={styles.composeHeader}>
+              <Text style={styles.composeTitle}>Nouveau message</Text>
+              <TouchableOpacity onPress={() => animateOut(onClose)} hitSlop={10} accessibilityLabel="Fermer">
+                <FontAwesome5 name="times" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
             </View>
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Sujet:</Text>
+
+            <ScrollView
+              ref={scrollRef}
+              style={styles.flex}
+              contentContainerStyle={styles.composeForm}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
+            >
+              {/* Group toggle */}
+              <TouchableOpacity
+                style={[styles.groupToggle, { marginTop: 0 }, isGroupMessage && styles.groupToggleActive]}
+                onPress={() => {
+                  setIsGroupMessage((v) => !v);
+                  setRecipients([]);
+                  setToQuery("");
+                }}
+              >
+                <View style={[styles.checkbox, isGroupMessage && styles.checkboxChecked]}>
+                  {isGroupMessage && <FontAwesome5 name="check" size={10} color={colors.white} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.groupToggleTitle}>Message général</Text>
+                  <Text style={styles.groupToggleSub}>Envoyé à tous les membres des classes sélectionnées</Text>
+                </View>
+                <FontAwesome5 name="users" size={14} color={isGroupMessage ? colors.primary : colors.textLight} />
+              </TouchableOpacity>
+
+              {isGroupMessage ? (
+                <>
+                  {/* Classes */}
+                  <Text style={styles.inputLabel}>Classes *</Text>
+                  <TouchableOpacity style={styles.selector} onPress={() => setShowClassDropdown((v) => !v)}>
+                    <Text style={[styles.selectorText, selectedClassIds.length > 0 && { color: colors.text }]} numberOfLines={1}>
+                      {selectedClassIds.length > 0
+                        ? availableClasses
+                            .filter((c) => selectedClassIds.includes(c.id))
+                            .map((c) => c.nom)
+                            .join(", ")
+                        : "Sélectionner les classes"}
+                    </Text>
+                    <FontAwesome5 name={showClassDropdown ? "chevron-up" : "chevron-down"} size={13} color={colors.textMuted} />
+                  </TouchableOpacity>
+                  {showClassDropdown && (
+                    <View style={styles.dropdown}>
+                      {classesLoading ? (
+                        <ActivityIndicator color={colors.primary} style={{ paddingVertical: 14 }} />
+                      ) : classesError ? (
+                        <Text style={[styles.pickerEmpty, { color: colors.danger }]}>{classesError}</Text>
+                      ) : availableClasses.length === 0 ? (
+                        <Text style={styles.pickerEmpty}>Aucune classe à laquelle vous pouvez écrire.</Text>
+                      ) : (
+                        <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                          {availableClasses.map((c) => {
+                            const checked = selectedClassIds.includes(c.id);
+                            return (
+                              <TouchableOpacity key={c.id} style={styles.pickerItem} onPress={() => toggleClass(c.id)}>
+                                <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
+                                  {checked && <FontAwesome5 name="check" size={10} color={colors.white} />}
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <Text style={styles.pickerName}>{c.nom}</Text>
+                                  {c.niveau ? <Text style={styles.pickerSub}>{c.niveau}</Text> : null}
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
+                    </View>
+                  )}
+                </>
+              ) : (
+                <>
+                  {/* To */}
+                  {renderAutocomplete("to")}
+                </>
+              )}
+
+              {/* CC */}
+              {renderAutocomplete("cc")}
+
+              {/* Subject */}
+              <Text style={styles.inputLabel}>Objet</Text>
               <TextInput
                 style={styles.textInput}
                 value={subject}
                 onChangeText={setSubject}
-                placeholder="Objet du message"
+                placeholder="Objet du message (facultatif)"
+                placeholderTextColor={colors.textLight}
+                maxLength={255}
               />
-            </View>
-            <View style={styles.inputGroup}>
-              <View style={styles.attachmentsHeader}>
-                <Text style={styles.inputLabel}>Message: *</Text>
-                <TouchableOpacity onPress={() => setShowAttachmentModal(true)} disabled={isUploadingAttachment}>
-                  {isUploadingAttachment ? (
-                    <FontAwesome5 name="spinner" size={20} color="#6B7280" />
-                  ) : (
-                    <FontAwesome5 name="paperclip" size={20} color="#6B7280" />
-                  )}
+
+              {/* Body */}
+              <View style={styles.bodyHeader}>
+                <Text style={[styles.inputLabel, { marginTop: 0 }]}>Message</Text>
+                <TouchableOpacity
+                  onPress={() => setShowAttachmentModal(true)}
+                  style={styles.attachButton}
+                  accessibilityLabel="Joindre"
+                >
+                  <FontAwesome5 name="paperclip" size={15} color={colors.primary} />
                 </TouchableOpacity>
               </View>
-
-              {attachments.length > 0 && (
-                <View style={styles.recipientsContainer}>
-                  {attachments.map((att) => (
-                    <View key={att.id} style={styles.recipientChip}>
-                      <FontAwesome5
-                        name={att.mimeType === 'text/uri-list' ? 'link' : att.mimeType?.startsWith('image') ? 'image' : 'file-alt'}
-                        size={12}
-                        color="#3B82F6"
-                        style={{ marginRight: 6 }}
-                      />
-                      <Text style={styles.recipientChipText} numberOfLines={1}>{att.name}</Text>
-                      <TouchableOpacity onPress={() => removeAttachment(att.id as string)}>
-                        <FontAwesome5 name="times" size={12} color="#6B7280" />
+              <PendingAttachmentsBar items={attachments.items} onRemove={attachments.remove} onRetry={attachments.retry} />
+              {links.length > 0 && (
+                <View style={styles.chipsRow}>
+                  {links.map((href) => (
+                    <View key={href} style={styles.chip}>
+                      <FontAwesome5 name="link" size={11} color={colors.primary} />
+                      <Text style={[styles.chipText, { maxWidth: 200 }]} numberOfLines={1}>
+                        {href}
+                      </Text>
+                      <TouchableOpacity onPress={() => setLinks((p) => p.filter((l) => l !== href))} hitSlop={8}>
+                        <FontAwesome5 name="times" size={11} color={colors.primary} />
                       </TouchableOpacity>
                     </View>
                   ))}
                 </View>
               )}
-
-              {/* Rich Text Editor Toolbar */}
-              <View style={styles.editorToolbar}>
-                <TouchableOpacity
-                  style={[styles.toolbarButton, isBold && styles.activeToolbarButton]}
-                  onPress={() => setIsBold(!isBold)}
-                >
-                  <FontAwesome5 name="bold" size={14} color={isBold ? "#FFFFFF" : "#6B7280"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toolbarButton, isItalic && styles.activeToolbarButton]}
-                  onPress={() => setIsItalic(!isItalic)}
-                >
-                  <FontAwesome5 name="italic" size={14} color={isItalic ? "#FFFFFF" : "#6B7280"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toolbarButton, isUnderline && styles.activeToolbarButton]}
-                  onPress={() => setIsUnderline(!isUnderline)}
-                >
-                  <FontAwesome5 name="underline" size={14} color={isUnderline ? "#FFFFFF" : "#6B7280"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toolbarButton, textAlign === 'left' && styles.activeToolbarButton]}
-                  onPress={() => setTextAlign('left')}
-                >
-                  <FontAwesome5 name="align-left" size={14} color={textAlign === 'left' ? "#FFFFFF" : "#6B7280"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toolbarButton, textAlign === 'center' && styles.activeToolbarButton]}
-                  onPress={() => setTextAlign('center')}
-                >
-                  <FontAwesome5 name="align-center" size={14} color={textAlign === 'center' ? "#FFFFFF" : "#6B7280"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.toolbarButton, textAlign === 'right' && styles.activeToolbarButton]}
-                  onPress={() => setTextAlign('right')}
-                >
-                  <FontAwesome5 name="align-right" size={14} color={textAlign === 'right' ? "#FFFFFF" : "#6B7280"} />
-                </TouchableOpacity>
-              </View>
-
               <TextInput
-                style={[
-                  styles.textInput,
-                  styles.messageInput,
-                  {
-                    fontWeight: isBold ? 'bold' : 'normal',
-                    fontStyle: isItalic ? 'italic' : 'normal',
-                    textDecorationLine: isUnderline ? 'underline' : 'none',
-                    textAlign: textAlign,
-                  }
-                ]}
+                style={[styles.textInput, styles.messageInput]}
                 value={message}
                 onChangeText={setMessage}
                 placeholder="Tapez votre message ici..."
+                placeholderTextColor={colors.textLight}
                 multiline
                 textAlignVertical="top"
               />
+            </ScrollView>
+
+            <View style={[styles.composeActions, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
+              {attachments.isUploading ? (
+                <Text style={styles.uploadingText}>Téléversement… {Math.round(attachments.overallProgress * 100)}%</Text>
+              ) : null}
+              <TouchableOpacity style={styles.cancelButton} onPress={() => animateOut(onClose)}>
+                <Text style={styles.cancelButtonText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sendButton, sendDisabled && styles.disabledButton]}
+                onPress={handleSend}
+                disabled={sendDisabled}
+              >
+                {isSending || attachments.isUploading ? (
+                  <ActivityIndicator size="small" color={colors.white} />
+                ) : (
+                  <FontAwesome5 name="paper-plane" size={14} color={colors.white} />
+                )}
+                <Text style={styles.sendButtonText}>{isSending ? "Envoi..." : "Envoyer"}</Text>
+              </TouchableOpacity>
             </View>
-          </ScrollView>
-          <View style={styles.composeActions}>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleClose}>
-              <Text style={styles.cancelButtonText}>Annuler</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.sendButton, isLoading && styles.disabledButton]}
-              onPress={handleSend}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <FontAwesome5 name="spinner" size={16} color="#FFFFFF" />
-              ) : (
-                <FontAwesome5 name="paper-plane" size={16} color="#FFFFFF" />
-              )}
-              <Text style={styles.sendButtonText}>
-                {isLoading ? 'Envoi...' : 'Envoyer'}
-              </Text>
-            </TouchableOpacity>
-          </View>
           </KeyboardAvoidingView>
         </Animated.View>
       </View>
       {showAttachmentModal && (
-        <AttachmentModal
-          onClose={() => setShowAttachmentModal(false)}
-          onAttach={handleAttach}
-        />
+        <AttachmentModal allowLink onClose={() => setShowAttachmentModal(false)} onAttach={handleAttach} />
       )}
       <PromptSheet
         visible={showLinkPrompt}
@@ -624,10 +516,11 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
         submitLabel="Ajouter"
         onCancel={() => setShowLinkPrompt(false)}
         onSubmit={(url) => {
-          setAttachments((prev) => [
-            ...prev,
-            { id: Date.now().toString(), name: url, uri: url, mimeType: "text/uri-list" },
-          ]);
+          const trimmed = url.trim();
+          if (trimmed) {
+            const href = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+            setLinks((prev) => (prev.includes(href) ? prev : [...prev, href]));
+          }
           setShowLinkPrompt(false);
         }}
       />
@@ -635,235 +528,136 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
   );
 };
 
-const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
-  },
-  composeModal: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    height: "85%",
-  },
-  flex: {
-    flex: 1,
-  },
-  composeHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  composeTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-  },
-  composeForm: {
-    flex: 1,
-    padding: 20,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#374151",
-    marginBottom: 8,
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    backgroundColor: "#FFFFFF",
-  },
-  messageInput: {
-    height: 120,
-    textAlignVertical: "top",
-  },
-  composeActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-  cancelButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginRight: 12,
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#6B7280",
-  },
-  sendButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#3B82F6",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  sendButtonText: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#FFFFFF",
-    marginLeft: 8,
-  },
-  attachmentsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  classSelector: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-  },
-  classSelectorText: {
-    fontSize: 16,
-    color: "#6B7280",
-  },
-  classDropdown: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    backgroundColor: "#FFFFFF",
-    marginTop: 4,
-    maxHeight: 200,
-  },
-  classOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  classCheckbox: {
-    width: 20,
-    height: 20,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 4,
-    marginRight: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  classOptionText: {
-    fontSize: 16,
-    color: "#111827",
-  },
-  groupMessageButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#3B82F6",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  groupCheckbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 4,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    marginRight: 12,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  groupMessageText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#FFFFFF",
-    flex: 1,
-  },
-  recipientsContainer: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 8,
-  },
-  recipientChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#EEF2FF",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginRight: 8,
-    marginBottom: 4,
-  },
-  recipientChipText: {
-    fontSize: 14,
-    color: "#3B82F6",
-    marginRight: 8,
-  },
-  suggestionsContainer: {
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    backgroundColor: "#FFFFFF",
-    marginTop: 4,
-    maxHeight: 150,
-  },
-  suggestionItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  suggestionName: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#111827",
-  },
-  suggestionEmail: {
-    fontSize: 14,
-    color: "#6B7280",
-  },
-  editorToolbar: {
-    flexDirection: "row",
-    backgroundColor: "#F9FAFB",
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: "#D1D5DB",
-  },
-  toolbarButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 4,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 4,
-  },
-  activeToolbarButton: {
-    backgroundColor: "#3B82F6",
-  },
-  disabledButton: {
-    opacity: 0.6,
-  },
-});
+const createStyles = (c: ThemeColors) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    modalOverlay: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.5)", justifyContent: "flex-end" },
+    composeModal: { backgroundColor: c.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, height: "90%" },
+    composeHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    composeTitle: { fontSize: 18, fontWeight: "700", color: c.text },
+    composeForm: { padding: 20, paddingBottom: 32 },
+    inputLabel: { fontSize: 13, fontWeight: "700", color: c.textMuted, marginBottom: 6, marginTop: 16 },
+    selector: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      backgroundColor: c.background,
+      gap: 8,
+    },
+    selectorText: { flex: 1, fontSize: 15, color: c.textLight },
+    selectorFocused: { borderColor: c.primary },
+    autoInput: { flex: 1, fontSize: 15, color: c.text, paddingVertical: Platform.OS === "ios" ? 2 : 0 },
+    avatar: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: c.primaryLight,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    avatarText: { fontSize: 13, fontWeight: "700", color: c.primaryDark },
+    roleBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10, backgroundColor: c.background },
+    roleBadgeText: { fontSize: 11, fontWeight: "600", color: c.textMuted },
+    dropdown: { borderWidth: 1, borderColor: c.border, borderRadius: 12, backgroundColor: c.surface, marginTop: 6, overflow: "hidden" },
+    textInput: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 15,
+      color: c.text,
+      backgroundColor: c.background,
+    },
+    messageInput: { minHeight: 140, textAlignVertical: "top" },
+    bodyHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 16, marginBottom: 6 },
+    attachButton: { padding: 8, borderRadius: 10, backgroundColor: c.primaryLight },
+    groupToggle: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      marginTop: 16,
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.background,
+    },
+    groupToggleActive: { borderColor: c.primary },
+    groupToggleTitle: { fontSize: 14, fontWeight: "700", color: c.text },
+    groupToggleSub: { fontSize: 11, color: c.textMuted, marginTop: 1 },
+    chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 8 },
+    chip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: c.primaryLight,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 14,
+      maxWidth: "100%",
+    },
+    chipText: { fontSize: 13, color: c.primaryDark, fontWeight: "600", flexShrink: 1 },
+    pickerBox: { marginTop: 6, borderWidth: 1, borderColor: c.border, borderRadius: 12, backgroundColor: c.surface, overflow: "hidden" },
+    pickerEmpty: { padding: 14, fontSize: 13, color: c.textMuted, textAlign: "center" },
+    pickerItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+    },
+    pickerName: { fontSize: 14, fontWeight: "600", color: c.text },
+    pickerSub: { fontSize: 12, color: c.textMuted, marginTop: 1 },
+    checkbox: {
+      width: 20,
+      height: 20,
+      borderWidth: 1.5,
+      borderColor: c.grayMid,
+      borderRadius: 6,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    checkboxChecked: { backgroundColor: c.primary, borderColor: c.primary },
+    composeActions: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+      gap: 12,
+    },
+    cancelButton: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
+    cancelButtonText: { fontSize: 15, fontWeight: "600", color: c.textMuted },
+    sendButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      backgroundColor: c.primary,
+      paddingHorizontal: 20,
+      paddingVertical: 11,
+      borderRadius: 12,
+    },
+    sendButtonText: { fontSize: 15, fontWeight: "700", color: c.white },
+    disabledButton: { opacity: 0.6 },
+    uploadingText: { flex: 1, fontSize: 12, color: c.textMuted },
+  });
 
 export default ComposeMessageModal;

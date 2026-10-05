@@ -8,6 +8,7 @@ import { offerService } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
 import { Contrat, Offre } from '../../types';
 import PaymentModal from './PaymentModal';
+import { formatDate, formatDateTime } from '../../utils/dates';
 
 interface OffreInfoPanelProps {
   type: 'CLASSE' | 'ETABLISSEMENT';
@@ -48,14 +49,10 @@ const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
     try {
       const data = type === 'ETABLISSEMENT' ? await contratService.getForEstablishment(entityId) : await contratService.getForClass(entityId);
       setContrat(data);
-    } catch (err) {
-      // 404 (no contract yet) is a normal state, not an error banner.
-      const message = err instanceof Error ? err.message : '';
-      if (message.toLowerCase().includes('non trouv') || message.toLowerCase().includes('404')) {
-        setContrat(null);
-      } else {
-        setError("Impossible de charger les informations de l'offre.");
-      }
+    } catch {
+      // "No contract yet" already resolves to null in contratService; this
+      // is a real failure (network, server error).
+      setError("Impossible de charger les informations de l'offre.");
     } finally {
       setLoading(false);
     }
@@ -175,7 +172,7 @@ const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
           <Row label="Offre" value={contrat.offreNom} />
           <Row label="Périodicité" value={contrat.periodicite === 'MENSUEL' ? 'Mensuelle' : 'Annuelle'} />
           <Row label="Montant" value={`${Number(contrat.prixPaye ?? 0).toLocaleString('fr-FR')} FCFA`} />
-          {contrat.dateFin ? <Row label="Valide jusqu'au" value={new Date(contrat.dateFin).toLocaleDateString('fr-FR')} /> : null}
+          {contrat.dateFin ? <Row label="Valide jusqu'au" value={formatDate(contrat.dateFin)} /> : null}
           {contrat.classesMax != null ? (
             <Row label="Classes" value={`${contrat.classesUtilisees ?? 0} / ${contrat.classesMax}`} danger={(contrat.classesUtilisees ?? 0) >= contrat.classesMax} />
           ) : null}
@@ -189,7 +186,7 @@ const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
         <View style={styles.dangerBanner}>
           <FontAwesome5 name="shield-alt" size={14} color={colors.danger} />
           <Text style={styles.dangerBannerText}>
-            Suppression définitive prévue le {new Date(contrat.dateSuppressionPrevue).toLocaleString('fr-FR')} si l'offre n'est pas renouvelée.
+            Suppression définitive prévue le {formatDateTime(contrat.dateSuppressionPrevue)} si l'offre n'est pas renouvelée.
           </Text>
         </View>
       ) : null}

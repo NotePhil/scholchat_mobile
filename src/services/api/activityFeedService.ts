@@ -1,5 +1,8 @@
 import { apiClient, extractErrorMessage } from './client';
 import { ActivityEvent, ApiSuccess, Interaction } from '../../types';
+import { withServerDateTimes } from '../../utils/dates';
+
+const EVENT_DATES = ['heureDebut', 'heureFin'] as const;
 
 /**
  * /evenements — the activity/event feed. Field names verified against the
@@ -60,10 +63,21 @@ export const activityFeedService = {
     visibility?: 'PUBLIC' | 'PRIVATE';
     classesIds?: string[];
     participantsIds?: string[];
-    medias?: { filePath?: string; mediaType?: string; fileName?: string; presignedUrl?: string }[];
+    medias?: {
+      id?: string;
+      filePath?: string;
+      mediaType?: string;
+      fileType?: string;
+      fileName?: string;
+      contentType?: string;
+      fileSize?: number;
+      bucketName?: string;
+      presignedUrl?: string;
+      [key: string]: unknown;
+    }[];
   }): Promise<ActivityEvent> => {
     try {
-      const { data } = await apiClient.post<ActivityEvent>('/evenements', payload);
+      const { data } = await apiClient.post<ActivityEvent>('/evenements', withServerDateTimes(payload, EVENT_DATES));
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de la création de l'activité."));
@@ -72,7 +86,10 @@ export const activityFeedService = {
 
   update: async (id: string, payload: Partial<ActivityEvent>): Promise<ActivityEvent> => {
     try {
-      const { data } = await apiClient.put<ActivityEvent>(`/evenements/${id}`, payload);
+      const { data } = await apiClient.put<ActivityEvent>(
+        `/evenements/${id}`,
+        withServerDateTimes(payload, EVENT_DATES)
+      );
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de la mise à jour de l'activité."));

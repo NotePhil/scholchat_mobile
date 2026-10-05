@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Appearance } from 'react-native';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -20,13 +19,9 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   loadMode: async () => {
     try {
       const saved = await AsyncStorage.getItem(STORAGE_KEY);
-      if (saved === 'light' || saved === 'dark') {
-        set({ mode: saved });
-      } else {
-        // No explicit choice saved yet — default from the phone's own setting.
-        const system = Appearance.getColorScheme();
-        set({ mode: system === 'dark' ? 'dark' : 'light' });
-      }
+      // Light by default; dark only once the user picks it in the app
+      // (the phone's own dark-mode setting is intentionally not followed).
+      set({ mode: saved === 'dark' ? 'dark' : 'light' });
     } catch {
       // best-effort
     }

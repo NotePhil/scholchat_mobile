@@ -13,6 +13,8 @@ import CreateClassSheet from "./CreateClassSheet";
 import { PaymentInfo } from "../../../services/api/contratService";
 import { useUser } from "../../../context/UserContext";
 import { ClassEntity, Etablissement, Offre } from "../../../types";
+import { useT } from "../../../i18n";
+import { getClassActionTexts, useClassActionConfirm } from "../../../hooks/useClassActionConfirm";
 
 // LinearGradient with safe fallback
 let LinearGradient: any;
@@ -64,6 +66,8 @@ const AdminClassesBody = ({ autoCreate }: AdminClassesBodyProps) => {
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [rejectingClass, setRejectingClass] = useState<ClassEntity | null>(null);
+  const { t } = useT();
+  const { askConfirm, confirmDialog } = useClassActionConfirm();
   const [showCreate, setShowCreate] = useState(!!autoCreate);
   const [managedClass, setManagedClass] = useState<ClassEntity | null>(null);
   const [selectedClass, setSelectedClass] = useState<UIClass | null>(null);
@@ -82,17 +86,27 @@ const AdminClassesBody = ({ autoCreate }: AdminClassesBodyProps) => {
 
   const filtered = classes.filter((c) => (c.nom ?? "").toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const handleApprove = async (cls: ClassEntity) => {
-    try { await classAdminService.approve(cls.id); load(); }
-    catch (err) { Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'approbation."); }
+  // Approve / delete ask for confirmation first (same wording as web, see
+  // hooks/useClassActionConfirm); reject's confirmation is the reason sheet.
+  const handleApprove = (cls: ClassEntity) => {
+    askConfirm("approve", cls.nom, async () => {
+      await classAdminService.approve(cls.id);
+      load();
+    });
   };
 
   const handleReject = (cls: ClassEntity) => setRejectingClass(cls);
 
   const handleConfirmReject = async (motif: string) => {
     if (!rejectingClass) return;
-    try { await classAdminService.reject(rejectingClass.id, motif); setRejectingClass(null); load(); }
-    catch (err) { Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du rejet."); }
+    try {
+      await classAdminService.reject(rejectingClass.id, motif);
+      setRejectingClass(null);
+      Alert.alert(t("classConfirm.successTitle"), t("classConfirm.rejectSuccess"));
+      load();
+    } catch (err) {
+      Alert.alert(t("common.error"), err instanceof Error ? err.message : t("classConfirm.rejectError"));
+    }
   };
 
   const handleManage = async (cls: ClassEntity) => {
@@ -114,13 +128,10 @@ const AdminClassesBody = ({ autoCreate }: AdminClassesBodyProps) => {
   };
 
   const handleDelete = (cls: ClassEntity) => {
-    Alert.alert("Supprimer la classe", `Voulez-vous vraiment supprimer "${cls.nom}" ?`, [
-      { text: "Annuler", style: "cancel" },
-      { text: "Supprimer", style: "destructive", onPress: async () => {
-        try { await classAdminService.remove(cls.id); setClasses((prev) => prev.filter((c) => c.id !== cls.id)); }
-        catch (err) { Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression."); }
-      }},
-    ]);
+    askConfirm("delete", cls.nom, async () => {
+      await classAdminService.remove(cls.id);
+      setClasses((prev) => prev.filter((c) => c.id !== cls.id));
+    });
   };
 
   if (managedClass) {
@@ -233,13 +244,17 @@ const AdminClassesBody = ({ autoCreate }: AdminClassesBodyProps) => {
 
       <PromptSheet
         visible={!!rejectingClass}
-        title="Motif du rejet"
-        message={rejectingClass ? `Pourquoi rejeter "${rejectingClass.nom}" ?` : undefined}
-        placeholder="Motif"
-        submitLabel="Rejeter"
+        title={t("classConfirm.rejectTitle")}
+        description={rejectingClass ? getClassActionTexts("reject", rejectingClass.nom, t).message : undefined}
+        message={t("classConfirm.reasonLabel")}
+        placeholder={t("classConfirm.reasonPlaceholder")}
+        submitLabel={t("classConfirm.confirm")}
+        cancelLabel={t("classConfirm.cancel")}
+        destructive
         onCancel={() => setRejectingClass(null)}
         onSubmit={handleConfirmReject}
       />
+      {confirmDialog}
       <CreateClassSheet visible={showCreate} onClose={() => setShowCreate(false)} onCreated={load} creatorId={user?.userId} />
       <EditClassSheet classItem={editingClass} onClose={() => setEditingClass(null)} onSubmit={handleEditSubmit} />
     </View>
@@ -295,7 +310,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     // Fallback if LinearGradient ever fails — keeps the white header text
     // readable instead of white-on-white.
     backgroundColor: colors.heroStart,
-    paddingTop: 52,
+    paddingTop: 16,
     paddingBottom: 20,
     paddingHorizontal: spacing.lg,
     flexDirection: "row",

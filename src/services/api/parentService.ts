@@ -94,13 +94,47 @@ export const parentService = {
     }
   },
 
+  /**
+   * Creates a child's student profile from a parent account — POST /profil-eleves, exactly
+   * like web's AddChildModal.jsx (allowed for ROLE_PARENT; the server assigns the id and
+   * neutralises sensitive fields). NOT /utilisateurs: with an email that already exists
+   * that endpoint ADDS a role to the existing account instead of creating the child.
+   */
+  createChildProfile: async (payload: {
+    nom: string;
+    prenom: string;
+    niveau: string;
+    email?: string;
+    telephone?: string;
+  }): Promise<StudentProfile> => {
+    const genId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+    try {
+      const { data } = await apiClient.post<StudentProfile>('/profil-eleves', {
+        id: genId,
+        type: 'eleve',
+        nom: payload.nom.trim(),
+        prenom: payload.prenom.trim(),
+        niveau: payload.niveau,
+        email: payload.email?.trim() || null,
+        telephone: payload.telephone?.trim() || null,
+        etat: 'ACTIVE',
+      });
+      return data;
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, "Erreur lors de la creation de l'eleve"));
+    }
+  },
+
   /** Links an existing student profile to a parent — the actual parent/child relationship (ParentsApi.ajouterEnfant). */
   addChild: async (parentId: string, eleveId: string): Promise<ApiSuccess> => {
     try {
       await apiClient.post(`/parents/${parentId}/enfants/${eleveId}`);
       return { success: true };
     } catch (error) {
-      throw new Error(extractErrorMessage(error, "Échec du rattachement de l'enfant."));
+      throw new Error(extractErrorMessage(error, "Erreur lors de l'association de l'enfant"));
     }
   },
 

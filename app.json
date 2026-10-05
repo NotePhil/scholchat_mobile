@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "schoolchat1",
+    "name": "ScholChat",
     "slug": "zaq1q",
     "scheme": "scholchat",
     "version": "1.0.0",
@@ -14,14 +14,23 @@
       "assets/images/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "ScholChat a besoin d'accéder à votre caméra pour les sessions de cours en direct.",
+        "NSMicrophoneUsageDescription": "ScholChat a besoin d'accéder à votre microphone pour les sessions de cours en direct."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#8C52FF"
       },
-      "package": "com.kams2004.schoolchat1"
+      "package": "com.kams2004.schoolchat1",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,14 +50,15 @@
         {
           "image": "./assets/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#8C52FF"
+          "backgroundColor": "#8C52FF",
+          "imageWidth": 180
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Scholchat a besoin d'accéder à votre caméra pour les sessions de cours en direct.",
-          "microphonePermission": "Scholchat a besoin d'accéder à votre microphone pour les sessions de cours en direct."
+          "cameraPermission": "ScholChat a besoin d'accéder à votre caméra pour les sessions de cours en direct.",
+          "microphonePermission": "ScholChat a besoin d'accéder à votre microphone pour les sessions de cours en direct."
         }
       ]
     ]

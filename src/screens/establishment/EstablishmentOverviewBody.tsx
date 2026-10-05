@@ -21,7 +21,8 @@ const chartConfig = {
 };
 
 interface EstablishmentOverviewBodyProps {
-  onNavigate?: (tab: "classes" | "establishments") => void;
+  /** Same tab names as web Principal.jsx (manage-establishment, manage-class, create-class). */
+  onNavigate?: (tab: string) => void;
   accentColor?: string;
   quickActions?: QuickAction[];
   onQuickAction?: (item: QuickAction) => void;
@@ -124,7 +125,7 @@ const EstablishmentOverviewBody = ({ onNavigate, accentColor = colors.primary, q
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <View style={styles.grid}>
-        <TouchableOpacity style={styles.statCard} onPress={() => onNavigate?.("establishments")}>
+        <TouchableOpacity style={styles.statCard} onPress={() => onNavigate?.("manage-establishment")}>
           <View style={[styles.statIconBox, { backgroundColor: "#2563EB" }]}>
             <FontAwesome5 name="school" size={16} color={colors.white} />
           </View>
@@ -133,7 +134,7 @@ const EstablishmentOverviewBody = ({ onNavigate, accentColor = colors.primary, q
           <Text style={styles.statSubtitle}>{activeEstablishments} établissements actifs</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.statCard} onPress={() => onNavigate?.("classes")}>
+        <TouchableOpacity style={styles.statCard} onPress={() => onNavigate?.("manage-class")}>
           <View style={[styles.statIconBox, { backgroundColor: "#059669" }]}>
             <FontAwesome5 name="building" size={16} color={colors.white} />
           </View>
@@ -156,7 +157,7 @@ const EstablishmentOverviewBody = ({ onNavigate, accentColor = colors.primary, q
           <Text style={styles.statSubtitle}>Nombre total d'élèves</Text>
         </View>
 
-        <TouchableOpacity style={styles.statCard} onPress={() => onNavigate?.("classes")}>
+        <TouchableOpacity style={styles.statCard} onPress={() => onNavigate?.("manage-class")}>
           <View style={[styles.statIconBox, { backgroundColor: "#D97706" }]}>
             <FontAwesome5 name="clock" size={16} color={colors.white} />
           </View>
@@ -227,15 +228,16 @@ const EstablishmentOverviewBody = ({ onNavigate, accentColor = colors.primary, q
       <Card style={styles.chartCard}>
         <Text style={styles.chartTitle}>Actions Prioritaires</Text>
         <View style={styles.actionsGrid}>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primaryLight }]} onPress={() => onNavigate?.("establishments")}>
+          {/* Creating an établissement is admin-only: the gestionnaire manages theirs. */}
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.primaryLight }]} onPress={() => onNavigate?.("manage-establishment")}>
             <View style={[styles.actionIconBox, { backgroundColor: "#2563EB" }]}>
               <FontAwesome5 name="school" size={16} color={colors.white} />
             </View>
-            <Text style={styles.actionLabel}>Nouvel Établissement</Text>
-            <Text style={styles.actionSub}>Ajouter une structure</Text>
+            <Text style={styles.actionLabel}>Mes Établissements</Text>
+            <Text style={styles.actionSub}>Consulter et modifier</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: "#D1FAE5" }]} onPress={() => onNavigate?.("classes")}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: "#D1FAE5" }]} onPress={() => onNavigate?.("create-class")}>
             <View style={[styles.actionIconBox, { backgroundColor: "#059669" }]}>
               <FontAwesome5 name="building" size={16} color={colors.white} />
             </View>
@@ -243,7 +245,7 @@ const EstablishmentOverviewBody = ({ onNavigate, accentColor = colors.primary, q
             <Text style={styles.actionSub}>Lancer un programme</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: "#E0E7FF" }]} onPress={() => onNavigate?.("classes")}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: "#E0E7FF" }]} onPress={() => onNavigate?.("manage-class")}>
             <View style={[styles.actionIconBox, { backgroundColor: "#4F46E5" }]}>
               <FontAwesome5 name="users" size={16} color={colors.white} />
             </View>
@@ -251,7 +253,7 @@ const EstablishmentOverviewBody = ({ onNavigate, accentColor = colors.primary, q
             <Text style={styles.actionSub}>Superviser les inscrits</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.warningLight }]} onPress={() => onNavigate?.("classes")}>
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: colors.warningLight }]} onPress={() => onNavigate?.("manage-class")}>
             <View style={[styles.actionIconBox, { backgroundColor: "#D97706" }]}>
               <FontAwesome5 name="exclamation-circle" size={16} color={colors.white} />
               {pendingClasses > 0 ? <View style={styles.actionBadgeDot} /> : null}

@@ -5,6 +5,7 @@ import { Badge, BottomSheet, LoadingSpinner } from "../../components/ui";
 import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService, coursProgrammerService } from "../../services/api";
 import { ClassEntity, ClassUser, CoursProgramme } from "../../types";
+import { formatDateTime } from "../../utils/dates";
 
 interface StudentClassDetailModalProps {
   visible: boolean;
@@ -221,7 +222,7 @@ export const StudentClassDetailModal = ({
                     <FontAwesome5 name="book-open" size={14} color={colors.primary} />
                     <Text style={styles.courseDate}>
                       {crs.dateCoursPrevue
-                        ? new Date(crs.dateCoursPrevue).toLocaleString("fr-FR", {
+                        ? formatDateTime(crs.dateCoursPrevue, {
                             day: "2-digit",
                             month: "short",
                             hour: "2-digit",

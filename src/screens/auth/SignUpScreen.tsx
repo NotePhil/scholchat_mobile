@@ -1,1134 +1,563 @@
 import React, { useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FocusEvent,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
-import { authService } from '../../services/home/authService';
-import { userService } from '../../services/api';
-import { useKeyboardAwareScroll } from '../../hooks/useKeyboardAwareScroll';
-
-const logo = require('../../../assets/logo-mark.png');
+import { BrandColors, ff, roleAccents, useBrandColors } from '../../components/brand';
+import { SignupPayload, SignupRole, authService } from '../../services/home/authService';
+import { NIVEAUX } from '../../constants/niveaux';
+import {
+  AuthScreen,
+  AuthTitle,
+  Banner,
+  GradientButton,
+  PromptLink,
+  SelectField,
+  SelectOption,
+  StepIndicator,
+  TextField,
+  TextLink,
+} from './components/AuthKit';
+import { EMAIL_REGEX } from './components/passwordRules';
+import { TFunction, translate, useT } from '../../i18n';
+import type { AccountCreatedParams } from './AccountCreatedScreen';
 
 type DocumentAsset = DocumentPicker.DocumentPickerAsset;
+type DocKey = 'cniRecto' | 'cniVerso' | 'selfie';
 
-interface FormData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  address: string;
-  teacherMatricule: string;
-  educationLevel: string;
-  cniRecto: DocumentAsset | null;
-  cniVerso: DocumentAsset | null;
-  profilePhoto: DocumentAsset | null;
-}
+type StepId = 'infos' | 'niveau' | 'documents';
 
-const EMPTY_FORM: FormData = {
-  firstName: '',
-  lastName: '',
-  email: '',
-  phone: '',
-  address: '',
-  teacherMatricule: '',
-  educationLevel: '',
-  cniRecto: null,
-  cniVerso: null,
-  profilePhoto: null,
+/** Same steps as web SignUp.jsx (the role itself is picked beforehand on RoleChoiceScreen). */
+const STEPS: Record<SignupRole, StepId[]> = {
+  professeur: ['infos', 'documents'],
+  eleve: ['infos', 'niveau'],
+  parent: ['infos'],
 };
 
-const ACCOUNT_TYPES = [
-  { key: 'eleve', label: 'Élève', icon: 'user-graduate', desc: 'Accès aux cours et devoirs' },
-  { key: 'parent', label: 'Parent', icon: 'user-friends', desc: 'Suivi de vos enfants' },
-  { key: 'professeur', label: 'Professeur', icon: 'chalkboard-teacher', desc: 'Gestion des classes et notes' },
-];
+const roleLabel = (t: TFunction, role: SignupRole) => t(`auth.roleChoice.roles.${role}.title`);
 
-const EDUCATION_LEVELS = ['Primaire', 'Collège', 'Lycée', 'Université', 'Autre'];
+type CountryCode = '237' | '33' | '221' | '225' | '212';
 
-const COUNTRY_CODES = [
-  { flag: '🇨🇲', code: '+237', name: 'Cameroun' },
-  { flag: '🇫🇷', code: '+33', name: 'France' },
-  { flag: '🇸🇳', code: '+221', name: 'Sénégal' },
-  { flag: '🇨🇮', code: '+225', name: "Côte d'Ivoire" },
-  { flag: '🇲🇦', code: '+212', name: 'Maroc' },
+/**
+ * National number rules per country (what libphonenumber's isValidPhoneNumber checks on the web,
+ * for the countries offered here). `trunk`: a leading 0 typed out of habit is dropped.
+ */
+const PHONE_RULES: Record<CountryCode, { pattern: RegExp; trunk: boolean; placeholder: string }> = {
+  '237': { pattern: /^[26]\d{8}$/, trunk: false, placeholder: '6 XX XX XX XX' },
+  '33': { pattern: /^[1-9]\d{8}$/, trunk: true, placeholder: '6 XX XX XX XX' },
+  '221': { pattern: /^[37]\d{8}$/, trunk: false, placeholder: '7X XXX XX XX' },
+  '225': { pattern: /^0\d{9}$/, trunk: false, placeholder: '07 XX XX XX XX' },
+  '212': { pattern: /^[5-7]\d{8}$/, trunk: true, placeholder: '6 XX XX XX XX' },
+};
+
+const COUNTRY_KEYS = Object.keys(PHONE_RULES) as CountryCode[];
+
+const countryCodes = (t: TFunction): SelectOption[] =>
+  COUNTRY_KEYS.map((code) => ({
+    value: code,
+    short: `+${code}`,
+    label: `+${code}  ${t(`auth.signup.countries.${code}`)}`,
+  }));
+
+/** National digits as they will be sent (trunk 0 removed), or null when not a valid number. */
+const normalizePhone = (country: CountryCode, raw: string): string | null => {
+  const rule = PHONE_RULES[country];
+  let digits = raw.replace(/\D/g, '');
+  if (rule.trunk && digits.startsWith('0')) digits = digits.slice(1);
+  return rule.pattern.test(digits) ? digits : null;
+};
+
+const DOCS: { key: DocKey; icon: string }[] = [
+  { key: 'cniRecto', icon: 'id-card' },
+  { key: 'cniVerso', icon: 'id-card' },
+  { key: 'selfie', icon: 'user-circle' },
 ];
 
 /**
- * Enterprise-grade, clean & professional Registration screen matching the Scholchat Web experience.
- * Multi-step flow: 1. Personal info -> 2. Role selection -> 3. Documents (Professeur only)
+ * Sign-up (Professeur / Élève / Parent) — exactly the fields of web SignUp.jsx:
+ * nom, prénom, téléphone, email, adresse for everyone; an optional niveau for the élève; CNI
+ * recto/verso + selfie (+ optional matricule) for the professeur. No password: the account is
+ * created via POST /utilisateurs without motDePasse and the user chooses the password from the
+ * e-mailed link (after activation for élève / parent, after admin validation for a professor).
  */
 const SignUpScreen = () => {
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const c = useBrandColors();
+  const s = useMemo(() => createStyles(c), [c]);
   const navigation = useNavigation<any>();
-  const insets = useSafeAreaInsets();
-  const [currentStep, setCurrentStep] = useState(1);
-  const [selectedRole, setSelectedRole] = useState<string>('eleve');
-  const [formData, setFormData] = useState<FormData>(EMPTY_FORM);
+  const route = useRoute<any>();
+  const { t } = useT();
+  const COUNTRY_CODES = useMemo(() => countryCodes(t), [t]);
+  const role: SignupRole = (['professeur', 'eleve', 'parent'] as const).includes(route.params?.role)
+    ? route.params.role
+    : 'eleve';
+  const steps = STEPS[role];
+  const stepLabels = steps.map((id) => t(`auth.signup.steps.${id}`));
 
-  const [selectedCountryCode, setSelectedCountryCode] = useState('+237');
-  const [showCountryDropdown, setShowCountryDropdown] = useState(false);
-  const [showLevelDropdown, setShowLevelDropdown] = useState(false);
+  const [step, setStep] = useState(0);
+  const [nom, setNom] = useState('');
+  const [prenom, setPrenom] = useState('');
+  const [email, setEmail] = useState('');
+  const [countryCode, setCountryCode] = useState<CountryCode>('237');
+  const [phone, setPhone] = useState('');
+  const [adresse, setAdresse] = useState('');
+  // Élève
+  const [niveau, setNiveau] = useState('');
+  const [niveauQuery, setNiveauQuery] = useState('');
+  // Professeur
+  const [matricule, setMatricule] = useState('');
+  const [docs, setDocs] = useState<Record<DocKey, DocumentAsset | null>>({ cniRecto: null, cniVerso: null, selfie: null });
 
-  const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [showSuccess, setShowSuccess] = useState(false);
+  // Professor profile already posted (an upload failed afterwards): retry only the uploads.
+  const [createdProfessor, setCreatedProfessor] = useState<{ id: string; statut?: string } | null>(null);
 
-  const totalSteps = selectedRole === 'professeur' ? 3 : 2;
-  const topPadding = Math.max(insets.top, Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
+  const isLast = step === steps.length - 1;
+  const accent = roleAccents[role];
+  const current = steps[step];
 
-  const { scrollRef, scrollToFocusedInput } = useKeyboardAwareScroll();
-
-  const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-    if (errorMessage) setErrorMessage('');
+  const clear = (key: string) => {
+    if (fieldErrors[key]) setFieldErrors((prev) => ({ ...prev, [key]: '' }));
+    if (error) setError('');
   };
 
-  const handleFieldFocus = (field: string) => (event: FocusEvent) => {
-    setFocusedField(field);
-    scrollToFocusedInput(event);
+  // ── Validation (web validateStep1 / validateStep3) ──────────────────────
+  const validateStep = (): boolean => {
+    const errs: Record<string, string> = {};
+    if (current === 'infos') {
+      if (!nom.trim()) errs.nom = t('auth.signup.errors.lastName');
+      if (!prenom.trim()) errs.prenom = t('auth.signup.errors.firstName');
+      if (!phone.trim()) errs.phone = t('auth.signup.errors.phoneRequired');
+      else if (!normalizePhone(countryCode, phone)) errs.phone = t('auth.signup.errors.phone');
+      if (!email.trim()) errs.email = t('auth.signup.errors.emailRequired');
+      else if (!EMAIL_REGEX.test(email.trim())) errs.email = t('auth.common.invalidEmail');
+      if (!adresse.trim()) errs.adresse = t('auth.signup.errors.address');
+    } else if (current === 'documents') {
+      if (!docs.cniRecto || !docs.cniVerso || !docs.selfie) {
+        setError(t('auth.signup.errors.documents'));
+        return false;
+      }
+    }
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
   };
 
-  const handleFileUpload = async (fieldName: 'cniRecto' | 'cniVerso' | 'profilePhoto') => {
+  // ── Professor documents ───────────────────────────────────────────────────
+  const pickDoc = async (key: DocKey) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['image/*', 'application/pdf'],
+        // Web SignUp.jsx accepts images only (file.type.startsWith("image/")) for the 3 documents.
+        type: ['image/*'],
         copyToCacheDirectory: true,
       });
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setFormData((prev) => ({ ...prev, [fieldName]: result.assets[0] }));
+      if (!result.canceled && result.assets?.length) {
+        setDocs((prev) => ({ ...prev, [key]: result.assets[0] }));
+        if (error) setError('');
       }
-    } catch (err) {
-      console.log('File selection error:', err);
+    } catch {
+      setError(t('auth.signup.errors.filePicker'));
     }
   };
 
-  const uploadFileToServer = async (file: DocumentAsset, professorId: string, documentType: string): Promise<string> => {
-    const presigned = await authService.getPresignedUrl(
-      file.name,
-      file.mimeType ?? 'application/octet-stream',
-      professorId,
-      documentType
-    );
-    await authService.uploadFile(presigned.url, {
-      uri: file.uri,
-      mimeType: file.mimeType ?? 'application/octet-stream',
-      name: file.name,
-    });
+  const upload = async (file: DocumentAsset, ownerId: string, documentType: string) => {
+    const mimeType = file.mimeType ?? 'application/octet-stream';
+    const presigned = await authService.getPresignedUrl(file.name, mimeType, ownerId, documentType);
+    await authService.uploadFile(presigned.url, { uri: file.uri, mimeType, name: file.name });
     return presigned.url.split('?')[0];
   };
 
-  const handleCompleteRegistration = async () => {
+  // ── Submit ────────────────────────────────────────────────────────────────
+  const finish = (params: AccountCreatedParams) => navigation.navigate('AccountCreated', params);
+
+  /** End screen from the sign-up response's inscriptionStatut (same cases as web SignUp.jsx). */
+  const afterCreate = (statut?: string) => {
+    if (statut === 'ROLE_ADDED') {
+      // Existing active account: role usable now, with the account's existing password.
+      finish({ variant: 'roleAdded' });
+      return;
+    }
+    if (statut === 'ROLE_PENDING_VALIDATION') {
+      finish({ variant: 'rolePending' });
+      return;
+    }
+    if (statut === 'ACTIVATION_REQUIRED') {
+      // Existing account never activated: a new activation link was e-mailed.
+      finish({ variant: 'activation', email: email.trim(), roleAdded: true });
+      return;
+    }
+    if (role === 'professeur') {
+      finish({ variant: 'pending' });
+      return;
+    }
+    finish({ variant: 'activation', email: email.trim() });
+  };
+
+  const submit = async () => {
     setLoading(true);
-    setErrorMessage('');
+    setError('');
     try {
-      if (selectedRole === 'professeur') {
-        const professor = await authService.createProfessor({
-          lastName: formData.lastName.trim(),
-          firstName: formData.firstName.trim(),
-          email: formData.email.trim(),
-          phone: `${selectedCountryCode}${formData.phone.trim()}`,
-          address: formData.address.trim(),
-          teacherMatricule: formData.teacherMatricule.trim(),
-        });
-        const professorId = professor.id as string;
-
-        const urls: { cniRecto?: string; cniVerso?: string; selfie?: string } = {};
-        if (formData.cniRecto) {
-          urls.cniRecto = await uploadFileToServer(formData.cniRecto, professorId, 'cni-recto');
-        }
-        if (formData.cniVerso) {
-          urls.cniVerso = await uploadFileToServer(formData.cniVerso, professorId, 'cni-verso');
-        }
-        if (formData.profilePhoto) {
-          urls.selfie = await uploadFileToServer(formData.profilePhoto, professorId, 'selfie');
-        }
-
-        await authService.updateProfessorUrls(professorId, {
-          cniRecto: urls.cniRecto ?? '',
-          cniVerso: urls.cniVerso ?? '',
-          selfie: urls.selfie ?? '',
-        });
-      } else {
-        const payload: Record<string, unknown> = {
-          type: selectedRole,
-          nom: formData.lastName.trim(),
-          prenom: formData.firstName.trim(),
-          email: formData.email.trim(),
-          telephone: `${selectedCountryCode}${formData.phone.trim()}`,
-          adresse: formData.address.trim(),
-          etat: 'INACTIVE',
+      let created = createdProfessor;
+      if (!created) {
+        const payload: SignupPayload = {
+          type: role,
+          nom: nom.trim(),
+          prenom: prenom.trim(),
+          email: email.trim(),
+          telephone: `+${countryCode}${normalizePhone(countryCode, phone) ?? phone.replace(/\D/g, '')}`,
+          adresse: adresse.trim(),
         };
-        if (selectedRole === 'eleve' && formData.educationLevel) {
-          payload.niveau = formData.educationLevel;
+        if (role === 'eleve') payload.niveau = niveau;
+        const res = await authService.signUp(payload);
+        if (role !== 'professeur' || res.inscriptionStatut === 'ROLE_ADDED' || res.inscriptionStatut === 'ACTIVATION_REQUIRED' || !res.id) {
+          afterCreate(res.inscriptionStatut);
+          return;
         }
-        await userService.createUser(payload);
+        created = { id: String(res.id), statut: res.inscriptionStatut };
+        setCreatedProfessor(created);
       }
 
-      setShowSuccess(true);
-      setTimeout(() => {
-        setShowSuccess(false);
-        navigation.navigate('VerifyEmail', {
-          email: formData.email.trim(),
-          userType: selectedRole === 'professeur' ? 'Professeur' : 'Utilisateur',
-        });
-      }, 1500);
+      // Professor: documents → PATCH urls + matricule (web handleDocumentSubmission).
+      const urls = {
+        cniRecto: docs.cniRecto ? await upload(docs.cniRecto, created.id, 'cni-recto') : '',
+        cniVerso: docs.cniVerso ? await upload(docs.cniVerso, created.id, 'cni-verso') : '',
+        selfie: docs.selfie ? await upload(docs.selfie, created.id, 'selfie') : '',
+      };
+      await authService.updateProfessorUrls(created.id, urls, matricule);
+      afterCreate(created.statut);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Une erreur est survenue lors de la création du compte.';
-      setErrorMessage(msg);
+      const msg = err instanceof Error ? err.message : translate('auth.signup.errors.createFailed');
+      setError(createdProfessor ? `${msg} ${translate('auth.signup.errors.retryUploads')}` : msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleNextStep = () => {
-    if (currentStep === 1) {
-      if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !formData.phone.trim()) {
-        setErrorMessage('Veuillez remplir tous les champs obligatoires.');
-        return;
-      }
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(formData.email.trim())) {
-        setErrorMessage("Format d'adresse email invalide.");
-        return;
-      }
-      setErrorMessage('');
-      setCurrentStep(2);
-      return;
-    }
-
-    if (currentStep === 2) {
-      if (selectedRole === 'professeur') {
-        setCurrentStep(3);
-      } else {
-        handleCompleteRegistration();
-      }
-      return;
-    }
-
-    if (currentStep === 3) {
-      handleCompleteRegistration();
-    }
+  const next = () => {
+    if (loading || !validateStep()) return;
+    if (isLast) submit();
+    else setStep((v) => v + 1);
   };
 
-  if (showSuccess) {
-    return (
-      <View style={[styles.safeArea, { paddingTop: topPadding }]}>
-        <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-        <View style={styles.successContainer}>
-          <View style={styles.successIconBadge}>
-            <FontAwesome5 name="check" size={32} color="#10B981" />
-          </View>
-          <Text style={styles.successTitle}>Compte créé avec succès !</Text>
-          <Text style={styles.successSubtitle}>
-            Votre demande a bien été enregistrée. Elle est actuellement en attente de validation par l'administration.
-          </Text>
-        </View>
+  const back = () => {
+    setError('');
+    setFieldErrors({});
+    if (step > 0) setStep((v) => v - 1);
+    else navigation.goBack();
+  };
+
+  // ── Steps UI ──────────────────────────────────────────────────────────────
+  const renderInfos = () => (
+    <>
+      <AuthTitle
+        align="left"
+        title={t('auth.signup.infos.title')}
+        subtitle={role === 'professeur' ? t('auth.signup.infos.subtitleTeacher') : t('auth.signup.infos.subtitle')}
+      />
+      <TextField
+        label={t('auth.signup.infos.lastName')}
+        required
+        icon="user"
+        placeholder={t('auth.signup.infos.lastNamePlaceholder')}
+        value={nom}
+        onChangeText={(v) => {
+          setNom(v);
+          clear('nom');
+        }}
+        autoCapitalize="words"
+        textContentType="familyName"
+        autoComplete="name-family"
+        error={fieldErrors.nom}
+      />
+      <TextField
+        label={t('auth.signup.infos.firstName')}
+        required
+        icon="user"
+        placeholder={t('auth.signup.infos.firstNamePlaceholder')}
+        value={prenom}
+        onChangeText={(v) => {
+          setPrenom(v);
+          clear('prenom');
+        }}
+        autoCapitalize="words"
+        textContentType="givenName"
+        autoComplete="name-given"
+        error={fieldErrors.prenom}
+      />
+      <View style={s.phoneRow}>
+        <SelectField
+          label={t('auth.common.phone')}
+          required
+          value={countryCode}
+          options={COUNTRY_CODES}
+          onChange={(v) => {
+            setCountryCode(v as CountryCode);
+            clear('phone');
+          }}
+          containerStyle={s.countryField}
+        />
+        <TextField
+          label=" "
+          icon="phone"
+          placeholder={PHONE_RULES[countryCode].placeholder}
+          value={phone}
+          onChangeText={(v) => {
+            setPhone(v);
+            clear('phone');
+          }}
+          keyboardType="phone-pad"
+          textContentType="telephoneNumber"
+          autoComplete="tel"
+          error={fieldErrors.phone}
+          containerStyle={s.phoneField}
+        />
       </View>
-    );
-  }
+      <TextField
+        label={t('auth.common.email')}
+        required
+        icon="envelope"
+        placeholder={t('auth.common.emailPlaceholder')}
+        value={email}
+        onChangeText={(v) => {
+          setEmail(v);
+          clear('email');
+        }}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        textContentType="emailAddress"
+        autoComplete="email"
+        error={fieldErrors.email}
+      />
+      <TextField
+        label={t('auth.signup.infos.address')}
+        required
+        icon="map-marker-alt"
+        placeholder={t('auth.signup.infos.addressPlaceholder')}
+        value={adresse}
+        onChangeText={(v) => {
+          setAdresse(v);
+          clear('adresse');
+        }}
+        autoCapitalize="sentences"
+        textContentType="fullStreetAddress"
+        autoComplete="street-address"
+        error={fieldErrors.adresse}
+      />
+      {role !== 'professeur' ? <Text style={s.hint}>{t('auth.signup.infos.passwordLater')}</Text> : null}
+    </>
+  );
 
-  return (
-    <View style={[styles.safeArea, { paddingTop: topPadding }]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? topPadding : 0}
-        style={styles.flex}
-      >
-        {/* Navigation Bar */}
-        <View style={styles.navBar}>
-          <TouchableOpacity
-            onPress={() => (currentStep > 1 ? setCurrentStep((s) => s - 1) : navigation.goBack())}
-            style={styles.backBtn}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <FontAwesome5 name="arrow-left" size={16} color="#334155" />
-          </TouchableOpacity>
-          <Text style={styles.navTitle}>Création de compte</Text>
-          <View style={styles.navLogoBadge}>
-            <Image source={logo} style={styles.navLogo} resizeMode="contain" />
-          </View>
-        </View>
-
-        <ScrollView
-          ref={scrollRef}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Step Progress Header */}
-          <View style={styles.stepperContainer}>
-            <View style={styles.stepperRow}>
-              {[1, 2, selectedRole === 'professeur' ? 3 : null].filter(Boolean).map((stepNum, idx) => {
-                const s = stepNum as number;
-                const isCompleted = currentStep > s;
-                const isActive = currentStep === s;
-                return (
-                  <React.Fragment key={s}>
-                    <View style={styles.stepItem}>
-                      <View
-                        style={[
-                          styles.stepBadge,
-                          isActive && styles.stepBadgeActive,
-                          isCompleted && styles.stepBadgeCompleted,
-                        ]}
-                      >
-                        {isCompleted ? (
-                          <FontAwesome5 name="check" size={12} color="#FFFFFF" />
-                        ) : (
-                          <Text
-                            style={[
-                              styles.stepBadgeText,
-                              (isActive || isCompleted) && styles.stepBadgeTextActive,
-                            ]}
-                          >
-                            {s}
-                          </Text>
-                        )}
-                      </View>
-                      <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>
-                        {s === 1 ? 'Informations' : s === 2 ? 'Rôle' : 'Documents'}
-                      </Text>
-                    </View>
-                    {idx < totalSteps - 1 && (
-                      <View
-                        style={[
-                          styles.stepLine,
-                          currentStep > s && styles.stepLineActive,
-                        ]}
-                      />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </View>
-          </View>
-
-          {/* Error Banner */}
-          {errorMessage ? (
-            <View style={styles.alertBox}>
-              <FontAwesome5 name="exclamation-circle" size={14} color="#DC2626" />
-              <Text style={styles.alertText}>{errorMessage}</Text>
-            </View>
-          ) : null}
-
-          {/* Step 1: Informations Personnelles */}
-          {currentStep === 1 && (
-            <View style={styles.card}>
-              <Text style={styles.cardSectionTitle}>Informations personnelles</Text>
-              <Text style={styles.cardSectionSub}>
-                Renseignez vos coordonnées de base pour débuter l'inscription.
-              </Text>
-
-              {/* Prénom */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>
-                  Prénom <Text style={styles.required}>*</Text>
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    focusedField === 'firstName' && styles.inputContainerFocused,
-                  ]}
-                >
-                  <FontAwesome5
-                    name="user"
-                    size={14}
-                    color={focusedField === 'firstName' ? '#2563EB' : '#94A3B8'}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ex: Paul"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.firstName}
-                    onChangeText={(val) => handleInputChange('firstName', val)}
-                    onFocus={handleFieldFocus('firstName')}
-                    onBlur={() => setFocusedField(null)}
-                  />
-                </View>
-              </View>
-
-              {/* Nom */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>
-                  Nom <Text style={styles.required}>*</Text>
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    focusedField === 'lastName' && styles.inputContainerFocused,
-                  ]}
-                >
-                  <FontAwesome5
-                    name="user"
-                    size={14}
-                    color={focusedField === 'lastName' ? '#2563EB' : '#94A3B8'}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ex: Biya"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.lastName}
-                    onChangeText={(val) => handleInputChange('lastName', val)}
-                    onFocus={handleFieldFocus('lastName')}
-                    onBlur={() => setFocusedField(null)}
-                  />
-                </View>
-              </View>
-
-              {/* Email */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>
-                  Adresse email <Text style={styles.required}>*</Text>
-                </Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    focusedField === 'email' && styles.inputContainerFocused,
-                  ]}
-                >
-                  <FontAwesome5
-                    name="envelope"
-                    size={14}
-                    color={focusedField === 'email' ? '#2563EB' : '#94A3B8'}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="paul.biya@exemple.com"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.email}
-                    onChangeText={(val) => handleInputChange('email', val)}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onFocus={handleFieldFocus('email')}
-                    onBlur={() => setFocusedField(null)}
-                  />
-                </View>
-              </View>
-
-              {/* Téléphone */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>
-                  Numéro de téléphone <Text style={styles.required}>*</Text>
-                </Text>
-                <View style={styles.phoneRow}>
-                  <TouchableOpacity
-                    style={styles.countryBtn}
-                    onPress={() => setShowCountryDropdown((prev) => !prev)}
-                  >
-                    <Text style={styles.countryText}>{selectedCountryCode}</Text>
-                    <FontAwesome5 name="chevron-down" size={10} color="#64748B" />
-                  </TouchableOpacity>
-                  <View
-                    style={[
-                      styles.inputContainer,
-                      { flex: 1 },
-                      focusedField === 'phone' && styles.inputContainerFocused,
-                    ]}
-                  >
-                    <FontAwesome5
-                      name="phone"
-                      size={14}
-                      color={focusedField === 'phone' ? '#2563EB' : '#94A3B8'}
-                      style={styles.inputIcon}
-                    />
-                    <TextInput
-                      style={styles.input}
-                      placeholder="6 00 00 00 00"
-                      placeholderTextColor="#94A3B8"
-                      value={formData.phone}
-                      onChangeText={(val) => handleInputChange('phone', val)}
-                      keyboardType="phone-pad"
-                      onFocus={handleFieldFocus('phone')}
-                      onBlur={() => setFocusedField(null)}
-                    />
-                  </View>
-                </View>
-                {showCountryDropdown && (
-                  <View style={styles.dropdown}>
-                    {COUNTRY_CODES.map((c) => (
-                      <TouchableOpacity
-                        key={c.code}
-                        style={styles.dropdownOption}
-                        onPress={() => {
-                          setSelectedCountryCode(c.code);
-                          setShowCountryDropdown(false);
-                        }}
-                      >
-                        <Text style={styles.dropdownOptionText}>
-                          {c.flag} {c.code} ({c.name})
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              {/* Adresse */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Adresse physique</Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    focusedField === 'address' && styles.inputContainerFocused,
-                  ]}
-                >
-                  <FontAwesome5
-                    name="map-marker-alt"
-                    size={14}
-                    color={focusedField === 'address' ? '#2563EB' : '#94A3B8'}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ville, quartier..."
-                    placeholderTextColor="#94A3B8"
-                    value={formData.address}
-                    onChangeText={(val) => handleInputChange('address', val)}
-                    onFocus={handleFieldFocus('address')}
-                    onBlur={() => setFocusedField(null)}
-                  />
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* Step 2: Choix du profil */}
-          {currentStep === 2 && (
-            <View style={styles.card}>
-              <Text style={styles.cardSectionTitle}>Type de profil</Text>
-              <Text style={styles.cardSectionSub}>
-                Choisissez le statut sous lequel vous souhaitez rejoindre SchoolChat.
-              </Text>
-
-              <View style={styles.rolesGrid}>
-                {ACCOUNT_TYPES.map((role) => {
-                  const isSelected = selectedRole === role.key;
-                  return (
-                    <TouchableOpacity
-                      key={role.key}
-                      style={[styles.roleCard, isSelected && styles.roleCardSelected]}
-                      onPress={() => setSelectedRole(role.key)}
-                      activeOpacity={0.8}
-                    >
-                      <View
-                        style={[
-                          styles.roleIconCircle,
-                          isSelected && styles.roleIconCircleSelected,
-                        ]}
-                      >
-                        <FontAwesome5
-                          name={role.icon}
-                          size={18}
-                          color={isSelected ? '#2563EB' : '#64748B'}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.roleCardTitle, isSelected && styles.roleCardTitleSelected]}>
-                          {role.label}
-                        </Text>
-                        <Text style={styles.roleCardDesc}>{role.desc}</Text>
-                      </View>
-                      <View
-                        style={[
-                          styles.radioCircle,
-                          isSelected && styles.radioCircleSelected,
-                        ]}
-                      >
-                        {isSelected && <View style={styles.radioInner} />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              {/* Éducation level if élève */}
-              {selectedRole === 'eleve' && (
-                <View style={[styles.formGroup, { marginTop: 12 }]}>
-                  <Text style={styles.label}>Niveau d'études</Text>
-                  <TouchableOpacity
-                    style={styles.selectBtn}
-                    onPress={() => setShowLevelDropdown((prev) => !prev)}
-                  >
-                    <Text style={formData.educationLevel ? styles.selectBtnValue : styles.selectBtnPlaceholder}>
-                      {formData.educationLevel || 'Sélectionner un niveau...'}
-                    </Text>
-                    <FontAwesome5 name="chevron-down" size={12} color="#64748B" />
-                  </TouchableOpacity>
-
-                  {showLevelDropdown && (
-                    <View style={styles.dropdown}>
-                      {EDUCATION_LEVELS.map((lvl) => (
-                        <TouchableOpacity
-                          key={lvl}
-                          style={styles.dropdownOption}
-                          onPress={() => {
-                            handleInputChange('educationLevel', lvl);
-                            setShowLevelDropdown(false);
-                          }}
-                        >
-                          <Text style={styles.dropdownOptionText}>{lvl}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Step 3: Documents justificatifs (Professeur uniquement) */}
-          {currentStep === 3 && selectedRole === 'professeur' && (
-            <View style={styles.card}>
-              <Text style={styles.cardSectionTitle}>Pièces justificatives</Text>
-              <Text style={styles.cardSectionSub}>
-                Afin de garantir la conformité pédagogique, veuillez transmettre vos documents.
-              </Text>
-
-              {/* Matricule */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Matricule enseignant (optionnel)</Text>
-                <View
-                  style={[
-                    styles.inputContainer,
-                    focusedField === 'teacherMatricule' && styles.inputContainerFocused,
-                  ]}
-                >
-                  <FontAwesome5
-                    name="id-card"
-                    size={14}
-                    color={focusedField === 'teacherMatricule' ? '#2563EB' : '#94A3B8'}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ex: PROF-2026-X"
-                    placeholderTextColor="#94A3B8"
-                    value={formData.teacherMatricule}
-                    onChangeText={(val) => handleInputChange('teacherMatricule', val)}
-                    onFocus={handleFieldFocus('teacherMatricule')}
-                    onBlur={() => setFocusedField(null)}
-                  />
-                </View>
-              </View>
-
-              {/* Upload items */}
-              {[
-                { key: 'cniRecto' as const, label: 'CNI ou Passeport (Recto) *' },
-                { key: 'cniVerso' as const, label: 'CNI ou Passeport (Verso) *' },
-                { key: 'profilePhoto' as const, label: 'Photo de profil (Selfie) *' },
-              ].map((doc) => {
-                const file = formData[doc.key];
-                return (
-                  <View key={doc.key} style={styles.formGroup}>
-                    <Text style={styles.label}>{doc.label}</Text>
-                    {file ? (
-                      <View style={styles.fileCard}>
-                        <FontAwesome5 name="file-alt" size={16} color="#2563EB" />
-                        <Text style={styles.fileName} numberOfLines={1}>
-                          {file.name}
-                        </Text>
-                        <TouchableOpacity
-                          onPress={() => setFormData((p) => ({ ...p, [doc.key]: null }))}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        >
-                          <FontAwesome5 name="times-circle" size={16} color="#DC2626" />
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.uploadBox}
-                        onPress={() => handleFileUpload(doc.key)}
-                        activeOpacity={0.7}
-                      >
-                        <FontAwesome5 name="cloud-upload-alt" size={20} color="#2563EB" />
-                        <Text style={styles.uploadBoxText}>Parcourir un document (PDF, PNG, JPG)</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {/* Action buttons */}
-          <View style={styles.actionContainer}>
+  const renderNiveau = () => {
+    const q = niveauQuery.trim().toLowerCase();
+    const matches = q ? NIVEAUX.filter((n) => n.toLowerCase().includes(q)) : NIVEAUX;
+    return (
+      <>
+        <AuthTitle align="left" title={t('auth.signup.niveau.title')} subtitle={t('auth.signup.niveau.subtitle')} />
+        <TextField
+          label={t('auth.signup.niveau.label')}
+          icon="search"
+          placeholder={t('auth.signup.niveau.searchPlaceholder')}
+          value={niveauQuery}
+          onChangeText={setNiveauQuery}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+        {niveau ? (
+          <View style={s.selectedRow}>
+            <FontAwesome5 name="graduation-cap" size={13} color={c.primary} />
+            <Text style={s.selectedText}>{t('auth.signup.niveau.selected', { niveau })}</Text>
             <TouchableOpacity
-              style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
-              onPress={handleNextStep}
-              disabled={loading}
-              activeOpacity={0.85}
+              onPress={() => setNiveau('')}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              accessibilityRole="button"
+              accessibilityLabel={t('auth.signup.niveau.clear')}
             >
-              {loading ? (
-                <View style={styles.btnRow}>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                  <Text style={styles.primaryButtonText}>Traitement en cours...</Text>
-                </View>
+              <FontAwesome5 name="times-circle" size={15} color={c.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        <View style={s.levelList}>
+          {matches.length === 0 ? (
+            <Text style={s.noResult}>{t('auth.signup.niveau.noResult')}</Text>
+          ) : (
+            matches.map((n, i) => {
+              const active = n === niveau;
+              return (
+                <TouchableOpacity
+                  key={n}
+                  style={[s.levelRow, i > 0 && s.levelRowBorder, active && { backgroundColor: c.primarySoft }]}
+                  onPress={() => {
+                    setNiveau(active ? '' : n);
+                    setNiveauQuery('');
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
+                >
+                  <Text style={[s.levelText, active && { color: c.primary }]}>{n}</Text>
+                  {active ? <FontAwesome5 name="check" size={13} color={c.primary} /> : null}
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+      </>
+    );
+  };
+
+  const renderDocuments = () => (
+    <>
+      <AuthTitle
+        align="left"
+        title={t('auth.signup.verification.title')}
+        subtitle={t('auth.signup.verification.subtitle')}
+      />
+      <TextField
+        label={t('auth.signup.verification.matricule')}
+        icon="id-badge"
+        placeholder={t('auth.signup.verification.matriculePlaceholder')}
+        value={matricule}
+        onChangeText={setMatricule}
+        autoCapitalize="characters"
+      />
+      {DOCS.map((d) => {
+        const file = docs[d.key];
+        const docLabel = t(`auth.signup.verification.docs.${d.key}.label`);
+        const docHint = t(`auth.signup.verification.docs.${d.key}.hint`);
+        return (
+          <View key={d.key} style={s.docField}>
+            <Text style={s.docLabel}>
+              {docLabel}
+              <Text style={{ color: c.danger }}> *</Text>
+            </Text>
+            <TouchableOpacity
+              style={[s.docBox, file && { borderStyle: 'solid', borderColor: c.success }]}
+              onPress={() => pickDoc(d.key)}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel={`${docLabel}${file ? ` : ${file.name}` : ''}`}
+            >
+              <View style={[s.docIcon, { backgroundColor: file ? c.successSoft : c.primarySoft }]}>
+                <FontAwesome5 name={file ? 'check' : d.icon} size={15} color={file ? c.success : c.primary} />
+              </View>
+              <View style={s.flex}>
+                <Text style={s.docName} numberOfLines={1}>
+                  {file ? file.name : t('auth.signup.verification.addFile')}
+                </Text>
+                <Text style={s.docHint}>{file ? t('auth.signup.verification.tapToReplace') : `${docHint} · PNG, JPG${d.key === 'selfie' ? '' : ', PDF'}`}</Text>
+              </View>
+              {file ? (
+                <TouchableOpacity
+                  onPress={() => setDocs((prev) => ({ ...prev, [d.key]: null }))}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  accessibilityLabel={t('auth.signup.verification.removeFile')}
+                >
+                  <FontAwesome5 name="times-circle" size={16} color={c.textSecondary} />
+                </TouchableOpacity>
               ) : (
-                <View style={styles.btnRow}>
-                  <Text style={styles.primaryButtonText}>
-                    {currentStep === totalSteps ? 'Finaliser mon inscription' : 'Continuer'}
-                  </Text>
-                  <FontAwesome5
-                    name={currentStep === totalSteps ? 'check' : 'arrow-right'}
-                    size={14}
-                    color="#FFFFFF"
-                  />
-                </View>
+                <FontAwesome5 name="cloud-upload-alt" size={16} color={c.primary} />
               )}
             </TouchableOpacity>
-
-            <View style={styles.footerLinkRow}>
-              <Text style={styles.footerText}>Vous possédez déjà un compte ? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-                <Text style={styles.footerLinkBold}>Se connecter</Text>
-              </TouchableOpacity>
-            </View>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </View>
+        );
+      })}
+      <Banner type="info" message={t('auth.signup.verification.afterValidation')} />
+    </>
+  );
+
+  return (
+    <AuthScreen
+      onBack={back}
+      headerRight={
+        <View style={[s.rolePill, { backgroundColor: accent.soft }]}>
+          <FontAwesome5 name={accent.icon} size={11} color={accent.color} />
+          <Text style={[s.rolePillText, { color: accent.color }]}>{roleLabel(t, role)}</Text>
+        </View>
+      }
+    >
+      {steps.length > 1 ? <StepIndicator steps={stepLabels} current={step} /> : null}
+      <Banner message={error} />
+
+      {current === 'infos' && renderInfos()}
+      {current === 'niveau' && renderNiveau()}
+      {current === 'documents' && renderDocuments()}
+
+      <GradientButton
+        label={isLast ? (role === 'professeur' ? t('auth.signup.sendRequest') : t('auth.signup.createMyAccount')) : t('common.next')}
+        onPress={next}
+        loading={loading}
+        style={s.cta}
+      />
+      <View style={s.links}>
+        {step === 0 ? (
+          <PromptLink text={t('auth.common.alreadyAccount')} link={t('auth.login.signIn')} onPress={() => navigation.navigate('Login')} />
+        ) : (
+          <TextLink label={t('common.previous')} onPress={back} disabled={loading} />
+        )}
+      </View>
+    </AuthScreen>
   );
 };
 
-const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#F8FAFC',
-  },
-  flex: {
-    flex: 1,
-  },
-  navBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
-  },
-  backBtn: {
-    padding: 6,
-  },
-  navTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  navLogoBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#F5F1FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navLogo: {
-    width: 24,
-    height: 24,
-  },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-  },
-  stepperContainer: {
-    marginBottom: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  stepperRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepItem: {
-    alignItems: 'center',
-  },
-  stepBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-  },
-  stepBadgeActive: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
-  },
-  stepBadgeCompleted: {
-    backgroundColor: '#10B981',
-    borderColor: '#10B981',
-  },
-  stepBadgeText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-  stepBadgeTextActive: {
-    color: '#FFFFFF',
-  },
-  stepLabel: {
-    fontSize: 11,
-    color: '#64748B',
-    fontWeight: '600',
-    marginTop: 4,
-  },
-  stepLabelActive: {
-    color: '#2563EB',
-    fontWeight: '700',
-  },
-  stepLine: {
-    flex: 1,
-    height: 2,
-    backgroundColor: '#E2E8F0',
-    marginHorizontal: 8,
-    marginBottom: 16,
-  },
-  stepLineActive: {
-    backgroundColor: '#2563EB',
-  },
-  alertBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 16,
-  },
-  alertText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#991B1B',
-    lineHeight: 18,
-    fontWeight: '500',
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 3,
-    marginBottom: 18,
-  },
-  cardSectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 4,
-  },
-  cardSectionSub: {
-    fontSize: 13,
-    color: '#64748B',
-    marginBottom: 18,
-    lineHeight: 18,
-  },
-  formGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#1E293B',
-    marginBottom: 6,
-  },
-  required: {
-    color: '#DC2626',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 48,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-  },
-  inputContainerFocused: {
-    borderColor: '#2563EB',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    height: 48,
-    fontSize: 14,
-    color: '#0F172A',
-    paddingVertical: 0,
-  },
-  phoneRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  countryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 48,
-    paddingHorizontal: 12,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-  },
-  countryText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#0F172A',
-  },
-  dropdown: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginTop: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  dropdownOption: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  dropdownOptionText: {
-    fontSize: 14,
-    color: '#1E293B',
-  },
-  rolesGrid: {
-    gap: 10,
-  },
-  roleCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 14,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
-  },
-  roleCardSelected: {
-    borderColor: '#2563EB',
-    backgroundColor: '#EFF6FF',
-  },
-  roleIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#F1F5F9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roleIconCircleSelected: {
-    backgroundColor: '#DBEAFE',
-  },
-  roleCardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1E293B',
-  },
-  roleCardTitleSelected: {
-    color: '#1D4ED8',
-  },
-  roleCardDesc: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  radioCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#CBD5E1',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioCircleSelected: {
-    borderColor: '#2563EB',
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#2563EB',
-  },
-  selectBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    height: 48,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-  },
-  selectBtnPlaceholder: {
-    fontSize: 14,
-    color: '#94A3B8',
-  },
-  selectBtnValue: {
-    fontSize: 14,
-    color: '#0F172A',
-    fontWeight: '500',
-  },
-  uploadBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    height: 52,
-    borderWidth: 1.5,
-    borderColor: '#BFDBFE',
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 14,
-  },
-  uploadBoxText: {
-    fontSize: 13,
-    color: '#2563EB',
-    fontWeight: '600',
-  },
-  fileCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    height: 48,
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-  },
-  fileName: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1E293B',
-    fontWeight: '500',
-  },
-  actionContainer: {
-    marginTop: 4,
-    marginBottom: 24,
-  },
-  primaryButton: {
-    height: 50,
-    backgroundColor: '#2563EB',
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#2563EB',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  primaryButtonDisabled: {
-    backgroundColor: '#93C5FD',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  btnRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  primaryButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  footerLinkRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 18,
-  },
-  footerText: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  footerLinkBold: {
-    fontSize: 14,
-    color: '#2563EB',
-    fontWeight: '700',
-  },
-  successContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  successIconBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#D1FAE5',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  successTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  successSubtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-});
+const createStyles = (c: BrandColors) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    phoneRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+    countryField: { width: 112 },
+    phoneField: { flex: 1 },
+    hint: { ...ff('regular'), fontSize: 12, lineHeight: 17, color: c.textSecondary, marginTop: -4, marginBottom: 16 },
+    cta: { marginTop: 8 },
+    links: { alignItems: 'center', marginTop: 20, minHeight: 24 },
+    rolePill: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+    rolePillText: { ...ff('semibold'), fontSize: 12 },
+    selectedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      backgroundColor: c.primarySoft,
+      marginBottom: 12,
+    },
+    selectedText: { ...ff('medium'), fontSize: 14, color: c.text, flex: 1 },
+    levelList: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 12,
+      backgroundColor: c.card,
+      overflow: 'hidden',
+      marginBottom: 20,
+    },
+    levelRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 13,
+    },
+    levelRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+    levelText: { ...ff('medium'), fontSize: 14, color: c.text },
+    noResult: { ...ff('regular'), fontSize: 13, color: c.textSecondary, textAlign: 'center', paddingVertical: 16 },
+    docField: { marginBottom: 14 },
+    docLabel: { ...ff('medium'), fontSize: 14, color: c.text, marginBottom: 8 },
+    docBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      borderWidth: 1.5,
+      borderStyle: 'dashed',
+      borderColor: c.border,
+      borderRadius: 12,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      backgroundColor: c.input,
+    },
+    docIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    docName: { ...ff('medium'), fontSize: 14, color: c.text },
+    docHint: { ...ff('regular'), fontSize: 12, color: c.textSecondary, marginTop: 2 },
+  });
 
 export default SignUpScreen;

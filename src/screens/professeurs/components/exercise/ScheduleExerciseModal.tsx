@@ -8,6 +8,7 @@ import { classService } from '../../../../services/classService';
 import { exerciseProgrammerService, userService } from '../../../../services/api';
 import { useUser } from '../../../../context/UserContext';
 import { ClassEntity, Exercise, ExerciseProgramme } from '../../../../types';
+import { formatDateTime, serverDateMs } from '../../../../utils/dates';
 
 interface ScheduleExerciseModalProps {
   visible: boolean;
@@ -34,13 +35,13 @@ const STATUS_TONE: Record<string, 'success' | 'info' | 'warning' | 'neutral' | '
 /** Web auto-derives "Expiré" once the end date has passed on an otherwise-active programmation, rather than requiring a manual state change. */
 const getEffectiveEtat = (p: ExerciseProgramme): string => {
   const etat = p.etat ?? '';
-  if ((etat === 'ACTIF' || etat === 'PUBLIE') && p.dateFinExoEffectif && new Date(p.dateFinExoEffectif) < new Date()) {
+  if ((etat === 'ACTIF' || etat === 'PUBLIE') && p.dateFinExoEffectif && serverDateMs(p.dateFinExoEffectif, NaN) < Date.now()) {
     return 'EXPIRE';
   }
   return etat;
 };
 
-const fmtDateTime = (d?: string) => (d ? new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+const fmtDateTime = (d?: string) => (d ? formatDateTime(d, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 type ViewMode = 'list' | 'form';
 
@@ -120,8 +121,8 @@ const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: Sch
         const oa = STATUS_ORDER[(a as any).etatExoProgramme] ?? 3;
         const ob = STATUS_ORDER[(b as any).etatExoProgramme] ?? 3;
         if (oa !== ob) return oa - ob;
-        const da = a.dateExoPrevue ? new Date(a.dateExoPrevue).getTime() : 0;
-        const db = b.dateExoPrevue ? new Date(b.dateExoPrevue).getTime() : 0;
+        const da = a.dateExoPrevue ? serverDateMs(a.dateExoPrevue) : 0;
+        const db = b.dateExoPrevue ? serverDateMs(b.dateExoPrevue) : 0;
         return db - da;
       });
       setProgrammations(sorted);
@@ -173,7 +174,7 @@ const ScheduleExerciseModal = ({ visible, onClose, onScheduled, exercises }: Sch
       Alert.alert('Erreur', 'Les trois dates (prévue, début, fin) sont obligatoires.');
       return;
     }
-    if (new Date(dateFinExoEffectif) <= new Date(dateDebutExoEffectif)) {
+    if (serverDateMs(dateFinExoEffectif, NaN) <= serverDateMs(dateDebutExoEffectif, NaN)) {
       Alert.alert('Erreur', 'La date de fin doit être après la date de début.');
       return;
     }

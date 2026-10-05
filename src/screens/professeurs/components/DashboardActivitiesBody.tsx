@@ -1,435 +1,276 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ScrollView,
-  View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  RefreshControl,
+  Share,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
-  Share,
-  Modal,
-  Dimensions,
-  RefreshControl,
+  View,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import CreateActivityModal, { Activity, ActivityComment, ActivityMedia } from "./CreateActivityModal";
-import { activityFeedService } from "../../../services/api";
+import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import CreateActivityModal from "./CreateActivityModal";
+import { activityFeedService, userService } from "../../../services/api";
 import { classService } from "../../../services/classService";
-import { EmptyState, Skeleton } from "../../../components/ui";
-import ActivityMediaImage from "../../../components/common/ActivityMediaImage";
-import ActivityMediaVideo from "../../../components/common/ActivityMediaVideo";
+import { Skeleton } from "../../../components/ui";
+import { ActivityMediaGallery, ActivityMediaViewer, FeedMedia } from "../../../components/common/ActivityMediaGallery";
 import { useUser } from "../../../context/UserContext";
 import { useAuthStore } from "../../../store/useAuthStore";
+import { useThemeStore } from "../../../store/useThemeStore";
+import { useThemeColors } from "../../../styles/theme";
 import { ActivityEvent } from "../../../types";
+import { formatDateTime, serverDateMs } from "../../../utils/dates";
 
-/** Roles allowed to create an activity — mirrors web's canCreateEvent (ActivitiesContent.jsx:610-618). */
+/*
+ * Port of scholchat_front's ActivitiesContent.jsx ("Fil d'actualité"), as web
+ * shows it on a phone:
+ *  - header bar: title, a filter button (current tab + chevron) that opens a
+ *    "Filtrer le fil" sheet, and a "+" button for roles that can create
+ *  - cards: avatar, author, role, date, then title, description, location,
+ *    "du … au …" dates, class chips, the media grid, the like/participant/
+ *    comment counts, four icon-only buttons, and comments that open in place
+ *  - /evenements/pagines, 10 per page, loading more as you scroll, with a
+ *    3-minute in-memory cache kept across tab switches
+ */
+
+const PAGE_SIZE = 10;
+const CACHE_TTL = 3 * 60 * 1000;
+
+/** Roles allowed to create, as in web's canCreateEvent. */
 const CREATOR_ROLES = ["admin", "professor", "tutor", "gestionnaire"];
 
-/**
- * Maps the backend's `Evenement` model to this screen's display shape.
- * `interactions` holds likes/comments/joins (distinguished by `type`) —
- * mirrors scholchat_front's ActivitiesContent.jsx loadEvents() mapping.
- */
-const mapApiActivity = (raw: Record<string, any>, currentUserId?: string): Activity => {
-  const interactions: any[] = Array.isArray(raw.interactions) ? raw.interactions : [];
-  const likeCount = interactions.filter((i) => i.type === "LIKE").length;
-  const commentsList: ActivityComment[] = interactions
-    .filter((i) => i.type === "COMMENT")
-    .map((c) => ({
-      id: c.id,
-      content: c.content,
-      createdById: c.createdById,
-      creationDate: c.creationDate,
-      isCurrentUser: c.createdById === currentUserId,
+/** Kept in memory across unmount/remount (switching tabs and back), like web's module-level `_cache`. */
+const _cache = {
+  raw: [] as ActivityEvent[],
+  page: 0,
+  hasMore: true,
+  totalElements: 0,
+  timestamp: 0,
+  userNames: {} as Record<string, { name: string; role: string }>,
+  classNames: {} as Record<string, string | null>,
+};
+
+interface FeedComment {
+  id: string;
+  content: string;
+  creationDate?: string;
+  isCurrentUser: boolean;
+}
+
+interface FeedActivity {
+  id: string;
+  titre: string;
+  description: string;
+  timestamp: string;
+  user: { name: string; role: string };
+  status?: string;
+  location?: string;
+  startTime?: string;
+  endTime?: string;
+  heureDebut?: string;
+  medias: FeedMedia[];
+  likes: number;
+  isLiked: boolean;
+  comments: FeedComment[];
+  participants: number;
+  isParticipating: boolean;
+  classNames: string[];
+  classesIds: string[];
+  createurId?: string;
+}
+
+const FR_DATE_TIME: Intl.DateTimeFormatOptions = {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+};
+
+/** Formats an ISO string from the server in the phone's local time (fr-FR). Never slices the raw string. */
+const fmt = (iso?: string, opts: Intl.DateTimeFormatOptions = FR_DATE_TIME) => formatDateTime(iso, opts);
+
+/** Backend EtatEvenement shown in French. */
+const STATUS_META: Record<string, { label: string; fg: string; bg: string; bgDark: string }> = {
+  PLANIFIE: { label: "Planifié", fg: "#2563EB", bg: "#DBEAFE", bgDark: "rgba(37,99,235,0.2)" },
+  A_VENIR: { label: "À venir", fg: "#2563EB", bg: "#DBEAFE", bgDark: "rgba(37,99,235,0.2)" },
+  EN_COURS: { label: "En cours", fg: "#059669", bg: "#D1FAE5", bgDark: "rgba(5,150,105,0.2)" },
+  PASSE: { label: "Terminé", fg: "#6B7280", bg: "#F3F4F6", bgDark: "rgba(107,114,128,0.25)" },
+  TERMINE: { label: "Terminé", fg: "#6B7280", bg: "#F3F4F6", bgDark: "rgba(107,114,128,0.25)" },
+  ANNULE: { label: "Annulé", fg: "#DC2626", bg: "#FEE2E2", bgDark: "rgba(220,38,38,0.2)" },
+  COMPLET: { label: "Complet", fg: "#D97706", bg: "#FEF3C7", bgDark: "rgba(217,119,6,0.2)" },
+  EN_ATTENTE_CONFIRMATION: { label: "En attente", fg: "#D97706", bg: "#FEF3C7", bgDark: "rgba(217,119,6,0.2)" },
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  professeur: "Professeur",
+  eleve: "Eleve",
+  parent: "Parent",
+  gestionnaire: "Gestionnaire",
+  repetiteur: "Repetiteur",
+};
+
+/** Same mapping as web's loadEvents(). */
+const mapEvent = (event: ActivityEvent, currentUserId?: string): FeedActivity => {
+  const medias: FeedMedia[] = (event.medias ?? [])
+    .filter((m) => {
+      const t = (m.mediaType || "").toUpperCase();
+      return (t === "IMAGE" || t === "PHOTO" || t === "VIDEO") && !!m.id;
+    })
+    .map((m) => ({
+      id: String(m.id),
+      type: (m.mediaType || "").toUpperCase() === "VIDEO" ? "VIDEO" : "IMAGE",
+      presignedUrl: m.presignedUrl || null,
     }));
-  const commentCount = commentsList.length;
-  const isLiked = interactions.some((i) => i.type === "LIKE" && i.createdById === currentUserId);
-  const participantsIds: string[] = Array.isArray(raw.participantsIds) ? raw.participantsIds : [];
+  const interactions = event.interactions ?? [];
+  const comments: FeedComment[] = interactions
+    .filter((i) => i.type === "COMMENT")
+    .map((c, idx) => ({
+      id: String(c.id ?? `c-${idx}`),
+      content: c.content ?? "",
+      creationDate: c.creationDate,
+      isCurrentUser: !!currentUserId && c.createdById === currentUserId,
+    }));
+  const participantsIds = event.participantsIds ?? [];
+
+  let name = "";
+  let role = event.createurRole || "";
+  if (event.createurPrenom || event.createurNom) {
+    name = `${event.createurPrenom || ""} ${event.createurNom || ""}`.trim();
+  } else if (event.createurId && _cache.userNames[event.createurId]) {
+    name = _cache.userNames[event.createurId].name;
+    if (!role) role = _cache.userNames[event.createurId].role;
+  }
+  const classesIds = event.classesIds ?? [];
 
   return {
-    id: raw.id,
-    type: raw.heureDebut ? "event" : "publication",
-    creator: `${raw.createurPrenom ?? ""} ${raw.createurNom ?? ""}`.trim() || "Utilisateur",
-    role: raw.createurRole ?? "Membre",
-    date: raw.heureDebut ? new Date(raw.heureDebut).toLocaleDateString("fr-FR") : "",
-    // Mirrors web's sort key exactly (heureDebut ?? creationDate) — without
-    // this fallback, publications (which have no heureDebut) always got
-    // `undefined` here, which every date sort treated as epoch zero, sinking
-    // every publication to the very bottom regardless of how recent it was.
-    rawDate: raw.heureDebut || raw.creationDate,
-    status: raw.etat === "PASSE" ? "Completed" : raw.etat === "A_VENIR" || raw.etat === "PLANIFIE" ? "Scheduled" : "Published",
-    title: raw.titre ?? "",
-    eventDate: raw.heureDebut ? new Date(raw.heureDebut).toLocaleString("fr-FR") : undefined,
-    location: raw.lieu,
-    participants: `${participantsIds.length} participant(s)`,
-    participantsCount: participantsIds.length,
-    isParticipating: currentUserId ? participantsIds.includes(currentUserId) : false,
-    isLiked,
-    description: raw.description ?? "",
-    likes: likeCount,
-    comments: commentCount,
-    commentsList,
-    createurId: raw.createurId,
-    medias: Array.isArray(raw.medias)
-      ? raw.medias.map((m: any, i: number) => ({
-          id: m.id ?? String(i),
-          mediaId: m.id,
-          uri: m.presignedUrl || "",
-          type: m.mediaType ?? "IMAGE",
-          name: m.fileName ?? "",
-        }))
-      : undefined,
+    id: String(event.id),
+    titre: event.titre ?? "",
+    description: event.description ?? "",
+    timestamp: fmt(event.creationDate || event.heureDebut),
+    user: { name: name || "Utilisateur", role },
+    status: event.etat,
+    location: event.lieu,
+    startTime: event.heureDebut,
+    endTime: event.heureFin,
+    heureDebut: event.heureDebut,
+    medias,
+    likes: interactions.filter((i) => i.type === "LIKE").length,
+    isLiked: interactions.some((i) => i.type === "LIKE" && i.createdById === currentUserId),
+    comments,
+    participants: participantsIds.length,
+    isParticipating: !!currentUserId && participantsIds.includes(currentUserId),
+    classNames: classesIds.map((id) => _cache.classNames[id]).filter((n): n is string => !!n),
+    classesIds,
+    createurId: event.createurId,
   };
 };
 
-/**
- * Mirrors web's ActivitiesContent.jsx sort exactly: non-admin activities
- * first, admin activities last (as two separate groups, not interleaved by
- * date across that boundary), each group sorted newest-first by rawDate.
- * This is the feed's actual base order on web — there's no separate
- * "Récents" concept there, recency-first IS the default.
- */
-const sortActivitiesLikeWeb = (list: Activity[]): Activity[] =>
-  [...list].sort((a, b) => {
-    const aIsAdmin = (a.role || "").toLowerCase() === "admin";
-    const bIsAdmin = (b.role || "").toLowerCase() === "admin";
-    if (aIsAdmin !== bIsAdmin) return aIsAdmin ? 1 : -1;
-    const da = a.rawDate ? new Date(a.rawDate).getTime() : 0;
-    const db = b.rawDate ? new Date(b.rawDate).getTime() : 0;
-    return db - da;
+/** Looks up missing author and class names, cached, as web does before mapping a page. */
+const resolveNames = async (events: ActivityEvent[]) => {
+  const users = new Set<string>();
+  const classIds = new Set<string>();
+  events.forEach((e) => {
+    if (!e.createurPrenom && !e.createurNom && e.createurId && !_cache.userNames[e.createurId]) users.add(e.createurId);
+    (e.classesIds ?? []).forEach((id) => {
+      if (!(id in _cache.classNames)) classIds.add(id);
+    });
   });
-
-/**
- * Placeholder shaped like a real activity card (avatar, name/date lines, body
- * text, media block) so the feed's layout is visible immediately instead of
- * a blank screen behind a spinner — shown while the first page is in flight.
- */
-const ActivitySkeletonCard = () => (
-  <View style={activitiesStyles.activityCard}>
-    <View style={activitiesStyles.creatorSection}>
-      <Skeleton width={40} height={40} borderRadius={20} style={{ marginRight: 12 }} />
-      <View style={{ flex: 1 }}>
-        <Skeleton width="55%" height={15} style={{ marginBottom: 8 }} />
-        <Skeleton width="35%" height={11} />
-      </View>
-    </View>
-    <Skeleton width="95%" height={13} style={{ marginBottom: 8 }} />
-    <Skeleton width="80%" height={13} style={{ marginBottom: 14 }} />
-    <Skeleton width="100%" height={160} borderRadius={10} />
-  </View>
-);
-
-/**
- * Facebook-style responsive media grid — mirrors web's ActivitiesContent.jsx
- * exactly: the 1/2/3/4+ layout math runs over the FULL `medias` array
- * (images and videos mixed, in their original order), not images-only. Each
- * cell (MediaItem there, here inline) picks image vs video rendering per
- * item; only image cells open the lightbox — tapping a video cell activates
- * its own inline lazy player instead (see ActivityMediaVideo).
- */
-const MediaGallery = ({ medias, onImagePress }: { medias: ActivityMedia[]; onImagePress: (images: ActivityMedia[], index: number) => void }) => {
-  if (medias.length === 0) return null;
-  const images = medias.filter((m) => (m.type ?? "IMAGE").toUpperCase() !== "VIDEO");
-
-  const renderItem = (media: ActivityMedia, style: object, overlay?: string) => {
-    const isVideo = (media.type ?? "IMAGE").toUpperCase() === "VIDEO";
-    return (
-      <View key={media.id} style={[galleryStyles.item, style]}>
-        {isVideo ? (
-          <ActivityMediaVideo mediaId={media.mediaId} presignedUrl={media.uri || null} style={galleryStyles.image} />
-        ) : (
-          <ActivityMediaImage
-            mediaId={media.mediaId}
-            presignedUrl={media.uri || null}
-            style={galleryStyles.image}
-            onPress={() => onImagePress(images, images.indexOf(media))}
-          />
-        )}
-        {overlay ? (
-          <View style={galleryStyles.overlay} pointerEvents="none">
-            <Text style={galleryStyles.overlayText}>{overlay}</Text>
-          </View>
-        ) : null}
-      </View>
-    );
-  };
-
-  if (medias.length === 1) {
-    return <View style={galleryStyles.container}>{renderItem(medias[0], galleryStyles.single)}</View>;
-  }
-  if (medias.length === 2) {
-    return (
-      <View style={[galleryStyles.container, galleryStyles.row, { height: 220 }]}>
-        {renderItem(medias[0], { flex: 1 })}
-        {renderItem(medias[1], { flex: 1 })}
-      </View>
-    );
-  }
-  if (medias.length === 3) {
-    return (
-      <View style={[galleryStyles.container, galleryStyles.row, { height: 220 }]}>
-        {renderItem(medias[0], { flex: 2 })}
-        <View style={{ flex: 1, gap: 2 }}>
-          {renderItem(medias[1], { flex: 1 })}
-          {renderItem(medias[2], { flex: 1 })}
-        </View>
-      </View>
-    );
-  }
-  const shown = medias.slice(0, 4);
-  const remaining = medias.length - 4;
-  return (
-    <View style={[galleryStyles.container, { gap: 2 }]}>
-      <View style={[galleryStyles.row, { height: 150 }]}>
-        {renderItem(shown[0], { flex: 1 })}
-        {renderItem(shown[1], { flex: 1 })}
-      </View>
-      <View style={[galleryStyles.row, { height: 150 }]}>
-        {renderItem(shown[2], { flex: 1 })}
-        {renderItem(shown[3], { flex: 1 }, remaining > 0 ? `+${remaining}` : undefined)}
-      </View>
-    </View>
-  );
+  await Promise.all([
+    ...[...users].map(async (uid) => {
+      try {
+        const d = (await userService.getUserById(uid)) as Record<string, any>;
+        const name = `${d.prenom || ""} ${d.nom || ""}`.trim() || d.email || "Utilisateur";
+        const role = d.admin ? "Admin" : ROLE_LABELS[String(d.type || "").toLowerCase()] || "";
+        _cache.userNames[uid] = { name, role };
+      } catch {
+        /* ignore */
+      }
+    }),
+    ...[...classIds].map(async (cid) => {
+      try {
+        const cls = await classService.getClassDetails(cid);
+        _cache.classNames[cid] = cls.nom || (cls as any).name || null;
+      } catch {
+        /* ignore */
+      }
+    }),
+  ]);
 };
 
-/** Full-screen tap-to-view image viewer — matches web's LightboxImage/imagePreview pattern (swipe through every image in the same activity). */
-const ImageLightbox = ({
-  images,
-  initialIndex,
-  onClose,
-}: {
-  images: ActivityMedia[];
-  initialIndex: number;
-  onClose: () => void;
-}) => {
-  const [index, setIndex] = useState(initialIndex);
-  const screenWidth = Dimensions.get("window").width;
+type TabKey = "all" | "mine" | "upcoming" | "withMedia" | "participating" | "past";
+interface TabDef {
+  key: TabKey;
+  label: string;
+  labelMobile: string;
+  icon: string;
+  color: string;
+  bg: string;
+  bgDark: string;
+}
 
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={lightboxStyles.overlay}>
-        <TouchableOpacity style={lightboxStyles.closeButton} onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <FontAwesome5 name="times" size={22} color="#FFFFFF" />
-        </TouchableOpacity>
-        {images.length > 1 && (
-          <View style={lightboxStyles.counter}>
-            <Text style={lightboxStyles.counterText}>{index + 1} / {images.length}</Text>
-          </View>
-        )}
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          contentOffset={{ x: initialIndex * screenWidth, y: 0 }}
-          onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / screenWidth))}
-        >
-          {images.map((media) => (
-            <View key={media.id} style={{ width: screenWidth, justifyContent: "center", alignItems: "center" }}>
-              <ActivityMediaImage
-                mediaId={media.mediaId}
-                presignedUrl={media.uri || null}
-                style={lightboxStyles.image}
-                resizeMode="contain"
-              />
-            </View>
-          ))}
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-};
+const pluralize = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-const lightboxStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center" },
-  closeButton: { position: "absolute", top: 50, right: 20, zIndex: 10, padding: 8 },
-  counter: { position: "absolute", top: 54, alignSelf: "center", zIndex: 10 },
-  counterText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600" },
-  image: { width: "100%", height: "80%" },
-});
-
-const commentStyles = StyleSheet.create({
-  list: { maxHeight: 320, marginTop: 8 },
-  empty: { textAlign: "center", color: "#9CA3AF", fontSize: 13, paddingVertical: 24 },
-  row: { flexDirection: "row", alignItems: "flex-end", marginBottom: 12, gap: 8 },
-  rowMine: { flexDirection: "row-reverse" },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#6B7280",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarMine: { backgroundColor: "#3B82F6" },
-  avatarText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-  bubble: {
-    maxWidth: "75%",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 14,
-    borderBottomLeftRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  bubbleMine: { backgroundColor: "#3B82F6", borderBottomLeftRadius: 14, borderBottomRightRadius: 4 },
-  bubbleText: { fontSize: 14, color: "#111827" },
-  bubbleTextMine: { color: "#FFFFFF" },
-  time: { fontSize: 10, color: "#9CA3AF", marginTop: 4 },
-  inputRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 4 },
-  sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#3B82F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  // Inline (Facebook-style) comment thread, expanded in place below a post
-  // instead of a separate modal sheet.
-  inlineSection: {
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-    backgroundColor: "#F9FAFB",
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 12,
-  },
-  avatarSmall: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "#3B82F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inputPillWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingLeft: 14,
-    paddingRight: 4,
-  },
-  inputPill: {
-    flex: 1,
-    fontSize: 14,
-    color: "#111827",
-    paddingVertical: 9,
-  },
-  inputSendButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
+// ─────────────────────────────────────────────────────────────────────────────
 
 const DashboardActivitiesBody = () => {
   const { user } = useUser();
   const role = useAuthStore((s) => s.role);
-  // Only these roles may create an activity — mirrors web's canCreateEvent.
+  const colors = useThemeColors();
+  const isDark = useThemeStore((s) => s.mode === "dark");
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const insets = useSafeAreaInsets();
+  const currentUserId = user?.userId;
   const canCreateEvent = CREATOR_ROLES.includes(role);
 
-  const [activeFilter, setActiveFilter] = useState("all");
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [editingActivity, setEditingActivity] = useState<ActivityEvent | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  // Raw backend events are the single source of truth; the display `Activity`
-  // shape is always derived via mapApiActivity so like/comment/participate
-  // updates only ever need to patch the raw `interactions`/`participantsIds`
-  // arrays, never duplicate derived counters by hand.
-  const [rawActivities, setRawActivities] = useState<ActivityEvent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const isFresh = _cache.raw.length > 0 && Date.now() - _cache.timestamp < CACHE_TTL;
+  const [rawActivities, setRawActivities] = useState<ActivityEvent[]>(isFresh ? _cache.raw : []);
+  const [loading, setLoading] = useState(!isFresh);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-  const [totalElements, setTotalElements] = useState(0);
+  const [page, setPage] = useState(isFresh ? _cache.page : 0);
+  const [hasMore, setHasMore] = useState(isFresh ? _cache.hasMore : true);
   const [loadingMore, setLoadingMore] = useState(false);
-  // Classes the current user holds publication rights on — used only for the
-  // edit/delete permission check on other people's PRIVATE activities,
-  // mirrors web's userPublicationClassIds (ActivitiesContent.jsx:856-876).
-  const [userPublicationClassIds, setUserPublicationClassIds] = useState<string[]>([]);
-  // Facebook-style inline comments — a post's thread expands in place below
-  // it (matching web's `activity.showComments` toggle), not a separate
-  // modal. Tracked as a Set of activity ids rather than one global boolean
-  // so multiple posts can stay expanded independently, same as web.
-  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-  const [submittingCommentId, setSubmittingCommentId] = useState<string | null>(null);
-  const [lightbox, setLightbox] = useState<{ images: ActivityMedia[]; index: number } | null>(null);
+  const [namesVersion, setNamesVersion] = useState(0);
 
-  const activities = useMemo(
-    () => sortActivitiesLikeWeb(rawActivities.map((raw) => mapApiActivity(raw, user?.userId))),
-    [rawActivities, user?.userId]
-  );
+  const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<ActivityEvent | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [liking, setLiking] = useState<Record<string, boolean>>({});
+  const [viewer, setViewer] = useState<{ medias: FeedMedia[]; index: number } | null>(null);
 
-  const patchRawActivity = (id: string | number, updater: (raw: ActivityEvent) => ActivityEvent) => {
-    setRawActivities((prev) => prev.map((r) => (String(r.id) === String(id) ? updater(r) : r)));
-  };
+  // Keep the module cache in sync so switching tabs and back restores the feed instantly.
+  useEffect(() => {
+    _cache.raw = rawActivities;
+    _cache.page = page;
+    _cache.hasMore = hasMore;
+  }, [rawActivities, page, hasMore]);
 
-  const canEditActivity = (activity: Activity) => {
-    if (role === "admin") return true;
-    if (activity.createurId && user?.userId && activity.createurId === user.userId) return true;
-    const raw = rawActivities.find((r) => String(r.id) === String(activity.id));
-    const classesIds = raw?.classesIds ?? [];
-    return classesIds.some((id) => userPublicationClassIds.includes(id));
-  };
-
-  const toggleComments = (activityId: string | number) => {
-    const key = String(activityId);
-    setExpandedComments((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-
-  const submitComment = async (activity: Activity) => {
-    const key = String(activity.id);
-    const content = (commentDrafts[key] ?? "").trim();
-    if (!content) return;
-    setSubmittingCommentId(key);
+  const loadEvents = useCallback(async (pageToLoad: number) => {
+    if (pageToLoad === 0) setError("");
     try {
-      const created = await activityFeedService.comment(key, content);
-      patchRawActivity(activity.id, (raw) => ({
-        ...raw,
-        interactions: [
-          ...(raw.interactions ?? []),
-          {
-            id: created?.id,
-            type: "COMMENT",
-            content,
-            createdById: user?.userId,
-            creationDate: created?.creationDate ?? new Date().toISOString(),
-          },
-        ],
-      }));
-      setCommentDrafts((prev) => ({ ...prev, [key]: "" }));
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du commentaire.");
-    } finally {
-      setSubmittingCommentId(null);
-    }
-  };
-
-  const loadActivities = useCallback(async (pageToLoad = 0, append = false) => {
-    if (!append) {
-      setLoading(true);
-      setError("");
-    }
-    try {
-      const result = await activityFeedService.getPaged(pageToLoad, 10);
+      const result = await activityFeedService.getPaged(pageToLoad, PAGE_SIZE);
       const content = result.content ?? [];
-      setRawActivities((prev) => (append ? [...prev, ...content] : content));
+      await resolveNames(content);
+      setRawActivities((prev) => {
+        if (pageToLoad === 0) return content;
+        const seen = new Set(prev.map((r) => String(r.id)));
+        return [...prev, ...content.filter((r) => !seen.has(String(r.id)))];
+      });
       setPage(pageToLoad);
       setHasMore(!result.last);
-      setTotalElements(result.totalElements ?? 0);
+      _cache.totalElements = result.totalElements ?? 0;
+      _cache.timestamp = Date.now();
+      setNamesVersion((v) => v + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Échec du chargement des activités.");
     } finally {
@@ -439,787 +280,798 @@ const DashboardActivitiesBody = () => {
   }, []);
 
   useEffect(() => {
-    loadActivities(0, false);
-  }, [loadActivities]);
+    if (!isFresh) loadEvents(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const activities = useMemo(
+    () => rawActivities.map((r) => mapEvent(r, currentUserId)),
+    // namesVersion: remap once author/class names have been looked up
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawActivities, currentUserId, namesVersion]
+  );
+
+  // Tabs depend on role, as on web: creators get "Mes publications", others get "Passés" at the end.
+  const tabs = useMemo<TabDef[]>(() => {
+    const base: TabDef[] = [
+      { key: "all", label: "Fil d'actualité", labelMobile: "Tout", icon: "home", color: "#4B5563", bg: "#F3F4F6", bgDark: "#374151" },
+      { key: "upcoming", label: "À venir", labelMobile: "À venir", icon: "calendar-alt", color: "#16A34A", bg: "#F0FDF4", bgDark: "rgba(20,83,45,0.3)" },
+      { key: "withMedia", label: "Avec médias", labelMobile: "Médias", icon: "image", color: "#DB2777", bg: "#FDF2F8", bgDark: "rgba(131,24,67,0.3)" },
+      { key: "participating", label: "Participations", labelMobile: "Participations", icon: "user-plus", color: "#2563EB", bg: "#EFF6FF", bgDark: "rgba(30,58,138,0.3)" },
+    ];
+    if (canCreateEvent) {
+      base.splice(1, 0, { key: "mine", label: "Mes publications", labelMobile: "Mes posts", icon: "pencil-alt", color: "#4F46E5", bg: "#EEF2FF", bgDark: "rgba(49,46,129,0.3)" });
+    } else {
+      base.push({ key: "past", label: "Passés", labelMobile: "Passés", icon: "clock", color: "#D97706", bg: "#FFFBEB", bgDark: "rgba(120,53,15,0.3)" });
+    }
+    return base;
+  }, [canCreateEvent]);
 
   useEffect(() => {
-    if (!user?.userId) return;
-    classService
-      .getClassesForRole(role, user.userId)
-      .then((cls) => setUserPublicationClassIds(cls.map((c) => c.id)))
-      .catch(() => setUserPublicationClassIds([]));
-  }, [user?.userId, role]);
+    if (!tabs.some((t) => t.key === activeTab)) setActiveTab("all");
+  }, [tabs, activeTab]);
 
-  const handleLoadMore = () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    loadActivities(page + 1, true);
-  };
+  const filtered = useMemo(() => {
+    const now = Date.now();
+    switch (activeTab) {
+      case "mine":
+        return activities.filter((a) => a.createurId === currentUserId);
+      case "upcoming":
+        return activities.filter((a) => a.heureDebut && serverDateMs(a.heureDebut, NaN) > now);
+      case "withMedia":
+        return activities.filter((a) => a.medias.length > 0);
+      case "participating":
+        return activities.filter((a) => a.isParticipating);
+      case "past":
+        return activities.filter((a) => a.heureDebut && serverDateMs(a.heureDebut, NaN) <= now);
+      default:
+        return activities;
+    }
+  }, [activities, activeTab, currentUserId]);
 
-  const handleCreateActivity = (created: ActivityEvent) => {
-    setRawActivities((prev) => [created, ...prev]);
-    setShowCreateModal(false);
-  };
+  const currentTab = tabs.find((t) => t.key === activeTab) ?? tabs[0];
 
-  const handleUpdateActivity = (updated: ActivityEvent) => {
-    setRawActivities((prev) => prev.map((r) => (String(r.id) === String(updated.id) ? updated : r)));
-    setEditingActivity(null);
-  };
+  const patchRaw = (id: string, updater: (r: ActivityEvent) => ActivityEvent) =>
+    setRawActivities((prev) => prev.map((r) => (String(r.id) === id ? updater(r) : r)));
 
-  const handleDeleteActivity = (activity: Activity) => {
-    Alert.alert("Supprimer l'activité", "Cette action est irréversible. Voulez-vous continuer ?", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer",
-        style: "destructive",
-        onPress: async () => {
-          const id = String(activity.id);
-          setDeletingId(id);
-          try {
-            await activityFeedService.remove(id);
-            setRawActivities((prev) => prev.filter((r) => String(r.id) !== id));
-          } catch (err) {
-            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
-          } finally {
-            setDeletingId(null);
-          }
-        },
-      },
-    ]);
-  };
+  // Same rule the backend enforces on PUT/DELETE /evenements: author or admin.
+  // (Web also allowed anyone sharing a class, which let students/parents see
+  // edit/delete buttons the server would refuse.)
+  const canEdit = (a: FeedActivity) =>
+    role === "admin" || (!!currentUserId && a.createurId === currentUserId);
 
-  const handleLike = async (activity: Activity) => {
-    const wasLiked = !!activity.isLiked;
-    const currentUserId = user?.userId;
-    patchRawActivity(activity.id, (raw) => {
-      const interactions = raw.interactions ?? [];
-      return {
-        ...raw,
-        interactions: wasLiked
-          ? interactions.filter((i) => !(i.type === "LIKE" && i.createdById === currentUserId))
-          : [...interactions, { type: "LIKE", createdById: currentUserId }],
-      };
-    });
-    try {
-      await activityFeedService.like(String(activity.id));
-    } catch (err) {
-      patchRawActivity(activity.id, (raw) => {
-        const interactions = raw.interactions ?? [];
+  const handleLike = async (a: FeedActivity) => {
+    if (liking[a.id]) return;
+    setLiking((p) => ({ ...p, [a.id]: true }));
+    const wasLiked = a.isLiked;
+    const toggle = (liked: boolean) =>
+      patchRaw(a.id, (r) => {
+        const list = r.interactions ?? [];
         return {
-          ...raw,
-          interactions: wasLiked
-            ? [...interactions, { type: "LIKE", createdById: currentUserId }]
-            : interactions.filter((i) => !(i.type === "LIKE" && i.createdById === currentUserId)),
+          ...r,
+          interactions: liked
+            ? list.filter((i) => !(i.type === "LIKE" && i.createdById === currentUserId))
+            : [...list, { type: "LIKE", createdById: currentUserId }],
         };
       });
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du like.");
+    toggle(wasLiked);
+    try {
+      await activityFeedService.like(a.id);
+    } catch {
+      toggle(!wasLiked);
+    } finally {
+      setLiking((p) => ({ ...p, [a.id]: false }));
     }
   };
 
-  const handleParticipate = async (activity: Activity) => {
-    const wasParticipating = !!activity.isParticipating;
-    const currentUserId = user?.userId;
-    patchRawActivity(activity.id, (raw) => {
-      const participantsIds = raw.participantsIds ?? [];
-      return {
-        ...raw,
-        participantsIds: wasParticipating
-          ? participantsIds.filter((id) => id !== currentUserId)
-          : [...participantsIds, currentUserId as string],
-      };
-    });
-    try {
-      if (wasParticipating) {
-        await activityFeedService.unjoin(String(activity.id));
-      } else {
-        await activityFeedService.join(String(activity.id));
-      }
-    } catch (err) {
-      patchRawActivity(activity.id, (raw) => {
-        const participantsIds = raw.participantsIds ?? [];
+  const handleParticipate = async (a: FeedActivity) => {
+    const was = a.isParticipating;
+    const toggle = (participating: boolean) =>
+      patchRaw(a.id, (r) => {
+        const ids = r.participantsIds ?? [];
         return {
-          ...raw,
-          participantsIds: wasParticipating
-            ? [...participantsIds, currentUserId as string]
-            : participantsIds.filter((id) => id !== currentUserId),
+          ...r,
+          participantsIds: participating ? ids.filter((x) => x !== currentUserId) : [...ids, currentUserId as string],
         };
       });
+    toggle(was);
+    try {
+      if (was) await activityFeedService.unjoin(a.id);
+      else await activityFeedService.join(a.id);
+    } catch (err) {
+      toggle(!was);
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la participation.");
     }
   };
 
-  // Tabs mirror web's role-aware sidebarTabs (ActivitiesContent.jsx:623-680):
-  // creators get "Mes publications", viewers get "Passés" in its place.
-  // "Populaires" is kept as a mobile-only extra on top of web's tab set.
-  const filters = [
-    { id: "all", label: "Tous" },
-    canCreateEvent ? { id: "mine", label: "Mes publications" } : { id: "past", label: "Passés" },
-    { id: "upcoming", label: "À venir" },
-    { id: "withMedia", label: "Avec médias" },
-    { id: "participating", label: "Participations" },
-    { id: "populaires", label: "Populaires" },
-  ];
-
-  const filteredActivities = (() => {
-    const now = new Date();
-    switch (activeFilter) {
-      case "mine":
-        return activities.filter((a) => a.createurId === user?.userId);
-      case "past":
-        return activities.filter((a) => a.type === "event" && a.rawDate && new Date(a.rawDate) <= now);
-      case "upcoming":
-        return activities.filter((a) => a.type === "event" && a.rawDate && new Date(a.rawDate) > now);
-      case "withMedia":
-        return activities.filter((a) => (a.medias?.length ?? 0) > 0);
-      case "participating":
-        return activities.filter((a) => a.isParticipating);
-      case "populaires":
-        return [...activities].sort((a, b) => b.likes - a.likes);
-      default:
-        return activities;
-    }
-  })();
-
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case "scheduled":
-        return "#3B82F6";
-      case "published":
-        return "#10B981";
-      case "completed":
-        return "#6B7280";
-      default:
-        return "#6B7280";
+  const handleComment = async (a: FeedActivity, content: string) => {
+    const tempId = `temp-${Date.now()}`;
+    patchRaw(a.id, (r) => ({
+      ...r,
+      interactions: [
+        ...(r.interactions ?? []),
+        { id: tempId, type: "COMMENT", content, createdById: currentUserId, creationDate: new Date().toISOString() },
+      ],
+    }));
+    try {
+      const created = await activityFeedService.comment(a.id, content);
+      if (created?.id) {
+        patchRaw(a.id, (r) => ({
+          ...r,
+          interactions: (r.interactions ?? []).map((i) => (i.id === tempId ? { ...i, id: created.id, creationDate: created.creationDate ?? i.creationDate } : i)),
+        }));
+      }
+    } catch (err) {
+      patchRaw(a.id, (r) => ({ ...r, interactions: (r.interactions ?? []).filter((i) => i.id !== tempId) }));
+      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du commentaire.");
     }
   };
 
-  const getStatusBackground = (status: string) => {
-    switch (status.toLowerCase()) {
-      case "scheduled":
-        return "#DBEAFE";
-      case "published":
-        return "#D1FAE5";
-      case "completed":
-        return "#F3F4F6";
-      default:
-        return "#F3F4F6";
+  const handleDelete = async (id: string) => {
+    setConfirmDeleteId(null);
+    setDeletingId(id);
+    try {
+      await activityFeedService.remove(id);
+      setRawActivities((prev) => prev.filter((r) => String(r.id) !== id));
+    } catch (err) {
+      Alert.alert("Erreur", `Échec de la suppression: ${err instanceof Error ? err.message : ""}`);
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  const getCreatorInitials = (name: string) => {
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase();
-  };
-
-  const handleAddActivity = () => {
-    setShowCreateModal(true);
+  const handleSaved = async (mode: "create" | "edit") => {
+    setShowCreate(false);
+    setEditing(null);
+    setLoading(true);
+    // Like web: wait briefly after a create so the backend has saved the media rows.
+    if (mode === "create") await new Promise((r) => setTimeout(r, 800));
+    await loadEvents(0);
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadActivities(0, false);
+    await loadEvents(0);
     setRefreshing(false);
   };
 
-  return (
-    <View style={activitiesStyles.container}>
-      <ScrollView
-        style={activitiesStyles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#3B82F6" />}
-      >
-        {/* Header Section */}
-        <View style={activitiesStyles.pageHeader}>
-          <Text style={activitiesStyles.pageTitle}>Fil d'activité</Text>
-          <Text style={activitiesStyles.pageSubtitle}>
-            Découvrez les dernières activités et événements
+  const handleEndReached = () => {
+    if (loading || loadingMore || !hasMore || rawActivities.length === 0) return;
+    setLoadingMore(true);
+    loadEvents(page + 1);
+  };
+
+  const openCreate = () => {
+    setEditing(null);
+    setShowCreate(true);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  const header = (
+    <View style={styles.headerBar}>
+      <Text style={styles.headerTitle} numberOfLines={1}>
+        Fil d'actualité
+      </Text>
+      <View style={styles.headerActions}>
+        <TouchableOpacity style={styles.filterBtn} onPress={() => setShowFilterSheet(true)} activeOpacity={0.8}>
+          <FontAwesome5 name={currentTab.icon} size={12} color={colors.textMuted} />
+          <Text style={styles.filterBtnText} numberOfLines={1}>
+            {currentTab.labelMobile}
           </Text>
-        </View>
+          <FontAwesome5 name="chevron-down" size={11} color={colors.textMuted} />
+        </TouchableOpacity>
+        {canCreateEvent ? (
+          <TouchableOpacity style={styles.plusBtn} onPress={openCreate} activeOpacity={0.85}>
+            <FontAwesome5 name="plus" size={16} color="#FFFFFF" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
 
-        {/* Filter Tabs */}
-        <View style={activitiesStyles.filterContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {filters.map((filter) => (
-              <TouchableOpacity
-                key={filter.id}
-                style={[
-                  activitiesStyles.filterTab,
-                  activeFilter === filter.id &&
-                    activitiesStyles.activeFilterTab,
-                ]}
-                onPress={() => setActiveFilter(filter.id)}
-              >
-                <Text
-                  style={[
-                    activitiesStyles.filterTabText,
-                    activeFilter === filter.id &&
-                      activitiesStyles.activeFilterTabText,
-                  ]}
-                >
-                  {filter.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {error ? <Text style={{ color: "#EF4444", marginBottom: 12 }}>{error}</Text> : null}
-        {loading ? (
-          <View style={activitiesStyles.activitiesList}>
-            <ActivitySkeletonCard />
-            <ActivitySkeletonCard />
-            <ActivitySkeletonCard />
+  const empty = loading ? (
+    <View>
+      {[0, 1, 2].map((i) => (
+        <View key={i} style={[styles.card, { padding: 12 }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+            <Skeleton width={32} height={32} borderRadius={16} style={{ marginRight: 8 }} />
+            <View style={{ flex: 1 }}>
+              <Skeleton width="50%" height={12} style={{ marginBottom: 6 }} />
+              <Skeleton width="30%" height={9} />
+            </View>
           </View>
-        ) : null}
-        {!loading && filteredActivities.length === 0 ? (
-          <EmptyState
-            icon="heartbeat"
-            title="Aucune activité"
-            message="Aucune activité ne correspond à ce filtre pour le moment."
+          <Skeleton width="70%" height={12} style={{ marginBottom: 8 }} />
+          <Skeleton width="95%" height={10} style={{ marginBottom: 12 }} />
+          <Skeleton width="100%" height={180} borderRadius={8} />
+        </View>
+      ))}
+    </View>
+  ) : (
+    <View style={[styles.card, styles.emptyCard]}>
+      <View style={styles.emptyIcon}>
+        <FontAwesome5 name="calendar-alt" size={28} color="#9CA3AF" />
+      </View>
+      <Text style={styles.emptyTitle}>
+        {activeTab === "all" ? "Aucune activité disponible" : `Aucun contenu dans "${currentTab.label}"`}
+      </Text>
+      <Text style={styles.emptyText}>
+        {activeTab === "all"
+          ? "Soyez le premier à créer un événement et à partager vos activités avec la communauté."
+          : "Essayez de changer de filtre ou créez du contenu"}
+      </Text>
+      {canCreateEvent && activeTab === "all" ? (
+        <TouchableOpacity style={styles.emptyBtn} onPress={openCreate}>
+          <FontAwesome5 name="plus" size={14} color="#FFFFFF" />
+          <Text style={styles.emptyBtnText}>Créer le premier événement</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+
+  const footer =
+    loading || filtered.length === 0 ? null : hasMore ? (
+      <View style={styles.footerLoader}>{loadingMore ? <ActivityIndicator color="#2563EB" /> : null}</View>
+    ) : (
+      <View style={styles.upToDate}>
+        <View style={styles.upToDateLine} />
+        <Text style={styles.upToDateText}>Vous êtes à jour</Text>
+        <View style={styles.upToDateLine} />
+      </View>
+    );
+
+  return (
+    <View style={styles.container}>
+      {header}
+
+      <FlatList
+        data={loading ? [] : filtered}
+        keyExtractor={(a) => a.id}
+        renderItem={({ item }) => (
+          <ActivityCard
+            activity={item}
+            styles={styles}
+            colors={colors}
+            isDark={isDark}
+            canEdit={canEdit(item)}
+            deleting={deletingId === item.id}
+            liking={!!liking[item.id]}
+            onLike={handleLike}
+            onParticipate={handleParticipate}
+            onComment={handleComment}
+            onEdit={() => {
+              const raw = rawActivities.find((r) => String(r.id) === item.id) ?? null;
+              setEditing(raw);
+            }}
+            onDelete={() => setConfirmDeleteId(item.id)}
+            onOpenMedia={(index) => setViewer({ medias: item.medias, index })}
           />
-        ) : null}
+        )}
+        ListHeaderComponent={error ? <Text style={styles.errorText}>{error}</Text> : null}
+        ListEmptyComponent={empty}
+        ListFooterComponent={footer}
+        contentContainerStyle={{ paddingTop: 12, paddingBottom: insets.bottom + 150 }}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.5}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        removeClippedSubviews={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#2563EB" colors={["#2563EB"]} />}
+      />
 
-        {/* Activities List */}
-        <View style={activitiesStyles.activitiesList}>
-          {!loading && filteredActivities.map((activity) => (
-            <View key={activity.id} style={activitiesStyles.activityCard}>
-              {/* Creator Info */}
-              <View style={activitiesStyles.creatorSection}>
-                <View style={activitiesStyles.creatorAvatar}>
-                  <Text style={activitiesStyles.creatorInitials}>
-                    {getCreatorInitials(activity.creator)}
-                  </Text>
-                </View>
-                <View style={activitiesStyles.creatorInfo}>
-                  <Text style={activitiesStyles.creatorName}>
-                    {activity.creator}
-                  </Text>
-                  <View style={activitiesStyles.creatorMeta}>
-                    <Text style={activitiesStyles.creatorRole}>
-                      {activity.role}
-                    </Text>
-                    <Text style={activitiesStyles.creatorDate}>
-                      • {activity.date} •
-                    </Text>
-                    <View
-                      style={[
-                        activitiesStyles.statusBadge,
-                        {
-                          backgroundColor: getStatusBackground(activity.status),
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          activitiesStyles.statusText,
-                          { color: getStatusColor(activity.status) },
-                        ]}
-                      >
-                        {activity.status}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                {canEditActivity(activity) && (
-                  <View style={activitiesStyles.cardActions}>
-                    <TouchableOpacity
-                      style={activitiesStyles.cardActionButton}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      onPress={() => setEditingActivity(rawActivities.find((r) => String(r.id) === String(activity.id)) ?? null)}
-                    >
-                      <FontAwesome5 name="pencil-alt" size={14} color="#6B7280" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={activitiesStyles.cardActionButton}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      disabled={deletingId === String(activity.id)}
-                      onPress={() => handleDeleteActivity(activity)}
-                    >
-                      <FontAwesome5
-                        name={deletingId === String(activity.id) ? "spinner" : "trash-alt"}
-                        size={14}
-                        color="#EF4444"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              {/* Activity Content */}
-              <View style={activitiesStyles.activityContent}>
-                <Text style={activitiesStyles.activityTitle}>
-                  {activity.title}
-                </Text>
-
-                {/* Event Details (if it's an event) */}
-                {activity.type === "event" && (
-                  <View style={activitiesStyles.eventDetails}>
-                    <View style={activitiesStyles.eventInfo}>
-                      <View style={activitiesStyles.eventInfoRow}>
-                        <FontAwesome5 name="clock" size={14} color="#6B7280" />
-                        <Text style={activitiesStyles.eventInfoText}>
-                          {activity.eventDate}
-                        </Text>
-                      </View>
-
-                      <View style={activitiesStyles.eventInfoRow}>
-                        <FontAwesome5
-                          name="map-marker-alt"
-                          size={14}
-                          color="#6B7280"
-                        />
-                        <Text style={activitiesStyles.eventInfoText}>
-                          {activity.location}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <Text style={activitiesStyles.eventDescription}>
-                      {activity.description}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Publication Content */}
-                {activity.type === "publication" && (
-                  <Text style={activitiesStyles.publicationDescription}>
-                    {activity.description}
-                  </Text>
-                )}
-              </View>
-
-              {/* Media Gallery (events + publications alike) — images and videos in one grid, matching web */}
-              {activity.medias && activity.medias.length > 0 && (
-                <MediaGallery medias={activity.medias} onImagePress={(images, index) => setLightbox({ images, index })} />
-              )}
-
-              {/* Engagement Stats */}
-              {(activity.likes > 0 || (activity.participantsCount ?? 0) > 0 || activity.comments > 0) && (
-                <View style={activitiesStyles.statsRow}>
-                  <View style={activitiesStyles.activityStats}>
-                    {activity.likes > 0 && (
-                      <View style={activitiesStyles.statItem}>
-                        <FontAwesome5 name="heart" size={14} color="#EF4444" solid />
-                        <Text style={activitiesStyles.statText}>{activity.likes}</Text>
-                      </View>
-                    )}
-                    {(activity.participantsCount ?? 0) > 0 && (
-                      <View style={activitiesStyles.statItem}>
-                        <FontAwesome5 name="user-plus" size={13} color="#10B981" />
-                        <Text style={activitiesStyles.statText}>{activity.participantsCount}</Text>
-                      </View>
-                    )}
-                  </View>
-                  {activity.comments > 0 && (
-                    <TouchableOpacity onPress={() => toggleComments(activity.id)}>
-                      <Text style={activitiesStyles.statText}>
-                        {activity.comments} commentaire{activity.comments > 1 ? "s" : ""}
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
-              {/* Footer action bar: Like / Comment / Participate / Share */}
-              <View style={activitiesStyles.footerActions}>
+      {/* "Filtrer le fil" sheet */}
+      <Modal visible={showFilterSheet} transparent animationType="slide" onRequestClose={() => setShowFilterSheet(false)}>
+        <View style={styles.sheetBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setShowFilterSheet(false)} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Filtrer le fil</Text>
+              <TouchableOpacity style={styles.sheetClose} onPress={() => setShowFilterSheet(false)}>
+                <FontAwesome5 name="times" size={14} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            {tabs.map((tab) => {
+              const active = tab.key === activeTab;
+              return (
                 <TouchableOpacity
-                  style={[activitiesStyles.footerButton, activity.isLiked && activitiesStyles.footerButtonActive]}
-                  onPress={() => handleLike(activity)}
-                >
-                  <FontAwesome5 name="heart" size={16} solid={!!activity.isLiked} color={activity.isLiked ? "#EF4444" : "#6B7280"} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={activitiesStyles.footerButton}
-                  onPress={() => toggleComments(activity.id)}
-                >
-                  <FontAwesome5 name="comment" size={16} color="#6B7280" />
-                </TouchableOpacity>
-                {activity.type === "event" && (
-                  <TouchableOpacity
-                    style={[activitiesStyles.footerButton, activity.isParticipating && activitiesStyles.footerButtonParticipating]}
-                    onPress={() => handleParticipate(activity)}
-                  >
-                    <FontAwesome5 name="user-plus" size={16} color={activity.isParticipating ? "#10B981" : "#6B7280"} />
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity
-                  style={activitiesStyles.footerButton}
+                  key={tab.key}
+                  style={[styles.sheetItem, active && styles.sheetItemActive]}
                   onPress={() => {
-                    Share.share({
-                      title: activity.title,
-                      message: `${activity.title}\n\n${activity.description ?? ""}`,
-                    }).catch(() => {});
+                    setActiveTab(tab.key);
+                    setShowFilterSheet(false);
                   }}
                 >
-                  <FontAwesome5 name="share" size={16} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-
-              {/* Facebook-style inline comment thread — expands in place, matches web's activity.showComments exactly instead of a separate modal. */}
-              {expandedComments.has(String(activity.id)) && (
-                <View style={commentStyles.inlineSection}>
-                  {(activity.commentsList?.length ?? 0) > 0 && (
-                    <View style={commentStyles.list}>
-                      {activity.commentsList!.map((c) => (
-                        <View key={c.id} style={[commentStyles.row, c.isCurrentUser && commentStyles.rowMine]}>
-                          <View style={[commentStyles.avatar, c.isCurrentUser && commentStyles.avatarMine]}>
-                            <Text style={commentStyles.avatarText}>{c.isCurrentUser ? "V" : "U"}</Text>
-                          </View>
-                          <View style={{ flex: 1, alignItems: c.isCurrentUser ? "flex-end" : "flex-start" }}>
-                            <View style={[commentStyles.bubble, c.isCurrentUser && commentStyles.bubbleMine]}>
-                              <Text style={[commentStyles.bubbleText, c.isCurrentUser && commentStyles.bubbleTextMine]}>{c.content}</Text>
-                            </View>
-                            {c.creationDate ? (
-                              <Text style={commentStyles.time}>
-                                {new Date(c.creationDate).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                              </Text>
-                            ) : null}
-                          </View>
-                        </View>
-                      ))}
-                    </View>
-                  )}
-                  <View style={commentStyles.inputRow}>
-                    <View style={commentStyles.avatarSmall}>
-                      <Text style={commentStyles.avatarText}>V</Text>
-                    </View>
-                    <View style={commentStyles.inputPillWrap}>
-                      <TextInput
-                        style={commentStyles.inputPill}
-                        value={commentDrafts[String(activity.id)] ?? ""}
-                        onChangeText={(text) => setCommentDrafts((prev) => ({ ...prev, [String(activity.id)]: text }))}
-                        placeholder="Écrire un commentaire..."
-                        placeholderTextColor="#9CA3AF"
-                        onSubmitEditing={() => submitComment(activity)}
-                      />
-                      <TouchableOpacity
-                        style={commentStyles.inputSendButton}
-                        disabled={submittingCommentId === String(activity.id) || !(commentDrafts[String(activity.id)] ?? "").trim()}
-                        onPress={() => submitComment(activity)}
-                      >
-                        {submittingCommentId === String(activity.id) ? (
-                          <FontAwesome5 name="spinner" size={13} color="#3B82F6" />
-                        ) : (
-                          <FontAwesome5 name="paper-plane" size={13} color="#3B82F6" />
-                        )}
-                      </TouchableOpacity>
-                    </View>
+                  <View
+                    style={[
+                      styles.sheetItemIcon,
+                      { backgroundColor: active ? (isDark ? "#1E40AF" : "#DBEAFE") : isDark ? tab.bgDark : tab.bg },
+                    ]}
+                  >
+                    <FontAwesome5 name={tab.icon} size={13} color={active ? "#2563EB" : tab.color} />
                   </View>
-                </View>
-              )}
-            </View>
-          ))}
+                  <Text style={[styles.sheetItemText, active && styles.sheetItemTextActive]}>{tab.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </View>
+      </Modal>
 
-        {/* Pagination — "Voir plus" mirrors web's load-more button (ActivitiesContent.jsx:2906-2933) */}
-        {!loading && hasMore && (
-          <TouchableOpacity style={activitiesStyles.loadMoreButton} onPress={handleLoadMore} disabled={loadingMore}>
-            {loadingMore ? (
-              <FontAwesome5 name="spinner" size={14} color="#3B82F6" />
-            ) : (
-              <Text style={activitiesStyles.loadMoreText}>
-                Voir plus{totalElements > activities.length ? ` (${totalElements - activities.length} restant${totalElements - activities.length > 1 ? "s" : ""})` : ""}
-              </Text>
-            )}
-          </TouchableOpacity>
-        )}
-        {!loading && !hasMore && activities.length > 0 && (
-          <Text style={activitiesStyles.upToDateText}>Vous êtes à jour</Text>
-        )}
+      {/* Delete confirmation */}
+      <Modal visible={!!confirmDeleteId} transparent animationType="fade" onRequestClose={() => setConfirmDeleteId(null)}>
+        <View style={styles.dialogBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setConfirmDeleteId(null)} />
+          <View style={styles.dialog}>
+            <View style={styles.dialogIcon}>
+              <FontAwesome5 name="trash-alt" size={20} color={isDark ? "#F87171" : "#DC2626"} />
+            </View>
+            <Text style={styles.dialogTitle}>Supprimer l'événement</Text>
+            <Text style={styles.dialogText}>Cette action est irréversible. L'événement sera définitivement supprimé.</Text>
+            <View style={styles.dialogRow}>
+              <TouchableOpacity style={[styles.dialogBtn, styles.dialogCancel]} onPress={() => setConfirmDeleteId(null)}>
+                <Text style={styles.dialogCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dialogBtn, styles.dialogDelete]}
+                disabled={!!deletingId}
+                onPress={() => confirmDeleteId && handleDelete(confirmDeleteId)}
+              >
+                <Text style={styles.dialogDeleteText}>Supprimer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
-        {/* Extra space for bottom navigation */}
-        <View style={{ height: 100 }} />
-      </ScrollView>
-
-      {/* Floating Action Button — only roles that can create an activity see it */}
-      {canCreateEvent && (
-        <TouchableOpacity
-          style={activitiesStyles.floatingButton}
-          onPress={handleAddActivity}
-        >
-          <FontAwesome5 name="plus" size={24} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
-
-      {/* Create/Edit Activity Modal Overlay */}
-      {(showCreateModal || editingActivity) && (
+      {(showCreate || editing) && (
         <CreateActivityModal
+          activityToEdit={editing}
           onClose={() => {
-            setShowCreateModal(false);
-            setEditingActivity(null);
+            setShowCreate(false);
+            setEditing(null);
           }}
-          onCreateActivity={handleCreateActivity}
-          activityToEdit={editingActivity}
-          onUpdateActivity={handleUpdateActivity}
+          onSaved={handleSaved}
         />
       )}
 
-      {lightbox && (
-        <ImageLightbox images={lightbox.images} initialIndex={lightbox.index} onClose={() => setLightbox(null)} />
-      )}
+      {viewer && <ActivityMediaViewer medias={viewer.medias} initialIndex={viewer.index} onClose={() => setViewer(null)} />}
     </View>
   );
 };
 
-const galleryStyles = StyleSheet.create({
-  container: { marginTop: 12, borderRadius: 8, overflow: "hidden" },
-  row: { flexDirection: "row", gap: 2 },
-  item: { position: "relative", overflow: "hidden" },
-  single: { width: "100%", height: 220 },
-  image: { width: "100%", height: "100%" },
-  overlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  overlayText: { color: "#FFFFFF", fontSize: 22, fontWeight: "700" },
-});
+// ─────────────────────────────────────────────────────────────────────────────
 
-const activitiesStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    position: "relative",
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 16,
-  },
-  pageHeader: {
-    marginTop: 20,
-    marginBottom: 24,
-  },
-  pageTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#111827",
-    marginBottom: 4,
-  },
-  pageSubtitle: {
-    fontSize: 16,
-    color: "#6B7280",
-  },
-  filterContainer: {
-    marginBottom: 20,
-  },
-  filterTab: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 25,
-    marginRight: 12,
-    backgroundColor: "#F3F4F6",
-  },
-  activeFilterTab: {
-    backgroundColor: "#3B82F6",
-  },
-  filterTabText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#6B7280",
-  },
-  activeFilterTabText: {
-    color: "#FFFFFF",
-  },
-  activitiesList: {
-    marginBottom: 20,
-  },
-  activityCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  creatorSection: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 12,
-  },
-  cardActions: {
-    flexDirection: "row",
-    gap: 4,
-  },
-  cardActionButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F3F4F6",
-    marginLeft: 4,
-  },
-  loadMoreButton: {
-    alignSelf: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: "#EEF2FF",
-    marginBottom: 12,
-  },
-  loadMoreText: {
-    color: "#3B82F6",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  upToDateText: {
-    textAlign: "center",
-    color: "#9CA3AF",
-    fontSize: 12,
-    marginBottom: 12,
-  },
-  creatorAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#3B82F6",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  creatorInitials: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "bold",
-  },
-  creatorInfo: {
-    flex: 1,
-  },
-  creatorName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 4,
-  },
-  creatorMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-  creatorRole: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginRight: 8,
-  },
-  creatorDate: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginRight: 8,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  activityContent: {
-    marginBottom: 4,
-  },
-  activityTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#111827",
-    marginBottom: 12,
-  },
-  eventDetails: {
-    backgroundColor: "#F8FAFC",
-    borderRadius: 8,
-    padding: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: "#3B82F6",
-  },
-  eventInfo: {
-    marginBottom: 8,
-  },
-  eventInfoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  eventInfoText: {
-    fontSize: 13,
-    color: "#6B7280",
-    marginLeft: 8,
-  },
-  eventDescription: {
-    fontSize: 13,
-    color: "#6B7280",
-    lineHeight: 18,
-  },
-  publicationDescription: {
-    fontSize: 14,
-    color: "#374151",
-    lineHeight: 20,
-  },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  activityStats: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  statItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  statText: {
-    fontSize: 13,
-    color: "#6B7280",
-  },
-  footerActions: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    alignItems: "center",
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-  },
-  footerButton: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  footerButtonActive: {
-    backgroundColor: "#FEF2F2",
-  },
-  footerButtonParticipating: {
-    backgroundColor: "#ECFDF5",
-  },
-  floatingButton: {
-    position: "absolute",
-    bottom: 120,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#3B82F6",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-});
+interface CardProps {
+  activity: FeedActivity;
+  styles: ReturnType<typeof createStyles>;
+  colors: ReturnType<typeof useThemeColors>;
+  isDark: boolean;
+  canEdit: boolean;
+  deleting: boolean;
+  liking: boolean;
+  onLike: (a: FeedActivity) => void;
+  onParticipate: (a: FeedActivity) => void;
+  onComment: (a: FeedActivity, content: string) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onOpenMedia: (index: number) => void;
+}
+
+const ActivityCard = memo(
+  ({ activity: a, styles, colors, isDark, canEdit, deleting, liking, onLike, onParticipate, onComment, onEdit, onDelete, onOpenMedia }: CardProps) => {
+    const [showComments, setShowComments] = useState(false);
+    const [draft, setDraft] = useState("");
+    const status = a.status ? STATUS_META[a.status] : undefined;
+    const statusLabel =
+      status?.label ?? (a.status ? a.status.charAt(0) + a.status.slice(1).toLowerCase().replace(/_/g, " ") : "");
+
+    const send = () => {
+      const text = draft.trim();
+      if (!text) return;
+      setDraft("");
+      onComment(a, text);
+    };
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardBody}>
+          {/* Header: avatar, author, role, date, status, edit/delete */}
+          <View style={styles.authorRow}>
+            <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatar}>
+              <Text style={styles.avatarText}>{a.user.name.charAt(0).toUpperCase() || "U"}</Text>
+            </LinearGradient>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={styles.nameRow}>
+                <Text style={styles.authorName} numberOfLines={1}>
+                  {a.user.name}
+                </Text>
+                {a.user.role ? (
+                  <View style={styles.roleChip}>
+                    <Text style={styles.roleChipText}>{a.user.role}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <View style={styles.metaRow}>
+                {a.timestamp ? <Text style={styles.timestamp}>{a.timestamp}</Text> : null}
+                {statusLabel ? (
+                  <View style={[styles.statusChip, { backgroundColor: status ? (isDark ? status.bgDark : status.bg) : colors.surfaceElevated }]}>
+                    <Text style={[styles.statusText, { color: status?.fg ?? colors.textMuted }]}>{statusLabel}</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+            {canEdit ? (
+              <View style={styles.ownerActions}>
+                <TouchableOpacity style={styles.ownerBtn} onPress={onEdit} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                  <FontAwesome5 name="pencil-alt" size={14} color={colors.textLight} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.ownerBtn} onPress={onDelete} disabled={deleting} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                  {deleting ? <ActivityIndicator size="small" color={colors.textLight} /> : <FontAwesome5 name="trash-alt" size={14} color={colors.textLight} />}
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+
+          {/* Title and description */}
+          {a.titre ? <Text style={styles.title}>{a.titre}</Text> : null}
+          {a.description ? (
+            <Text style={styles.description} numberOfLines={4}>
+              {a.description}
+            </Text>
+          ) : null}
+
+          {/* Event details: location, then "du … au …" */}
+          {a.location || a.startTime || a.endTime ? (
+            <View style={styles.details}>
+              {a.location ? (
+                <View style={styles.detailRow}>
+                  <FontAwesome5 name="map-marker-alt" size={11} color={colors.textLight} style={styles.detailIcon} />
+                  <Text style={styles.detailText}>{a.location}</Text>
+                </View>
+              ) : null}
+              {a.startTime || a.endTime ? (
+                <View style={[styles.detailRow, { flexWrap: "wrap" }]}>
+                  {a.startTime ? (
+                    <>
+                      <FontAwesome5 name="calendar-alt" size={11} color="#3B82F6" style={styles.detailIcon} />
+                      <Text style={styles.detailStrong}>du {fmt(a.startTime)}</Text>
+                    </>
+                  ) : null}
+                  {a.endTime ? (
+                    <>
+                      <FontAwesome5 name="clock" size={11} color="#FB923C" style={[styles.detailIcon, a.startTime ? { marginLeft: 8 } : null]} />
+                      <Text style={styles.detailStrong}>au {fmt(a.endTime)}</Text>
+                    </>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {a.classNames.length > 0 ? (
+            <View style={styles.classRow}>
+              {a.classNames.map((n, i) => (
+                <View key={`${n}-${i}`} style={styles.classChip}>
+                  <Text style={styles.classChipText}>{n}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+
+        {/* Media grid, only when the activity has media */}
+        {a.medias.length > 0 ? <ActivityMediaGallery medias={a.medias} onOpen={onOpenMedia} /> : null}
+
+        {/* Counts */}
+        {a.likes > 0 || a.participants > 0 || a.comments.length > 0 ? (
+          <View style={styles.statsRow}>
+            <View style={styles.statsLeft}>
+              {a.likes > 0 ? (
+                <View style={styles.statItem}>
+                  <FontAwesome5 name="heart" solid size={13} color="#EF4444" />
+                  <Text style={styles.statText}>{a.likes}</Text>
+                </View>
+              ) : null}
+              {a.participants > 0 ? (
+                <View style={styles.statItem}>
+                  <FontAwesome5 name="user-plus" size={12} color="#22C55E" />
+                  <Text style={styles.statText}>{pluralize(a.participants, "participant", "participants")}</Text>
+                </View>
+              ) : null}
+            </View>
+            {a.comments.length > 0 ? (
+              <TouchableOpacity onPress={() => setShowComments((v) => !v)}>
+                <Text style={styles.statText}>{pluralize(a.comments.length, "commentaire", "commentaires")}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Like / Comment / Participate / Share */}
+        <View style={styles.actionsRow}>
+          <TouchableOpacity
+            style={[styles.actionBtn, a.isLiked && { backgroundColor: isDark ? "rgba(127,29,29,0.25)" : "#FEF2F2" }]}
+            onPress={() => onLike(a)}
+            disabled={liking}
+          >
+            {liking ? (
+              <ActivityIndicator size="small" color="#DC2626" />
+            ) : (
+              <FontAwesome5 name="heart" solid={a.isLiked} size={16} color={a.isLiked ? "#DC2626" : colors.textMuted} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => setShowComments((v) => !v)}>
+            <FontAwesome5 name="comment" size={16} color={colors.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionBtn, a.isParticipating && { backgroundColor: isDark ? "rgba(20,83,45,0.25)" : "#F0FDF4" }]}
+            onPress={() => onParticipate(a)}
+          >
+            <FontAwesome5 name="user-plus" size={15} color={a.isParticipating ? "#16A34A" : colors.textMuted} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => Share.share({ title: a.titre, message: `${a.titre}\n\n${a.description}` }).catch(() => {})}
+          >
+            <FontAwesome5 name="share-alt" size={15} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Comments, opened in place */}
+        {showComments ? (
+          <View style={styles.commentsBox}>
+            {a.comments.length > 0 ? (
+              <View style={styles.commentsList}>
+                {a.comments.map((c) => (
+                  <View key={c.id} style={[styles.commentRow, c.isCurrentUser && { flexDirection: "row-reverse" }]}>
+                    <LinearGradient colors={["#3B82F6", "#6366F1"]} style={styles.commentAvatar}>
+                      <Text style={styles.commentAvatarText}>{c.isCurrentUser ? "V" : "U"}</Text>
+                    </LinearGradient>
+                    <View style={{ flex: 1, maxWidth: "75%", alignItems: c.isCurrentUser ? "flex-end" : "flex-start" }}>
+                      <View style={[styles.bubble, c.isCurrentUser ? styles.bubbleMine : styles.bubbleOther]}>
+                        <Text style={[styles.bubbleText, c.isCurrentUser && { color: "#FFFFFF" }]}>{c.content}</Text>
+                      </View>
+                      <Text style={[styles.commentTime, c.isCurrentUser ? { marginRight: 12 } : { marginLeft: 12 }]}>
+                        {c.creationDate ? fmt(c.creationDate, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "À l'instant"}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            <View style={styles.commentInputRow}>
+              <LinearGradient colors={["#2563EB", "#4F46E5"]} style={styles.commentAvatar}>
+                <Text style={styles.commentAvatarText}>V</Text>
+              </LinearGradient>
+              <View style={styles.commentInputWrap}>
+                <TextInput
+                  style={styles.commentInput}
+                  value={draft}
+                  onChangeText={setDraft}
+                  placeholder="Écrivez un commentaire..."
+                  placeholderTextColor={colors.textLight}
+                  onSubmitEditing={send}
+                  returnKeyType="send"
+                />
+                <TouchableOpacity onPress={send} disabled={!draft.trim()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <FontAwesome5 name="paper-plane" size={14} color={draft.trim() ? "#3B82F6" : colors.textLight} />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean) => {
+  // Web's gray scale for the feed (gray-900/700/600/500/400 and gray-100/700 borders).
+  const strong = isDark ? "#FFFFFF" : "#111827";
+  const body = isDark ? "#D1D5DB" : "#374151";
+  const sub = isDark ? "#9CA3AF" : "#6B7280";
+  const subStrong = isDark ? "#D1D5DB" : "#4B5563";
+  const divider = isDark ? "#374151" : "#F3F4F6";
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.background },
+
+    headerBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingTop: 12,
+      paddingBottom: 12,
+      backgroundColor: colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? "#374151" : "#E5E7EB",
+    },
+    headerTitle: { flex: 1, fontSize: 16, fontWeight: "700", color: strong },
+    headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+    filterBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      backgroundColor: isDark ? "#374151" : "#F3F4F6",
+    },
+    filterBtnText: { maxWidth: 96, fontSize: 12, fontWeight: "600", color: isDark ? "#E5E7EB" : "#374151" },
+    plusBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: "#2563EB", alignItems: "center", justifyContent: "center" },
+
+    errorText: { color: "#EF4444", marginHorizontal: 12, marginBottom: 12, fontSize: 13 },
+
+    card: {
+      backgroundColor: colors.surface,
+      marginHorizontal: 12,
+      marginBottom: 16,
+      borderRadius: 12,
+      overflow: "hidden",
+      borderWidth: isDark ? 1 : 0,
+      borderColor: isDark ? "#334155" : "transparent",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: isDark ? 0 : 0.06,
+      shadowRadius: 2,
+      elevation: isDark ? 0 : 1,
+    },
+    cardBody: { padding: 12 },
+    authorRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+    avatar: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+    avatarText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
+    nameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
+    authorName: { flexShrink: 1, fontSize: 14, fontWeight: "600", color: strong },
+    roleChip: {
+      paddingHorizontal: 6,
+      paddingVertical: 2,
+      borderRadius: 999,
+      backgroundColor: isDark ? "rgba(30,58,138,0.4)" : "#DBEAFE",
+    },
+    roleChipText: { fontSize: 10, fontWeight: "500", color: isDark ? "#93C5FD" : "#1D4ED8" },
+    metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, flexWrap: "wrap" },
+    timestamp: { fontSize: 10, color: sub },
+    statusChip: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 999 },
+    statusText: { fontSize: 10, fontWeight: "600" },
+    ownerActions: { flexDirection: "row", alignItems: "center", gap: 2 },
+    ownerBtn: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+
+    title: { fontSize: 14, fontWeight: "700", color: strong, marginBottom: 4 },
+    description: { fontSize: 12, lineHeight: 17, color: body, marginBottom: 8 },
+
+    details: { gap: 4, marginBottom: 4 },
+    detailRow: { flexDirection: "row", alignItems: "center" },
+    detailIcon: { marginRight: 4, width: 12, textAlign: "center" },
+    detailText: { flexShrink: 1, fontSize: 12, color: sub },
+    detailStrong: { fontSize: 12, fontWeight: "500", color: subStrong },
+
+    classRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+    classChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: isDark ? "rgba(20,83,45,0.4)" : "#DCFCE7" },
+    classChipText: { fontSize: 11, fontWeight: "500", color: isDark ? "#86EFAC" : "#15803D" },
+
+    statsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderTopWidth: 1,
+      borderTopColor: divider,
+    },
+    statsLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+    statItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+    statText: { fontSize: 13, color: sub },
+
+    actionsRow: {
+      flexDirection: "row",
+      gap: 4,
+      paddingHorizontal: 4,
+      paddingVertical: 4,
+      borderTopWidth: 1,
+      borderTopColor: divider,
+    },
+    actionBtn: { flex: 1, height: 34, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+
+    commentsBox: { borderTopWidth: 1, borderTopColor: divider, backgroundColor: isDark ? "rgba(17,24,39,0.5)" : "#F9FAFB" },
+    commentsList: { paddingHorizontal: 16, paddingVertical: 12, gap: 12 },
+    commentRow: { flexDirection: "row", gap: 8 },
+    commentAvatar: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+    commentAvatarText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
+    bubble: { borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+    bubbleMine: { backgroundColor: "#2563EB" },
+    bubbleOther: { backgroundColor: isDark ? "#374151" : "#F3F4F6" },
+    bubbleText: { fontSize: 14, color: isDark ? "#F3F4F6" : "#111827" },
+    commentTime: { fontSize: 11, color: sub, marginTop: 4 },
+    commentInputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderTopWidth: 1,
+      borderTopColor: isDark ? "#374151" : "#E5E7EB",
+    },
+    commentInputWrap: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: isDark ? "#374151" : "#F3F4F6",
+      borderRadius: 999,
+      paddingLeft: 16,
+      paddingRight: 12,
+    },
+    commentInput: { flex: 1, fontSize: 14, paddingVertical: 9, color: isDark ? "#FFFFFF" : "#111827" },
+
+    emptyCard: { padding: 32, alignItems: "center" },
+    emptyIcon: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      backgroundColor: isDark ? "#374151" : "#F3F4F6",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 16,
+    },
+    emptyTitle: { fontSize: 17, fontWeight: "600", color: strong, textAlign: "center", marginBottom: 8 },
+    emptyText: { fontSize: 14, color: sub, textAlign: "center", marginBottom: 20 },
+    emptyBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      backgroundColor: "#2563EB",
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderRadius: 8,
+    },
+    emptyBtnText: { color: "#FFFFFF", fontWeight: "600", fontSize: 14 },
+
+    footerLoader: { paddingVertical: 16, alignItems: "center" },
+    upToDate: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 24, paddingVertical: 20 },
+    upToDateLine: { flex: 1, height: 1, backgroundColor: isDark ? "#374151" : "#E5E7EB" },
+    upToDateText: { fontSize: 12, fontWeight: "500", color: isDark ? "#6B7280" : "#9CA3AF" },
+
+    sheetBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.6)" },
+    sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, gap: 6 },
+    sheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+    sheetTitle: { fontSize: 16, fontWeight: "700", color: strong },
+    sheetClose: {
+      width: 34,
+      height: 34,
+      borderRadius: 12,
+      backgroundColor: isDark ? "#374151" : "#F3F4F6",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    sheetItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12 },
+    sheetItemActive: { backgroundColor: isDark ? "rgba(30,58,138,0.3)" : "#EFF6FF" },
+    sheetItemIcon: { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+    sheetItemText: { flex: 1, fontSize: 14, color: isDark ? "#D1D5DB" : "#374151" },
+    sheetItemTextActive: { fontWeight: "600", color: isDark ? "#93C5FD" : "#1D4ED8" },
+
+    dialogBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: 16, backgroundColor: "rgba(0,0,0,0.6)" },
+    dialog: { width: "100%", maxWidth: 380, backgroundColor: colors.surface, borderRadius: 16, padding: 24 },
+    dialogIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      alignSelf: "center",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 16,
+      backgroundColor: isDark ? "rgba(127,29,29,0.3)" : "#FEE2E2",
+    },
+    dialogTitle: { fontSize: 18, fontWeight: "900", color: strong, textAlign: "center", marginBottom: 8 },
+    dialogText: { fontSize: 14, color: sub, textAlign: "center", marginBottom: 24 },
+    dialogRow: { flexDirection: "row", gap: 12 },
+    dialogBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+    dialogCancel: { backgroundColor: isDark ? "#374151" : "#F3F4F6" },
+    dialogCancelText: { fontWeight: "700", fontSize: 14, color: isDark ? "#D1D5DB" : "#4B5563" },
+    dialogDelete: { backgroundColor: "#DC2626" },
+    dialogDeleteText: { fontWeight: "700", fontSize: 14, color: "#FFFFFF" },
+  });
+};
 
 export default DashboardActivitiesBody;

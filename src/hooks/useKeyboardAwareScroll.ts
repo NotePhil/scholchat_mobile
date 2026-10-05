@@ -20,8 +20,13 @@ export function useKeyboardAwareScroll(extraOffset = 24) {
       // Deferred so the keyboard's show animation has already started sizing
       // the screen by the time we measure the field's position within it.
       requestAnimationFrame(() => {
+        // measureLayout needs a native component ref on the New Architecture;
+        // getInnerViewNode() returns a numeric handle, which it rejects.
+        // getInnerViewRef exists at runtime but is missing from RN's .d.ts.
+        const innerView = (scroller as ScrollView & { getInnerViewRef(): any }).getInnerViewRef();
+        if (!innerView) return;
         target.measureLayout(
-          scroller.getInnerViewNode(),
+          innerView,
           (_left: number, top: number) => {
             scroller.scrollTo({ y: Math.max(top - extraOffset, 0), animated: true });
           },

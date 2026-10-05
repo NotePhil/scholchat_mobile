@@ -96,6 +96,39 @@ export const classAdminService = {
     }
   },
 
+  /**
+   * GET /histo-activations/classe/{id} — the endpoint web's
+   * ClassService.obtenirHistoriqueActivation() actually calls (ManageClassDetailsView
+   * "Historique" modal). Each row: { id, active, etatClasse, dateActivation,
+   * dateDesactivation?, motifDesactivation? }.
+   */
+  getHistoActivations: async (classId: string): Promise<Record<string, any>[]> => {
+    try {
+      const { data } = await apiClient.get(`/histo-activations/classe/${classId}`);
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, "Échec du chargement de l'historique."));
+    }
+  },
+
+  /**
+   * PATCH /classes/{id}/reject with body { motif, motifSupplementaire } and
+   * ?motif= — same request shape as web's RejectionServiceClass.rejectClass()
+   * (used by the creator's self-rejection flow).
+   */
+  rejectWithDetails: async (id: string, motif: string, motifSupplementaire = ''): Promise<ClassEntity> => {
+    try {
+      const { data } = await apiClient.patch<ClassEntity>(
+        `/classes/${id}/reject`,
+        { motif, motifSupplementaire },
+        { params: { motif } }
+      );
+      return data;
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec du rejet de la classe.'));
+    }
+  },
+
   removeModerator: async (classId: string): Promise<ApiSuccess> => {
     try {
       await apiClient.delete(`/classes/${classId}/moderator`);

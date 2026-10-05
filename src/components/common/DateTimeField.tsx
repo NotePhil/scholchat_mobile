@@ -3,6 +3,7 @@ import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { colors, radius, spacing, typography, useThemeColors } from '../../styles/theme';
+import { parseServerDate } from '../../utils/dates';
 
 interface DateTimeFieldProps {
   label: string;
@@ -22,7 +23,7 @@ const DateTimeField = ({ label, value, onChange, required }: DateTimeFieldProps)
   const [stage, setStage] = useState<'none' | 'date' | 'time'>('none');
   const [pendingDate, setPendingDate] = useState<Date | null>(null);
 
-  const current = value ? new Date(value) : null;
+  const current = parseServerDate(value);
 
   const open = () => {
     setPendingDate(current ?? new Date());

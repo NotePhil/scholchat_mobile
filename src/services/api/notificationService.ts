@@ -1,12 +1,35 @@
 import { apiClient, extractErrorMessage } from './client';
 import { ApiSuccess } from '../../types';
-import { NotificationItem } from '../../store/useNotificationsStore';
+import type { NotificationItem } from '../../store/useNotificationsStore';
+import { toServerDateTime } from '../../utils/dates';
+
+/**
+ * Backend (Notification.java / NotificationEntity) serializes its Lombok
+ * `boolean isRead` as JSON `read`, and `createdAt` as an ISO instant (older
+ * servers: a zone-less LocalDateTime that may carry microseconds). Normalize once here so every
+ * screen can rely on `isRead` and a Hermes-parsable `createdAt`.
+ */
+export const normalizeNotification = (raw: Record<string, unknown>): NotificationItem => {
+  const read = raw.read ?? raw.isRead;
+  // Accepts ISO instants, legacy naive strings (≥6 fractional digits, which
+  // Hermes rejects) and Jackson timestamp arrays; re-emitted as ISO "…Z".
+  const createdAt = toServerDateTime(raw.createdAt) ?? (typeof raw.createdAt === 'string' ? raw.createdAt : undefined);
+  return {
+    ...(raw as NotificationItem),
+    id: String(raw.id ?? ''),
+    isRead: read === true,
+    createdAt,
+  };
+};
+
+const normalizeList = (data: unknown): NotificationItem[] =>
+  Array.isArray(data) ? data.map((n) => normalizeNotification(n as Record<string, unknown>)) : [];
 
 export const notificationService = {
   getAll: async (): Promise<NotificationItem[]> => {
     try {
-      const { data } = await apiClient.get<NotificationItem[]>('/notifications');
-      return data;
+      const { data } = await apiClient.get('/notifications');
+      return normalizeList(data);
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du chargement des notifications.'));
     }
@@ -14,8 +37,8 @@ export const notificationService = {
 
   getUnread: async (): Promise<NotificationItem[]> => {
     try {
-      const { data } = await apiClient.get<NotificationItem[]>('/notifications/unread');
-      return data;
+      const { data } = await apiClient.get('/notifications/unread');
+      return normalizeList(data);
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du chargement des notifications.'));
     }

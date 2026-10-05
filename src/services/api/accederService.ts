@@ -32,6 +32,16 @@ export const accederService = {
     }
   },
 
+  /** GET /acceder/utilisateurs/{id}/demandes — the user's own access requests (all states). */
+  getMyRequests: async (utilisateurId: string): Promise<AccessRequest[]> => {
+    try {
+      const { data } = await apiClient.get<AccessRequest[]>(`/acceder/utilisateurs/${utilisateurId}/demandes`);
+      return data;
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, "Échec du chargement des demandes d'accès."));
+    }
+  },
+
   getRequestsForModerator: async (moderatorId: string): Promise<AccessRequest[]> => {
     try {
       const { data } = await apiClient.get<AccessRequest[]>(`/acceder/moderator/${moderatorId}/demandes`);

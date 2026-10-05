@@ -10,7 +10,9 @@ import { NotificationItem } from "../../store/useNotificationsStore";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 import ChildSelectorRow from "../parent/ChildSelectorRow";
+import CourseProgressCard from "./CourseProgressCard";
 import type { QuickAction } from "./QuickActionsSheet";
+import { formatDate, parseServerDate } from "../../utils/dates";
 
 const CHART_WIDTH = Dimensions.get("window").width - 32;
 const chartConfig = {
@@ -110,7 +112,7 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
   }
 
   const upcomingCourses = courses.filter((c) => {
-    const d = c.dateCoursPrevue ? new Date(c.dateCoursPrevue) : null;
+    const d = parseServerDate(c.dateCoursPrevue);
     return d && d > new Date() && c.etatCoursProgramme === "PLANIFIE";
   });
   const completedCourses = courses.filter((c) => c.etatCoursProgramme === "TERMINE");
@@ -171,7 +173,7 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
     <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}>
       <View style={styles.header}>
         <HeroCard
-          title={`Bonjour${firstName ? `, ${firstName}` : ""} 👋`}
+          title={`Bonjour${firstName ? `, ${firstName}` : ""}`}
           subtitle={heroSubtitle}
           accentColor={accentColor}
           topRight={
@@ -218,6 +220,15 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
               </TouchableOpacity>
             ))}
           </View>
+
+          {/* Progression per course + homework (own, or the selected child's) — web: CourseProgressPanel */}
+          <CourseProgressCard
+            key={isParent ? selectedChildId ?? "none" : user?.userId}
+            learnerId={isParent ? selectedChildId : user?.userId ?? null}
+            learnerName={isParent ? children.find((c) => c.id === selectedChildId)?.prenom || "" : ""}
+            onOpenCourses={onNavigate ? () => onNavigate("courses") : undefined}
+            onOpenDevoirs={onNavigate ? () => onNavigate("devoirs") : undefined}
+          />
 
           {courses.length > 0 && (
             <>
@@ -307,7 +318,7 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
               <EmptyState icon="calendar" title="Aucun cours planifié pour le moment" />
             ) : (
               upcomingCourses.slice(0, 5).map((course) => {
-                const d = course.dateCoursPrevue ? new Date(course.dateCoursPrevue) : null;
+                const d = parseServerDate(course.dateCoursPrevue);
                 return (
                   <View key={course.id} style={styles.listRow}>
                     <View style={[styles.listAvatar, { backgroundColor: colors.primaryLight }]}>
@@ -355,7 +366,7 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
                       </Text>
                     </View>
                     {n.createdAt ? (
-                      <Text style={styles.listTime}>{new Date(n.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}</Text>
+                      <Text style={styles.listTime}>{formatDate(n.createdAt, { day: "numeric", month: "short" })}</Text>
                     ) : null}
                   </View>
                 ))

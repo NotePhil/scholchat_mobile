@@ -21,6 +21,10 @@ import { colors, radius, spacing, typography, useThemeColors } from "../../style
 import { classAdminService, establishmentService, professorService } from "../../services/api";
 import { classService } from "../../services/classService";
 import { ClassEntity, Etablissement, Gestionnaire, Professor } from "../../types";
+import { formatDate } from "../../utils/dates";
+import { useT } from "../../i18n";
+import { useAuthStore } from "../../store/useAuthStore";
+import { getClassActionTexts, useClassActionConfirm } from "../../hooks/useClassActionConfirm";
 
 type Tab = "classes" | "professeurs" | "settings" | "info";
 
@@ -56,6 +60,8 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Deleting an établissement is admin-only (backend DELETE /etablissements/* requires ADMIN).
+  const isAdmin = useAuthStore((s) => s.role) === "admin";
   const [showEdit, setShowEdit] = useState(false);
   const [showCreateClass, setShowCreateClass] = useState(false);
   const [tab, setTab] = useState<Tab>("classes");
@@ -63,6 +69,8 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
   // Managing a class inside establishment
   const [managedClass, setManagedClass] = useState<ClassEntity | null>(null);
   const [rejectingClass, setRejectingClass] = useState<ClassEntity | null>(null);
+  const { t } = useT();
+  const { askConfirm, confirmDialog } = useClassActionConfirm();
   const [viewingProfessor, setViewingProfessor] = useState<Professor | null>(null);
   const [loadingProfessor, setLoadingProfessor] = useState(false);
   const [deletingProfessor, setDeletingProfessor] = useState(false);
@@ -149,14 +157,13 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
   // matches what web's gestionnaire screen actually calls
   // (classService.approuverClasse/rejeterClasse); the establishment-scoped
   // pair this used to call takes no rejection reason at all.
-  const handleApproveClass = async (cls: ClassEntity) => {
-    try {
+  // Each action asks for confirmation first (same wording as web, see
+  // hooks/useClassActionConfirm). Reject's confirmation is the reason sheet.
+  const handleApproveClass = (cls: ClassEntity) => {
+    askConfirm("approve", cls.nom, async () => {
       await classAdminService.approve(cls.id);
-      Alert.alert("Succès", `Classe "${cls.nom}" approuvée.`);
       load(true);
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'approbation.");
-    }
+    });
   };
 
   const handleRejectClass = (cls: ClassEntity) => {
@@ -168,10 +175,10 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
     try {
       await classAdminService.reject(rejectingClass.id, motif);
       setRejectingClass(null);
-      Alert.alert("Succès", `Classe "${rejectingClass.nom}" rejetée.`);
+      Alert.alert(t("classConfirm.successTitle"), t("classConfirm.rejectSuccess"));
       load(true);
     } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du rejet.");
+      Alert.alert(t("common.error"), err instanceof Error ? err.message : t("classConfirm.rejectError"));
     }
   };
 
@@ -188,21 +195,10 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
   };
 
   const handleDeleteClass = (cls: ClassEntity) => {
-    Alert.alert("Supprimer la classe", `Supprimer définitivement la classe "${cls.nom}" ?`, [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await classAdminService.remove(cls.id);
-            setClasses((prev) => prev.filter((c) => c.id !== cls.id));
-          } catch (err) {
-            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
-          }
-        },
-      },
-    ]);
+    askConfirm("delete", cls.nom, async () => {
+      await classAdminService.remove(cls.id);
+      setClasses((prev) => prev.filter((c) => c.id !== cls.id));
+    });
   };
 
   const handleSaveSettings = async () => {
@@ -348,14 +344,16 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
             <FontAwesome5 name="edit" size={13} color={colors.white} />
             <Text style={[styles.headerActionText, styles.headerActionTextPrimary]}>Modifier</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.headerActionBtn, styles.headerActionBtnDanger]}
-            onPress={handleDelete}
-            disabled={deleting}
-          >
-            <FontAwesome5 name="trash" size={13} color={colors.white} />
-            <Text style={[styles.headerActionText, styles.headerActionTextPrimary]}>Supprimer</Text>
-          </TouchableOpacity>
+          {isAdmin ? (
+            <TouchableOpacity
+              style={[styles.headerActionBtn, styles.headerActionBtnDanger]}
+              onPress={handleDelete}
+              disabled={deleting}
+            >
+              <FontAwesome5 name="trash" size={13} color={colors.white} />
+              <Text style={[styles.headerActionText, styles.headerActionTextPrimary]}>Supprimer</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -448,7 +446,7 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
                             {c.niveau ?? ""}
                             {(c as any).codeActivation ? ` • Code: ${(c as any).codeActivation}` : ""}
                             {(c as any).dateCreation
-                              ? ` • ${new Date((c as any).dateCreation).toLocaleDateString("fr-FR")}`
+                              ? ` • ${formatDate((c as any).dateCreation)}`
                               : ""}
                           </Text>
                           <View style={{ marginTop: 4, flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -606,7 +604,7 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
             <Row
               icon="calendar-alt"
               label="Date de création"
-              value={establishment.dateCreation ? new Date(establishment.dateCreation).toLocaleDateString("fr-FR") : "N/A"}
+              value={establishment.dateCreation ? formatDate(establishment.dateCreation) : "N/A"}
             />
             <Row icon="key" label="Code Unique" value={establishment.codeUnique || "Non défini"} mono />
             <Row icon="chalkboard" label="Total Classes" value={String(classes.length)} />
@@ -639,13 +637,17 @@ const EstablishmentDetails = ({ establishmentId, onBack }: EstablishmentDetailsP
 
       <PromptSheet
         visible={!!rejectingClass}
-        title="Motif du rejet"
-        message={rejectingClass ? `Pourquoi rejeter "${rejectingClass.nom}" ?` : undefined}
-        placeholder="Motif"
-        submitLabel="Rejeter"
+        title={t("classConfirm.rejectTitle")}
+        description={rejectingClass ? getClassActionTexts("reject", rejectingClass.nom, t).message : undefined}
+        message={t("classConfirm.reasonLabel")}
+        placeholder={t("classConfirm.reasonPlaceholder")}
+        submitLabel={t("classConfirm.confirm")}
+        cancelLabel={t("classConfirm.cancel")}
+        destructive
         onCancel={() => setRejectingClass(null)}
         onSubmit={handleConfirmRejectClass}
       />
+      {confirmDialog}
 
       <BottomSheet
         visible={!!viewingProfessor}
@@ -731,7 +733,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 50,
+    paddingTop: 16,
     paddingBottom: 14,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,

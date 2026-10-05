@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { formatDate } from '../../utils/dates';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -8,6 +9,7 @@ import { colors, spacing, typography, useThemeColors } from '../../styles/theme'
 import { contratService } from '../../services/api';
 import { PaymentInfo } from '../../services/api/contratService';
 import PaymentModal from '../../components/common/PaymentModal';
+import { useT } from '../../i18n';
 
 type EntityType = 'CLASSE' | 'ETABLISSEMENT';
 
@@ -15,6 +17,7 @@ type EntityType = 'CLASSE' | 'ETABLISSEMENT';
 const RenewalScreen = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t, locale } = useT();
   const navigation = useNavigation();
   const route = useRoute<any>();
   const token: string | undefined = route.params?.token;
@@ -22,7 +25,7 @@ const RenewalScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Button label="Retour à la connexion" variant="ghost" onPress={() => navigation.goBack()} />
+        <Button label={t('auth.common.backToLogin')} variant="ghost" onPress={() => navigation.goBack()} />
         {token ? <RenewalWithToken token={token} /> : <RenewalRequestForm />}
       </ScrollView>
     </SafeAreaView>
@@ -32,6 +35,7 @@ const RenewalScreen = () => {
 const RenewalRequestForm = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t, locale } = useT();
   const [email, setEmail] = useState('');
   const [entityType, setEntityType] = useState<EntityType>('CLASSE');
   const [entityId, setEntityId] = useState('');
@@ -41,7 +45,7 @@ const RenewalRequestForm = () => {
 
   const handleSubmit = async () => {
     if (!email.trim() || !entityId.trim()) {
-      setError("Merci de renseigner votre email et l'identifiant de votre classe ou établissement.");
+      setError(t('auth.renewal.missingFields'));
       return;
     }
     setLoading(true);
@@ -65,11 +69,8 @@ const RenewalRequestForm = () => {
       <Card>
         <View style={styles.center}>
           <FontAwesome5 name="check-circle" size={36} color={colors.success} />
-          <Text style={styles.title}>Demande envoyée</Text>
-          <Text style={styles.message}>
-            Si les informations correspondent à un compte existant, un email contenant un lien de renouvellement
-            vient de vous être envoyé.
-          </Text>
+          <Text style={styles.title}>{t('auth.signup.rolePending.title')}</Text>
+          <Text style={styles.message}>{t('auth.renewal.sentMessage')}</Text>
         </View>
       </Card>
     );
@@ -77,18 +78,16 @@ const RenewalRequestForm = () => {
 
   return (
     <Card>
-      <Text style={styles.title}>Renouveler mon compte</Text>
-      <Text style={styles.message}>
-        Renseignez votre email et l'identifiant de votre classe ou établissement. Vous recevrez un lien sécurisé.
-      </Text>
+      <Text style={styles.title}>{t('auth.renewal.title')}</Text>
+      <Text style={styles.message}>{t('auth.renewal.subtitle')}</Text>
 
-      <Input label="Email" value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" error={error} />
+      <Input label={t('auth.common.email')} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" error={error} />
 
       <View style={styles.toggleRow}>
         {(['CLASSE', 'ETABLISSEMENT'] as EntityType[]).map((type) => (
           <Button
             key={type}
-            label={type === 'CLASSE' ? 'ID de classe' : "ID d'établissement"}
+            label={type === 'CLASSE' ? t('auth.renewal.classId') : t('auth.renewal.establishmentId')}
             variant={entityType === type ? 'primary' : 'secondary'}
             onPress={() => setEntityType(type)}
             style={styles.toggleButton}
@@ -97,12 +96,12 @@ const RenewalRequestForm = () => {
       </View>
 
       <Input
-        label={entityType === 'CLASSE' ? 'Identifiant de la classe' : "Identifiant de l'établissement"}
+        label={entityType === 'CLASSE' ? t('auth.renewal.classIdLabel') : t('auth.renewal.establishmentIdLabel')}
         value={entityId}
         onChangeText={setEntityId}
       />
 
-      <Button label="Envoyer le lien de renouvellement" onPress={handleSubmit} loading={loading} fullWidth />
+      <Button label={t('auth.renewal.sendLink')} onPress={handleSubmit} loading={loading} fullWidth />
     </Card>
   );
 };
@@ -110,6 +109,7 @@ const RenewalRequestForm = () => {
 const RenewalWithToken = ({ token }: { token: string }) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t, locale } = useT();
   const [statut, setStatut] = useState<Record<string, any> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -129,7 +129,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
         setStatut(data);
         if (data?.contratCourant?.periodicite) setPeriodicite(data.contratCourant.periodicite as 'MENSUEL' | 'ANNUEL');
       } catch {
-        setError('Ce lien de renouvellement est invalide ou a expiré. Merci de refaire une demande.');
+        setError(t('auth.renewal.invalidLink'));
       } finally {
         setLoading(false);
       }
@@ -159,13 +159,13 @@ const RenewalWithToken = ({ token }: { token: string }) => {
       setSuccess(true);
     } catch (err) {
       setShowPayment(false);
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue lors du renouvellement.');
+      setError(err instanceof Error ? err.message : t('auth.renewal.failed'));
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (loading) return <LoadingSpinner label="Chargement..." />;
+  if (loading) return <LoadingSpinner label={t('common.loading')} />;
 
   if (error && !statut) {
     return (
@@ -183,8 +183,8 @@ const RenewalWithToken = ({ token }: { token: string }) => {
       <Card>
         <View style={styles.center}>
           <FontAwesome5 name="check-circle" size={36} color={colors.success} />
-          <Text style={styles.title}>Offre activée !</Text>
-          <Text style={styles.message}>Votre offre a été renouvelée avec succès. Vous pouvez maintenant vous connecter.</Text>
+          <Text style={styles.title}>{t('auth.renewal.successTitle')}</Text>
+          <Text style={styles.message}>{t('auth.renewal.successMessage')}</Text>
         </View>
       </Card>
     );
@@ -192,30 +192,30 @@ const RenewalWithToken = ({ token }: { token: string }) => {
 
   return (
     <Card>
-      <Text style={styles.title}>Renouvellement — {statut?.nom}</Text>
+      <Text style={styles.title}>{t('auth.renewal.renewalOf', { name: statut?.nom ?? '' })}</Text>
 
       {contrat && (
         <View style={styles.infoBox}>
-          <Text style={styles.infoLabel}>Offre actuelle</Text>
+          <Text style={styles.infoLabel}>{t('auth.renewal.currentOffer')}</Text>
           <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Forfait</Text>
+            <Text style={styles.infoKey}>{t('auth.renewal.plan')}</Text>
             <Text style={styles.infoValue}>{contrat.offreNom}</Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoKey}>Statut</Text>
+            <Text style={styles.infoKey}>{t('auth.renewal.status')}</Text>
             <Text style={[styles.infoValue, { color: contrat.statut === 'ACTIF' ? colors.success : colors.danger }]}>
               {contrat.statut}
             </Text>
           </View>
           {contrat.dateFin && (
             <View style={styles.infoRow}>
-              <Text style={styles.infoKey}>Expire le</Text>
-              <Text style={styles.infoValue}>{new Date(contrat.dateFin).toLocaleDateString('fr-FR')}</Text>
+              <Text style={styles.infoKey}>{t('auth.renewal.expiresOn')}</Text>
+              <Text style={styles.infoValue}>{formatDate(contrat.dateFin)}</Text>
             </View>
           )}
           {contrat.classesMax != null && (
             <View style={styles.infoRow}>
-              <Text style={styles.infoKey}>Classes</Text>
+              <Text style={styles.infoKey}>{t('auth.renewal.classes')}</Text>
               <Text style={styles.infoValue}>
                 {contrat.classesUtilisees ?? 0} / {contrat.classesMax}
               </Text>
@@ -228,7 +228,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
 
       <View style={styles.toggleRow}>
         <Button
-          label="Prolonger la même offre"
+          label={t('auth.renewal.extend')}
           variant={action === 'prolonger' ? 'primary' : 'secondary'}
           onPress={() => {
             setAction('prolonger');
@@ -237,7 +237,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
           style={styles.toggleButton}
         />
         <Button
-          label="Changer d'offre"
+          label={t('auth.renewal.change')}
           variant={action === 'changer' ? 'primary' : 'secondary'}
           onPress={() => {
             setAction('changer');
@@ -251,7 +251,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
         offres.map((offre) => (
           <Button
             key={offre.id}
-            label={`${offre.nom}${offre.prixMensuel ? ` — ${Number(offre.prixMensuel).toLocaleString('fr-FR')} FCFA/mois` : ''}`}
+            label={`${offre.nom}${offre.prixMensuel ? ` — ${Number(offre.prixMensuel).toLocaleString(locale)} ${t('auth.renewal.perMonth')}` : ''}`}
             variant={nouvelleOffreId === offre.id ? 'primary' : 'secondary'}
             onPress={() => setNouvelleOffreId(offre.id)}
             fullWidth
@@ -261,13 +261,13 @@ const RenewalWithToken = ({ token }: { token: string }) => {
 
       <View style={styles.toggleRow}>
         <Button
-          label="Mensuel"
+          label={t('auth.renewal.monthly')}
           variant={periodicite === 'MENSUEL' ? 'primary' : 'secondary'}
           onPress={() => setPeriodicite('MENSUEL')}
           style={styles.toggleButton}
         />
         <Button
-          label="Annuel"
+          label={t('auth.renewal.yearly')}
           variant={periodicite === 'ANNUEL' ? 'primary' : 'secondary'}
           onPress={() => setPeriodicite('ANNUEL')}
           style={styles.toggleButton}
@@ -276,15 +276,15 @@ const RenewalWithToken = ({ token }: { token: string }) => {
 
       {montant > 0 ? (
         <Text style={styles.montantText}>
-          Montant : <Text style={styles.montantValue}>{montant.toLocaleString('fr-FR')} FCFA</Text>
+          {t('auth.renewal.amount')} <Text style={styles.montantValue}>{montant.toLocaleString(locale)} FCFA</Text>
         </Text>
       ) : null}
 
       <Button
-        label="Procéder au paiement"
+        label={t('auth.renewal.pay')}
         onPress={() => {
           if (action === 'changer' && !nouvelleOffreId) {
-            setError('Veuillez sélectionner une offre.');
+            setError(t('auth.renewal.selectOffer'));
             return;
           }
           setError('');
@@ -300,8 +300,8 @@ const RenewalWithToken = ({ token }: { token: string }) => {
         onClose={() => setShowPayment(false)}
         onSuccess={handlePaymentSuccess}
         montant={montant}
-        label={action === 'changer' ? offreCible?.nom || 'Nouvelle offre' : contrat?.offreNom || 'Renouvellement'}
-        subLabel={periodicite === 'ANNUEL' ? 'Périodicité annuelle' : 'Périodicité mensuelle'}
+        label={action === 'changer' ? offreCible?.nom || t('auth.renewal.newOffer') : contrat?.offreNom || t('auth.renewal.renewal')}
+        subLabel={periodicite === 'ANNUEL' ? t('auth.renewal.yearlyPeriod') : t('auth.renewal.monthlyPeriod')}
       />
     </Card>
   );

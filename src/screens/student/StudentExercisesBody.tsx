@@ -1,22 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { colors, typography, useThemeColors } from "../../styles/theme";
+import { typography, useThemeColors } from "../../styles/theme";
 import { accederService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
 import DevoirsBody from "../shared/DevoirsBody";
+import { useT } from "../../i18n";
 
 /**
- * "Mes devoirs" — mirrors web's StudentDevoirsContent.jsx (shared verbatim
- * with the parent role there too). Used to list every "accessible" exercise
- * regardless of whether it was actually assigned as class homework, with no
- * due date/status/grade; now sources the same class-scoped DEVOIR-type
- * programmed exercises web does, via the shared DevoirsBody component.
+ * "Mes devoirs" — mirrors web's StudentDevoirsContent.jsx: the class-scoped
+ * DEVOIR-type programmed exercises, via the shared DevoirsBody. Attempts
+ * open the full-screen ExerciseAttempt page.
  */
 const StudentExercisesBody = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
+  const { t } = useT();
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
 
@@ -39,16 +39,16 @@ const StudentExercisesBody = () => {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Mes devoirs</Text>
+        <Text style={styles.title}>{t("devoirs.title")}</Text>
       </View>
-      <DevoirsBody userId={user?.userId ?? null} classes={classes} classesLoading={classesLoading} />
+      <DevoirsBody userId={user?.userId ?? null} classes={classes} classesLoading={classesLoading} onRefreshClasses={loadClasses} />
     </View>
   );
 };
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingHorizontal: 16, marginTop: 20, marginBottom: 12 },
+  header: { paddingHorizontal: 16, marginTop: 8, marginBottom: 12 },
   title: { ...typography.h1, color: colors.text },
 });
 

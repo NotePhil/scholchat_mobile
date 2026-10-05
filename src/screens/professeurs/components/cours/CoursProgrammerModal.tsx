@@ -11,6 +11,7 @@ import { accederService, coursProgrammerService } from '../../../../services/api
 import { useUser } from '../../../../context/UserContext';
 import { ClassEntity, ClassUser, CoursProgramme } from '../../../../types';
 import { Cours } from './DashboardCoursBody';
+import { formatDateTime } from '../../../../utils/dates';
 
 interface CoursProgrammerModalProps {
   visible: boolean;
@@ -26,7 +27,7 @@ type ViewMode = 'list' | 'form';
 const STATUS_LABELS: Record<string, string> = { PLANIFIE: 'Planifié', EN_COURS: 'En cours', TERMINE: 'Terminé', ANNULE: 'Annulé' };
 const STATUS_TONE: Record<string, 'info' | 'success' | 'neutral' | 'danger'> = { PLANIFIE: 'info', EN_COURS: 'success', TERMINE: 'neutral', ANNULE: 'danger' };
 
-const fmtDateTime = (d?: string | null) => (d ? new Date(d).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
+const fmtDateTime = (d?: string | null) => (d ? formatDateTime(d, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 /**
  * "Cours programmés" — merges what used to be two separate, much thinner

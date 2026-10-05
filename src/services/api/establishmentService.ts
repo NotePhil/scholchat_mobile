@@ -66,18 +66,22 @@ export const establishmentService = {
   },
 
   /** Emailed-link class approval/rejection — no login required, reached via ClassApprovalScreen/ClassRejectionScreen. */
-  approveClass: async (classeId: string, etablissementId: string): Promise<ApiSuccess> => {
+  approveClass: async (classeId: string, etablissementId: string, token?: string): Promise<ApiSuccess> => {
     try {
-      await apiClient.post(`/etablissements/approve-class/${classeId}/${etablissementId}`);
+      await apiClient.post(`/etablissements/approve-class/${classeId}/${etablissementId}`, null, {
+        params: token ? { token } : undefined,
+      });
       return { success: true };
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Erreur lors de la validation de la classe.'));
     }
   },
 
-  rejectClass: async (classeId: string, etablissementId: string): Promise<ApiSuccess> => {
+  rejectClass: async (classeId: string, etablissementId: string, token?: string): Promise<ApiSuccess> => {
     try {
-      await apiClient.post(`/etablissements/reject-class/${classeId}/${etablissementId}`);
+      await apiClient.post(`/etablissements/reject-class/${classeId}/${etablissementId}`, null, {
+        params: token ? { token } : undefined,
+      });
       return { success: true };
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Erreur lors du rejet de la classe.'));

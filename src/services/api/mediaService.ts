@@ -1,11 +1,33 @@
 import { apiClient, extractErrorMessage } from './client';
 import { environment } from '../../environment/environment';
 import { storageService } from '../storageService';
+import { timeZoneHeaders } from '../../utils/dates';
 
 export interface PresignedUrlResponse {
   url: string;
+  fileName?: string;
+  /** Storage key, e.g. `users/<me>/image/messages/<fileName>`. */
+  filePath?: string;
   [key: string]: unknown;
 }
+
+export interface UploadedFileRef {
+  /** Storage key to reference the file with (e.g. in a message's `medias`). */
+  filePath: string;
+  /** Upload URL without its query string. */
+  url: string;
+  /** Unique stored file name (timestamp + random prefix). */
+  fileName: string;
+}
+
+/** Storage key from an upload URL when the presign response didn't carry `filePath`. */
+const storageKeyFromUrl = (rawUrl: string): string => {
+  const clean = rawUrl.split('?')[0];
+  const m = clean.match(/^https?:\/\/[^/]+\/(.*)$/i);
+  const path = decodeURIComponent(m ? m[1] : clean);
+  const idx = path.indexOf('users/');
+  return idx >= 0 ? path.slice(idx) : path;
+};
 
 export interface UploadableFile {
   uri: string;
@@ -83,6 +105,47 @@ export const mediaService = {
     return presigned.url.split('?')[0];
   },
 
+  /**
+   * Presign → PUT flow that also returns the storage key (`filePath`) and
+   * reports byte progress (0..1). The stored name is made unique
+   * (`<Date.now()>_<random>_<name>`) because the server de-duplicates media rows
+   * by file name. Falls back to the backend proxy upload if the direct PUT fails.
+   */
+  uploadFileWithPath: async (
+    file: UploadableFile,
+    ownerId: string,
+    mediaType: 'DOCUMENT' | 'IMAGE' | 'VIDEO',
+    documentType: string,
+    onProgress?: (fraction: number) => void
+  ): Promise<UploadedFileRef> => {
+    const safeName = (file.name || 'fichier').replace(/[^\w.\-]+/g, '_');
+    const uniqueName = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}_${safeName}`;
+    const presigned = await mediaService.getPresignedUploadUrl(uniqueName, file.mimeType, ownerId, mediaType, documentType);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', presigned.url);
+        xhr.setRequestHeader('Content-Type', file.mimeType);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && e.total > 0) onProgress?.(Math.min(1, e.loaded / e.total));
+        };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`PUT ${xhr.status}`)));
+        xhr.onerror = () => reject(new Error('PUT network error'));
+        xhr.send({ uri: file.uri, type: file.mimeType, name: file.name } as unknown as Blob);
+      });
+    } catch (directError) {
+      console.warn('Direct upload failed, falling back to backend proxy:', directError);
+      await mediaService.proxyUpload(file, presigned.url, file.mimeType);
+    }
+    onProgress?.(1);
+    const url = presigned.url.split('?')[0];
+    return {
+      filePath: presigned.filePath || storageKeyFromUrl(presigned.url),
+      url,
+      fileName: presigned.fileName || uniqueName,
+    };
+  },
+
   /** FormData fallback proxy upload, matching backend POST /media/proxy-upload */
   proxyUpload: async (file: UploadableFile, presignedUrl: string, contentType: string): Promise<PresignedUrlResponse> => {
     try {
@@ -96,6 +159,7 @@ export const mediaService = {
         method: 'POST',
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...timeZoneHeaders(),
           'Content-Type': 'multipart/form-data',
         },
         body: formData,
@@ -133,6 +197,24 @@ export const mediaService = {
         params: { filePath },
       });
       return typeof data === 'string' ? data : data?.url ?? '';
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec du chargement du fichier.'));
+    }
+  },
+
+  /**
+   * Mirrors web's minioS3.generateDownloadUrlByPath: resolves a stored file
+   * path to the backend proxy URL (`/media/{id}/content`) when the media row
+   * is known, otherwise to the presigned URL the backend returns. This is the
+   * URL web embeds in course chapter HTML.
+   */
+  getContentUrlByPath: async (filePath: string): Promise<string> => {
+    try {
+      const { data } = await apiClient.get<{ id?: string; url?: string }>('/media/download-by-path', {
+        params: { filePath },
+      });
+      if (data?.id) return `${environment.baseUrl}/media/${data.id}/content`;
+      return data?.url ?? '';
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du chargement du fichier.'));
     }

@@ -1,246 +1,174 @@
-import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
-  StyleSheet,
-  Modal,
-  Animated,
-} from "react-native";
+import React, { useMemo } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
+import { useThemeStore } from "../../../../store/useThemeStore";
+import { ClassEntity } from "../../../../types";
+
+export type AccessRequestRole = "eleve" | "parent";
 
 interface AccessRequestModalProps {
   visible: boolean;
-  onClose: () => void;
+  /** Class resolved from GET /classes/by-code/{token}. */
+  foundClass: ClassEntity | null;
+  requestRole: AccessRequestRole;
+  setRequestRole: (role: AccessRequestRole) => void;
+  submitting: boolean;
   onCancel: () => void;
-  onValidate: () => void;
-  tokenValue: string;
-  setTokenValue: (value: string) => void;
-  isLoading: boolean;
-  showSuccess: boolean;
-  loadingAnimation: Animated.Value;
-  successAnimation: Animated.Value;
+  onSubmit: () => void;
 }
 
+const ROLE_OPTIONS: { value: AccessRequestRole; label: string; icon: string }[] = [
+  { value: "eleve", label: "Élève", icon: "user-graduate" },
+  { value: "parent", label: "Parent", icon: "user-friends" },
+];
+
+/**
+ * "Demande d'Accès" dialog — port of the Access Request Modal in
+ * scholchat_front's ClassesContent.jsx: shows the class found for the typed
+ * token (name, professeur, établissement), a "Demande en tant que" choice and
+ * Annuler / Envoyer la Demande.
+ */
 const AccessRequestModal = ({
   visible,
-  onClose,
+  foundClass,
+  requestRole,
+  setRequestRole,
+  submitting,
   onCancel,
-  onValidate,
-  tokenValue,
-  setTokenValue,
-  isLoading,
-  showSuccess,
-  loadingAnimation,
-  successAnimation,
+  onSubmit,
 }: AccessRequestModalProps) => {
-  const loadingRotation = loadingAnimation.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
+  const isDark = useThemeStore((s) => s.mode === "dark");
+  const styles = useMemo(() => createStyles(isDark), [isDark]);
+  const profName = foundClass?.professeur
+    ? `${foundClass.professeur.prenom || ""} ${foundClass.professeur.nom || ""}`.trim()
+    : foundClass?.moderator
+      ? `${foundClass.moderator.prenom || ""} ${foundClass.moderator.nom || ""}`.trim()
+      : "";
 
   return (
-    <Modal
-      visible={visible}
-      animationType="fade"
-      transparent={true}
-      onRequestClose={onClose}
-    >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContainer}>
-          {!isLoading && !showSuccess && (
-            <>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>
-                  Demande d'accès à une classe
-                </Text>
-                <TouchableOpacity
-                  onPress={onCancel}
-                  style={styles.modalCloseButton}
-                >
-                  <FontAwesome5 name="times" size={20} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalDescription}>
-                  Entrez votre token d'accès
-                </Text>
-                <TextInput
-                  style={styles.tokenInput}
-                  placeholder="Token d'accès"
-                  value={tokenValue}
-                  onChangeText={setTokenValue}
-                  placeholderTextColor="#9CA3AF"
-                />
-              </View>
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={onCancel}
-                >
-                  <Text style={styles.cancelButtonText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.validateButton}
-                  onPress={onValidate}
-                >
-                  <Text style={styles.validateButtonText}>Valider</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-          {isLoading && (
-            <View style={styles.loadingContainer}>
-              <Animated.View
-                style={[
-                  styles.loadingSpinner,
-                  { transform: [{ rotate: loadingRotation }] },
-                ]}
-              >
-                <FontAwesome5 name="spinner" size={32} color="#3B82F6" />
-              </Animated.View>
-              <Text style={styles.loadingText}>
-                Traitement de votre demande...
-              </Text>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.overlay}>
+        <View style={styles.dialog}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Demande d'Accès</Text>
+            <TouchableOpacity onPress={onCancel} style={styles.closeBtn} accessibilityLabel="Fermer">
+              <FontAwesome5 name="times-circle" size={20} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.body}>
+            <Text style={styles.lead}>
+              Vous demandez l'accès à : <Text style={styles.leadStrong}>{foundClass?.nom || "—"}</Text>
+            </Text>
+            <View style={styles.metaRow}>
+              <FontAwesome5 name="users" size={13} color="#6B7280" />
+              <Text style={styles.metaText}>{profName || "Professeur non spécifié"}</Text>
             </View>
-          )}
-          {showSuccess && (
-            <Animated.View
-              style={[styles.successContainer, { opacity: successAnimation }]}
-            >
-              <View style={styles.successIcon}>
-                <FontAwesome5 name="check" size={32} color="#FFFFFF" />
+            {foundClass?.etablissement?.nom ? (
+              <View style={styles.metaRow}>
+                <FontAwesome5 name="building" size={13} color="#6B7280" />
+                <Text style={styles.metaText}>{foundClass.etablissement.nom}</Text>
               </View>
-              <Text style={styles.successText}>
-                Demande envoyée avec succès!
-              </Text>
-            </Animated.View>
-          )}
+            ) : null}
+
+            <Text style={styles.label}>Demande en tant que</Text>
+            <View style={styles.segment}>
+              {ROLE_OPTIONS.map((opt) => {
+                const active = requestRole === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[styles.segmentBtn, active && styles.segmentBtnActive]}
+                    onPress={() => setRequestRole(opt.value)}
+                    activeOpacity={0.85}
+                  >
+                    <FontAwesome5 name={opt.icon as any} size={13} color={active ? "#FFFFFF" : isDark ? "#CBD5E1" : "#374151"} />
+                    <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <View style={styles.footer}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={onCancel} disabled={submitting}>
+              <Text style={styles.cancelText}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
+              onPress={onSubmit}
+              disabled={submitting}
+              activeOpacity={0.85}
+            >
+              {submitting ? <ActivityIndicator size="small" color="#FFFFFF" /> : null}
+              <Text style={styles.submitText}>Envoyer la Demande</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
   );
 };
 
-const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContainer: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    margin: 20,
-    width: "90%",
-    maxWidth: 400,
-    minHeight: 200,
-    justifyContent: "center",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#111827",
-    flex: 1,
-  },
-  modalCloseButton: {
-    padding: 8,
-  },
-  modalContent: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  modalDescription: {
-    fontSize: 16,
-    color: "#6B7280",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  tokenInput: {
-    backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#111827",
-    textAlign: "center",
-  },
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  cancelButtonText: {
-    color: "#374151",
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  validateButton: {
-    flex: 1,
-    backgroundColor: "#3B82F6",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  validateButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  loadingContainer: {
-    alignItems: "center",
-    paddingVertical: 40,
-  },
-  loadingSpinner: {
-    marginBottom: 16,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: "#6B7280",
-    textAlign: "center",
-  },
-  successContainer: {
-    alignItems: "center",
-    paddingVertical: 40,
-  },
-  successIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#10B981",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  successText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#10B981",
-    textAlign: "center",
-  },
-});
+const createStyles = (isDark: boolean) => {
+  const card = isDark ? "#1E293B" : "#FFFFFF";
+  const text = isDark ? "#F8FAFC" : "#111827";
+  const body = isDark ? "#CBD5E1" : "#374151";
+  const sub = isDark ? "#94A3B8" : "#6B7280";
+  const border = isDark ? "#334155" : "#E5E7EB";
+
+  return StyleSheet.create({
+    overlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "center",
+      padding: 16,
+    },
+    dialog: { backgroundColor: card, borderRadius: 12, padding: 24, maxHeight: "90%" },
+    header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
+    title: { fontSize: 20, fontWeight: "800", color: text, flex: 1 },
+    closeBtn: { padding: 4 },
+    body: { marginBottom: 8 },
+    lead: { fontSize: 15, color: body },
+    leadStrong: { fontWeight: "800", color: text },
+    metaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
+    metaText: { fontSize: 13, color: sub, flex: 1 },
+    label: { fontSize: 14, fontWeight: "600", color: body, marginTop: 20, marginBottom: 6 },
+    segment: { flexDirection: "row", gap: 8 },
+    segmentBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    segmentBtnActive: { backgroundColor: "#2563EB", borderColor: "#2563EB" },
+    segmentText: { fontSize: 14, fontWeight: "600", color: body },
+    segmentTextActive: { color: "#FFFFFF" },
+    footer: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 24, flexWrap: "wrap" },
+    cancelBtn: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: border,
+    },
+    cancelText: { fontSize: 14, color: body, fontWeight: "500" },
+    submitBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 8,
+      backgroundColor: "#2563EB",
+    },
+    submitText: { fontSize: 14, color: "#FFFFFF", fontWeight: "600" },
+  });
+};
 
 export default AccessRequestModal;

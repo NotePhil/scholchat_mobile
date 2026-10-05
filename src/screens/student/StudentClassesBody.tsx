@@ -1,285 +1,547 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
-import { Badge, EmptyState, LoadingSpinner } from "../../components/ui";
-import JoinClassSheet from "../shared/JoinClassSheet";
-import StudentClassDetailModal, { getLevelStyle } from "../shared/StudentClassDetailModal";
-import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { accederService, classAdminService } from "../../services/api";
+import { LinearGradient } from "expo-linear-gradient";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LoadingSpinner } from "../../components/ui";
+import StudentJoinClassPage from "./StudentJoinClassPage";
+import StudentClassDetailPage from "./StudentClassDetailPage";
+import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
+import { accederService, classAdminService, coursProgrammerService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
+import { useT } from "../../i18n";
+import { formatDate } from "../../utils/dates";
 
-type AccessState = "APPROVED" | "EN_ATTENTE" | "REJETEE" | "NONE";
+/**
+ * Student "Classes" tab — a phone-width port of web's StudentClassList.jsx
+ * (isParentView=false), which Principal.jsx renders for `case "classes"` for a
+ * student (ParentClassManagement). Same data flow as web:
+ *   1. GET /classes (kept: etat === "ACTIF") + GET /acceder/utilisateurs/{id}/classes
+ *   2. GET /acceder/utilisateurs/{id}/demandes — the student's own requests
+ *      (the per-class endpoint is restricted to class managers)
+ *   3. only classes with an access status are listed
+ *   4. course counts (GET /cours-programmes/by-classe/{id}) and member counts
+ *      (GET /acceder/classes/{id}/utilisateurs)
+ * The only way to add a class is "Rejoindre" (activation code), and opening an
+ * approved class shows its scheduled courses as a full page (back button).
+ */
 
-interface ClassWithAccess {
-  cls: ClassEntity;
-  access: AccessState;
-  motifRejet?: string;
-}
+type AccessStatus = "APPROVED" | "PENDING" | "REJECTED";
+
+export const LEVEL_CONFIG: Record<string, { color: string; bg: string }> = {
+  MATERNELLE: { color: "#1976D2", bg: "rgba(25,118,210,0.12)" },
+  PRIMAIRE: { color: "#2E7D32", bg: "rgba(46,125,50,0.12)" },
+  COLLEGE: { color: "#F57C00", bg: "rgba(245,124,0,0.12)" },
+  LYCEE: { color: "#D32F2F", bg: "rgba(211,47,47,0.12)" },
+  UNIVERSITE: { color: "#7B1FA2", bg: "rgba(123,31,162,0.12)" },
+  AUTRES: { color: "#757575", bg: "rgba(117,117,117,0.14)" },
+};
+
+export const getLevelKey = (niveau = "") => {
+  if (!niveau) return "AUTRES";
+  const n = niveau.toLowerCase();
+  if (n.includes("maternelle")) return "MATERNELLE";
+  if (n.includes("primaire") || n.includes("cp") || n.includes("ce") || n.includes("cm")) return "PRIMAIRE";
+  if (["6ème", "5ème", "4ème", "3ème"].some((v) => n.includes(v))) return "COLLEGE";
+  if (["2nde", "1ère", "terminale"].some((v) => n.includes(v))) return "LYCEE";
+  if (["licence", "master", "doctorat"].some((v) => n.includes(v))) return "UNIVERSITE";
+  return "AUTRES";
+};
+
+const ACCESS: Record<AccessStatus, { color: string; bg: string; border: string; icon: string }> = {
+  APPROVED: { color: "#16a34a", bg: "rgba(22,163,74,0.10)", border: "rgba(22,163,74,0.35)", icon: "check-circle" },
+  PENDING: { color: "#d97706", bg: "rgba(217,119,6,0.10)", border: "rgba(217,119,6,0.35)", icon: "clock" },
+  REJECTED: { color: "#dc2626", bg: "rgba(220,38,38,0.10)", border: "rgba(220,38,38,0.35)", icon: "lock" },
+};
+
+type View_ = { name: "list" } | { name: "join" } | { name: "detail"; classe: ClassEntity };
 
 const StudentClassesBody = () => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
+  const { t } = useT();
   const { user } = useUser();
-  const navigation = useNavigation<any>();
-  const [rows, setRows] = useState<ClassWithAccess[]>([]);
+  const userId = user?.userId;
+
+  const [allClasses, setAllClasses] = useState<ClassEntity[]>([]);
+  const [userClasses, setUserClasses] = useState<ClassEntity[]>([]);
+  const [accessMap, setAccessMap] = useState<Record<string, AccessStatus>>({});
+  const [courseCounts, setCourseCounts] = useState<Record<string, number>>({});
+  const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [showJoin, setShowJoin] = useState(false);
-  const [selectedClass, setSelectedClass] = useState<ClassEntity | null>(null);
+  const [search, setSearch] = useState("");
+  const [pendingMsg, setPendingMsg] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [view, setView] = useState<View_>({ name: "list" });
 
-  // Mirrors web's StudentClassList.jsx (isParentView=false, same component
-  // web serves to both students and parents): every class is shown, not just
-  // the ones already joined, with a per-class access status — mobile
-  // previously only fetched the approved subset (same fix already applied
-  // to ParentClassesBody.tsx for the parent role).
-  const load = useCallback(async () => {
-    if (!user?.userId) return;
+  const fetchData = useCallback(async () => {
+    if (!userId) return;
     setLoading(true);
     setError("");
     try {
-      const [approved, all] = await Promise.all([
-        accederService.getAccessibleClasses(user.userId),
+      const [allData, approvedData] = await Promise.all([
         classAdminService.getAll(),
+        accederService.getAccessibleClasses(userId),
       ]);
-      const approvedIds = new Set(approved.map((c) => c.id));
-      const pending = all.filter((c) => !approvedIds.has(c.id));
+      const active = (allData || []).filter((c) => c.etat === "ACTIF");
+      setAllClasses(active);
 
-      const requestResults = await Promise.all(
-        pending.map((c) => accederService.getRequestsForClass(c.id).catch(() => []))
-      );
-
-      const built: ClassWithAccess[] = all.map((cls) => {
-        if (approvedIds.has(cls.id)) {
-          return { cls, access: "APPROVED" as const };
-        }
-        const idx = pending.findIndex((c) => c.id === cls.id);
-        const requests = idx >= 0 ? requestResults[idx] : [];
-        const mine = requests
-          .filter((r) => r.utilisateurId === user.userId)
-          .sort((a, b) => new Date(b.dateDemande ?? 0).getTime() - new Date(a.dateDemande ?? 0).getTime())[0];
-        if (!mine) return { cls, access: "NONE" as const };
-        if (mine.etat === "APPROUVEE") return { cls, access: "APPROVED" as const };
-        if (mine.etat === "REJETEE") return { cls, access: "REJETEE" as const, motifRejet: mine.motifRejet };
-        return { cls, access: "EN_ATTENTE" as const };
+      const map: Record<string, AccessStatus> = {};
+      (approvedData || []).forEach((c) => {
+        map[c.id] = "APPROVED";
       });
 
-      setRows(built);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec du chargement des classes.");
+      // The student's own requests in one call; the latest one per class wins.
+      const myRequests = await accederService.getMyRequests(userId).catch(() => []);
+      const latestByClass: Record<string, (typeof myRequests)[number]> = {};
+      (myRequests || []).forEach((req) => {
+        const cid = (req as any).classeId ?? (req as any).classe?.id;
+        if (cid) latestByClass[String(cid)] = req;
+      });
+      Object.entries(latestByClass).forEach(([classId, latest]) => {
+        if (map[classId]) return;
+        const etat = (latest as any).etat || "";
+        if (etat === "APPROUVEE") map[classId] = "APPROVED";
+        else if (etat === "REJETEE") map[classId] = "REJECTED";
+        else map[classId] = "PENDING";
+      });
+      setAccessMap(map);
+
+      const myClasses = active.filter((c) => map[c.id]);
+      setUserClasses(myClasses);
+
+      const countMap: Record<string, number> = {};
+      const memberMap: Record<string, number> = {};
+      await Promise.all([
+        ...myClasses.map(async (c) => {
+          try {
+            countMap[c.id] = ((await coursProgrammerService.getByClasse(c.id)) || []).length;
+          } catch {
+            countMap[c.id] = 0;
+          }
+        }),
+        ...myClasses.map(async (c) => {
+          try {
+            memberMap[c.id] = ((await accederService.getUsersWithAccess(c.id)) || []).length;
+          } catch {
+            memberMap[c.id] = c.eleves?.length || 0;
+          }
+        }),
+      ]);
+      setCourseCounts(countMap);
+      setMemberCounts(memberMap);
+    } catch {
+      setError(t("studentClasses.loadError"));
     } finally {
       setLoading(false);
     }
-  }, [user?.userId]);
+  }, [userId, t]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    fetchData();
+  }, [fetchData]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await load();
+    await fetchData();
     setRefreshing(false);
   };
 
-  const handleRowPress = (row: ClassWithAccess) => {
-    if (row.access === "APPROVED") {
-      setSelectedClass(row.cls);
-    } else if (row.access === "EN_ATTENTE") {
-      Alert.alert("Demande en attente", `Votre demande d'accès à "${row.cls.nom}" est en attente de validation par le modérateur.`);
-    } else if (row.access === "REJETEE") {
-      Alert.alert(
-        "Demande refusée",
-        row.motifRejet
-          ? `Votre demande d'accès à "${row.cls.nom}" a été refusée : ${row.motifRejet}`
-          : `Votre demande d'accès à "${row.cls.nom}" a été refusée.`
-      );
-    } else {
-      setShowJoin(true);
-    }
+  // Called by the join page once POST /acceder/demandes succeeded — same
+  // local update as web's handleRequestAccess.
+  const handleRequested = (classe: ClassEntity) => {
+    setAccessMap((prev) => ({ ...prev, [classe.id]: "PENDING" }));
+    setUserClasses((prev) => (prev.some((c) => c.id === classe.id) ? prev : [...prev, classe]));
+    setFlash(t("studentClasses.requestSent"));
+    setView({ name: "list" });
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Mes classes</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowJoin(true)} activeOpacity={0.7}>
-          <FontAwesome5 name="plus" size={14} color={colors.white} />
-        </TouchableOpacity>
-      </View>
+  if (view.name === "join") {
+    return (
+      <StudentJoinClassPage
+        allClasses={allClasses}
+        userId={userId}
+        onBack={() => setView({ name: "list" })}
+        onRequested={handleRequested}
+      />
+    );
+  }
 
-      <ScrollView
-        style={styles.list}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[colors.primary]} />}
-      >
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-        {loading && !refreshing ? (
-          <LoadingSpinner label="Chargement des classes..." />
-        ) : rows.length === 0 ? (
-          <EmptyState
-            icon="chalkboard"
-            title="Aucune classe"
-            message="Aucune classe n'est disponible pour le moment."
-            actionLabel="Rejoindre une classe"
-            onAction={() => setShowJoin(true)}
+  if (view.name === "detail") {
+    return <StudentClassDetailPage classe={view.classe} onBack={() => setView({ name: "list" })} />;
+  }
+
+  const q = search.toLowerCase();
+  const filtered = userClasses.filter(
+    (c) => !search || c.nom?.toLowerCase().includes(q) || c.niveau?.toLowerCase().includes(q)
+  );
+  const approvedCount = userClasses.filter((c) => accessMap[c.id] === "APPROVED").length;
+  const pendingCount = userClasses.filter((c) => accessMap[c.id] === "PENDING").length;
+  const accessLabel = (s: AccessStatus) =>
+    s === "APPROVED"
+      ? t("studentClasses.accessApproved")
+      : s === "PENDING"
+      ? t("studentClasses.accessPending")
+      : t("studentClasses.accessRejected");
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 150 }]}
+      keyboardShouldPersistTaps="handled"
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[colors.primary]} />}
+    >
+      {/* Header */}
+      <LinearGradient colors={["#1d3557", "#457b9d"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+        <View style={styles.heroTop}>
+          <View style={styles.heroIcon}>
+            <FontAwesome5 name="book" size={17} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.heroTitle}>{t("studentClasses.title")}</Text>
+            <Text style={styles.heroSub}>{t("studentClasses.available", { count: userClasses.length })}</Text>
+          </View>
+          <TouchableOpacity style={styles.heroBtn} onPress={() => setView({ name: "join" })} activeOpacity={0.75}>
+            <FontAwesome5 name="search" size={11} color="#FFFFFF" />
+            <Text style={styles.heroBtnText}>{t("studentClasses.join")}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.heroIconBtn}
+            onPress={handleRefresh}
+            disabled={refreshing}
+            activeOpacity={0.75}
+            accessibilityLabel={t("studentClasses.refresh")}
+          >
+            {refreshing ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <FontAwesome5 name="sync-alt" size={12} color="#FFFFFF" />
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.statsStrip}>
+          {[
+            { icon: "book", val: userClasses.length, label: t("studentClasses.statTotal") },
+            { icon: "check-circle", val: approvedCount, label: t("studentClasses.statActive") },
+            { icon: "clock", val: pendingCount, label: t("studentClasses.statPending") },
+          ].map((s) => (
+            <View key={s.icon} style={styles.statChip}>
+              <FontAwesome5 name={s.icon} size={11} color="#FFFFFF" />
+              <Text style={styles.statVal}>{s.val}</Text>
+              <Text style={styles.statLabel}>{s.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.filterBox}>
+          <FontAwesome5 name="search" size={12} color="rgba(255,255,255,0.65)" />
+          <TextInput
+            style={styles.filterInput}
+            value={search}
+            onChangeText={setSearch}
+            placeholder={t("studentClasses.filterPlaceholder")}
+            placeholderTextColor="rgba(255,255,255,0.6)"
           />
-        ) : (
-          rows.map(({ cls, access, motifRejet }) => {
-            const levelStyle = getLevelStyle(cls.niveau);
-            const badge =
-              access === "APPROVED"
-                ? { label: "Inscrit", tone: "success" as const }
-                : access === "EN_ATTENTE"
-                ? { label: "Demande en attente", tone: "warning" as const }
-                : access === "REJETEE"
-                ? { label: "Demande refusée", tone: "danger" as const }
-                : null;
-            const actionLabel =
-              access === "APPROVED"
-                ? "Voir les détails"
-                : access === "EN_ATTENTE"
-                ? "Demande en attente"
-                : access === "REJETEE"
-                ? "Voir le motif"
-                : "Demander l'accès";
-            const actionIcon =
-              access === "APPROVED" ? "eye" : access === "EN_ATTENTE" ? "clock" : access === "REJETEE" ? "info-circle" : "paper-plane";
-            return (
-              <TouchableOpacity
-                key={cls.id}
-                style={styles.card}
-                onPress={() => handleRowPress({ cls, access, motifRejet })}
-                activeOpacity={0.7}
-              >
-                <View style={styles.cardTop}>
-                  <View style={styles.classIconWrap}>
-                    <FontAwesome5 name="graduation-cap" size={18} color={colors.primary} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle}>{cls.nom ?? "Classe"}</Text>
-                    {cls.niveau && (
-                      <View style={[styles.levelBadge, { backgroundColor: levelStyle.bg }]}>
-                        <Text style={[styles.levelBadgeText, { color: levelStyle.text }]}>{cls.niveau}</Text>
+          {search ? (
+            <TouchableOpacity onPress={() => setSearch("")} hitSlop={8}>
+              <FontAwesome5 name="times-circle" size={13} color="rgba(255,255,255,0.75)" solid />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </LinearGradient>
+
+      {flash ? (
+        <View style={[styles.banner, { backgroundColor: ACCESS.APPROVED.bg, borderColor: ACCESS.APPROVED.border }]}>
+          <FontAwesome5 name="check-circle" size={13} color={ACCESS.APPROVED.color} />
+          <Text style={[styles.bannerText, { color: ACCESS.APPROVED.color }]}>{flash}</Text>
+          <TouchableOpacity onPress={() => setFlash(null)} hitSlop={8}>
+            <Text style={[styles.bannerClose, { color: ACCESS.APPROVED.color }]}>{t("studentClasses.close")}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {pendingMsg ? (
+        <View style={[styles.banner, { backgroundColor: ACCESS.PENDING.bg, borderColor: ACCESS.PENDING.border }]}>
+          <FontAwesome5 name="clock" size={13} color={ACCESS.PENDING.color} />
+          <Text style={[styles.bannerText, { color: ACCESS.PENDING.color }]}>
+            {t("studentClasses.pendingMsg", { name: pendingMsg })}
+          </Text>
+          <TouchableOpacity onPress={() => setPendingMsg(null)} hitSlop={8}>
+            <Text style={[styles.bannerClose, { color: ACCESS.PENDING.color }]}>{t("studentClasses.close")}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {loading && !refreshing ? (
+        <LoadingSpinner label={t("studentClasses.loading")} />
+      ) : filtered.length === 0 ? (
+        <View style={styles.emptyCard}>
+          <FontAwesome5 name="book" size={44} color={colors.grayLight} />
+          <Text style={styles.emptyTitle}>
+            {userClasses.length === 0 ? t("studentClasses.emptyNone") : t("studentClasses.emptyFiltered")}
+          </Text>
+          <Text style={styles.emptyText}>
+            {userClasses.length === 0 ? t("studentClasses.emptyNoneHint") : t("studentClasses.emptyFilteredHint")}
+          </Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => setView({ name: "join" })} activeOpacity={0.85}>
+            <FontAwesome5 name="search" size={12} color="#FFFFFF" />
+            <Text style={styles.primaryBtnText}>{t("studentClasses.joinClass")}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        filtered.map((classe) => {
+          const status = accessMap[classe.id];
+          const isApproved = status === "APPROVED";
+          const isPending = status === "PENDING";
+          const levelCfg = LEVEL_CONFIG[getLevelKey(classe.niveau)];
+          const accessCfg = status ? ACCESS[status] : null;
+          const courseCount = courseCounts[classe.id] ?? "—";
+          const memberCount = memberCounts[classe.id] ?? (classe.eleves?.length || 0);
+          return (
+            <View key={classe.id} style={[styles.card, isApproved && { borderColor: "rgba(37,99,235,0.35)" }]}>
+              {isApproved ? (
+                <LinearGradient colors={["#2563eb", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.accent} />
+              ) : (
+                <View style={[styles.accent, { backgroundColor: colors.border }]} />
+              )}
+              <View style={styles.cardBody}>
+                <View style={styles.titleRow}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>{classe.nom}</Text>
+                    {classe.etablissement?.nom ? (
+                      <View style={styles.inlineRow}>
+                        <FontAwesome5 name="university" size={10} color={colors.textLight} />
+                        <Text style={styles.cardSub} numberOfLines={1}>{classe.etablissement.nom}</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
-                  {badge ? <Badge label={badge.label} tone={badge.tone} /> : null}
+                  <View style={[styles.levelPill, { backgroundColor: levelCfg.bg }]}>
+                    <Text style={[styles.levelPillText, { color: levelCfg.color }]} numberOfLines={1}>
+                      {classe.niveau || "—"}
+                    </Text>
+                  </View>
                 </View>
 
-                {cls.etablissement?.nom ? (
-                  <View style={styles.metaRow}>
-                    <FontAwesome5 name="school" size={12} color={colors.textMuted} />
-                    <Text style={styles.cardMeta} numberOfLines={1}>{cls.etablissement.nom}</Text>
+                <View style={styles.statsRow}>
+                  <View style={styles.inlineRow}>
+                    <View style={[styles.miniIcon, { backgroundColor: "rgba(37,99,235,0.12)" }]}>
+                      <FontAwesome5 name="book" size={10} color="#2563eb" />
+                    </View>
+                    <Text style={styles.statText}>
+                      <Text style={styles.statStrong}>{courseCount}</Text> {t("studentClasses.courses")}
+                    </Text>
+                  </View>
+                  <View style={styles.inlineRow}>
+                    <View style={[styles.miniIcon, { backgroundColor: "rgba(22,163,74,0.12)" }]}>
+                      <FontAwesome5 name="user-friends" size={10} color="#16a34a" />
+                    </View>
+                    <Text style={styles.statText}>
+                      <Text style={styles.statStrong}>{memberCount}</Text> {t("studentClasses.members")}
+                    </Text>
+                  </View>
+                  {classe.dateCreation ? (
+                    <View style={[styles.inlineRow, { marginLeft: "auto" }]}>
+                      <FontAwesome5 name="calendar-alt" size={10} color={colors.textLight} />
+                      <Text style={styles.cardSub}>{formatDate(classe.dateCreation, { day: "2-digit", month: "short" })}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {accessCfg && status ? (
+                  <View style={[styles.accessBadge, { backgroundColor: accessCfg.bg, borderColor: accessCfg.border }]}>
+                    <FontAwesome5 name={accessCfg.icon} size={10} color={accessCfg.color} />
+                    <Text style={[styles.accessBadgeText, { color: accessCfg.color }]}>{accessLabel(status)}</Text>
                   </View>
                 ) : null}
 
-                <View style={styles.cardActions}>
-                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleRowPress({ cls, access, motifRejet })}>
-                    <FontAwesome5 name={actionIcon} size={12} color={colors.primary} />
-                    <Text style={styles.actionBtnText}>{actionLabel}</Text>
-                  </TouchableOpacity>
+                <View style={styles.actionArea}>
+                  {isApproved ? (
+                    <TouchableOpacity onPress={() => setView({ name: "detail", classe })} activeOpacity={0.85}>
+                      <LinearGradient colors={["#2563eb", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.actionBtn}>
+                        <Text style={styles.actionBtnTextWhite}>{t("studentClasses.enter")}</Text>
+                        <FontAwesome5 name="arrow-right" size={11} color="#FFFFFF" />
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  ) : isPending ? (
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: ACCESS.PENDING.bg, borderWidth: 1, borderColor: ACCESS.PENDING.border }]}
+                      onPress={() => setPendingMsg(classe.nom ?? "")}
+                      activeOpacity={0.8}
+                    >
+                      <FontAwesome5 name="clock" size={11} color={ACCESS.PENDING.color} />
+                      <Text style={[styles.actionBtnText, { color: ACCESS.PENDING.color }]}>{t("studentClasses.requestPending")}</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: "rgba(37,99,235,0.10)", borderWidth: 1, borderColor: "rgba(37,99,235,0.35)" }]}
+                      onPress={() => setView({ name: "join" })}
+                      activeOpacity={0.8}
+                    >
+                      <FontAwesome5 name="lock" size={11} color="#2563eb" />
+                      <Text style={[styles.actionBtnText, { color: "#2563eb" }]}>{t("studentClasses.requestAccess")}</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
-        <View style={{ height: 100 }} />
-      </ScrollView>
-
-      <JoinClassSheet
-        visible={showJoin}
-        onClose={() => setShowJoin(false)}
-        onSubmitted={load}
-        utilisateurId={user?.userId}
-      />
-
-      <StudentClassDetailModal
-        visible={!!selectedClass}
-        classe={selectedClass}
-        onClose={() => setSelectedClass(null)}
-        onOpenLiveSession={(coursId) => navigation.navigate("LiveSession", { coursId, isHost: false })}
-      />
-    </View>
+              </View>
+            </View>
+          );
+        })
+      )}
+    </ScrollView>
   );
 };
 
-const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    marginTop: 20,
-    marginBottom: spacing.md,
-  },
-  title: { ...typography.h1, color: colors.text },
-  addButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  list: { flex: 1, paddingHorizontal: 16 },
-  error: { color: colors.danger, marginBottom: spacing.md },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.xs,
-  },
-  cardTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  classIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardTitle: { ...typography.bodyBold, fontSize: 15, color: colors.text },
-  levelBadge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-    marginTop: 2,
-  },
-  levelBadgeText: { fontSize: 10, fontWeight: "700" },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    marginTop: spacing.xs,
-  },
-  cardMeta: { ...typography.caption, color: colors.textMuted },
-  cardActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: spacing.xs,
-    paddingTop: spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingVertical: 2,
-  },
-  actionBtnText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
-});
+const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
+  StyleSheet.create({
+    container: { flex: 1 },
+    content: { paddingHorizontal: 16, paddingTop: spacing.sm, gap: spacing.md },
+    hero: { borderRadius: radius.md, overflow: "hidden", padding: spacing.lg, gap: spacing.md },
+    heroTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    heroIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      backgroundColor: "rgba(255,255,255,0.2)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    heroTitle: { ...typography.h4, color: "#FFFFFF", fontWeight: "800" },
+    heroSub: { ...typography.caption, color: "rgba(255,255,255,0.8)" },
+    heroBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+      borderRadius: radius.sm,
+      backgroundColor: "rgba(255,255,255,0.2)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.3)",
+    },
+    heroBtnText: { ...typography.captionBold, color: "#FFFFFF" },
+    heroIconBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: radius.sm,
+      backgroundColor: "rgba(255,255,255,0.2)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.3)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    statsStrip: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    statChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: "rgba(255,255,255,0.15)",
+      borderRadius: radius.sm,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+    },
+    statVal: { ...typography.bodyBold, color: "#FFFFFF" },
+    statLabel: { ...typography.caption, color: "rgba(255,255,255,0.8)" },
+    filterBox: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: "rgba(255,255,255,0.15)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.25)",
+      borderRadius: radius.sm,
+      paddingHorizontal: spacing.md,
+    },
+    filterInput: { flex: 1, color: "#FFFFFF", fontSize: 14, paddingVertical: 8 },
+    banner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    bannerText: { ...typography.caption, flex: 1, fontWeight: "600" },
+    bannerClose: { ...typography.captionBold },
+    error: { ...typography.caption, color: colors.danger },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.xl,
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    emptyTitle: { ...typography.h4, color: colors.text, textAlign: "center" },
+    emptyText: { ...typography.caption, color: colors.textMuted, textAlign: "center", marginBottom: spacing.sm },
+    primaryBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.primary,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: 10,
+      borderRadius: radius.sm,
+    },
+    primaryBtnText: { ...typography.bodyBold, color: "#FFFFFF" },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: "hidden",
+    },
+    accent: { height: 6, width: "100%" },
+    cardBody: { padding: spacing.lg, gap: spacing.md },
+    titleRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+    cardTitle: { ...typography.bodyBold, color: colors.text },
+    cardSub: { ...typography.caption, color: colors.textLight, flexShrink: 1 },
+    inlineRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+    levelPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.full, maxWidth: 140 },
+    levelPillText: { ...typography.captionBold },
+    statsRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, flexWrap: "wrap" },
+    miniIcon: { width: 24, height: 24, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+    statText: { ...typography.caption, color: colors.textMuted },
+    statStrong: { fontWeight: "700", color: colors.text },
+    accessBadge: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radius.full,
+      borderWidth: 1,
+    },
+    accessBadgeText: { ...typography.captionBold },
+    actionArea: { paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
+    actionBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      paddingVertical: 10,
+      borderRadius: radius.sm,
+    },
+    actionBtnText: { ...typography.bodyBold, fontSize: 13 },
+    actionBtnTextWhite: { ...typography.bodyBold, fontSize: 13, color: "#FFFFFF" },
+  });
 
 export default StudentClassesBody;
-

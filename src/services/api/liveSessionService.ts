@@ -28,6 +28,17 @@ export const liveSessionService = {
     }
   },
 
+  /** Like getActiveSession but resolves null on 404 (no live session) and only throws on real errors. */
+  findActiveSession: async (coursId: string): Promise<LiveSessionInfo | null> => {
+    try {
+      const { data } = await apiClient.get<LiveSessionInfo>(`/cours/${coursId}/session/active`);
+      return data?.sessionId ? data : null;
+    } catch (error) {
+      if ((error as { response?: { status?: number } })?.response?.status === 404) return null;
+      throw new Error(extractErrorMessage(error, 'Impossible de vérifier la session.'));
+    }
+  },
+
   joinSession: async (coursId: string, sessionId: string): Promise<LiveSessionInfo> => {
     try {
       const { data } = await apiClient.post<LiveSessionInfo>(`/cours/${coursId}/session/${sessionId}/join`);

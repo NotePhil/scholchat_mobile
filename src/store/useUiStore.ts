@@ -22,6 +22,13 @@ interface UiState {
   pendingTab: string | null;
   requestTab: (tab: string) => void;
   clearPendingTab: () => void;
+  /**
+   * A specific class (and ClassDetails tab) to open once the classes screen
+   * mounts — set alongside requestTab("classes") from a notification tap.
+   */
+  pendingClass: { classId: string; tab: string } | null;
+  requestClass: (classId: string, tab: string) => void;
+  clearPendingClass: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -29,9 +36,12 @@ export const useUiStore = create<UiState>((set) => ({
   language: 'fr',
   activeSection: 'dashboard',
   pendingTab: null,
+  pendingClass: null,
   setTheme: (theme) => set({ theme }),
   setLanguage: (language) => set({ language }),
   setActiveSection: (activeSection) => set({ activeSection }),
   requestTab: (pendingTab) => set({ pendingTab }),
   clearPendingTab: () => set({ pendingTab: null }),
+  requestClass: (classId, tab) => set({ pendingClass: { classId, tab } }),
+  clearPendingClass: () => set({ pendingClass: null }),
 }));

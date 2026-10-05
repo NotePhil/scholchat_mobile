@@ -86,13 +86,37 @@ export const CreateEstablishmentSheet = ({ visible, onClose, onCreated, editingE
     setSelectedOffreId(null);
     setPeriodicite("MENSUEL");
     setErrors({});
-    gestionnaireService.getAll().then(setGestionnaires).catch(() => setGestionnaires([]));
+    setGestionnaires([]);
+    // GET /gestionnaires is admin-only: for a gestionnaire it fails (403), so — like web's
+    // "Fallback: create a basic user object" — the current gestionnaire (or the établissement's
+    // existing one when editing) is merged in as an option so the required field stays filled.
+    const addOption = (g: Gestionnaire | null | undefined) => {
+      if (!g?.id) return;
+      setGestionnaires((prev) => (prev.some((x) => x.id === g.id) ? prev : [...prev, g]));
+    };
+    gestionnaireService
+      .getAll()
+      .then((list) => setGestionnaires((prev) => [...list, ...prev.filter((p) => !list.some((l) => l.id === p.id))]))
+      .catch(() => {});
     if (editingEstablishment) {
       establishmentService
         .getGestionnaire(editingEstablishment.id)
-        .then((g) => g?.id && setGestionnaireId(g.id))
+        .then((g) => {
+          addOption(g);
+          if (g?.id) setGestionnaireId(g.id);
+        })
         .catch(() => {});
     } else {
+      if (defaultGestionnaireId) {
+        // Web pre-fills the établissement e-mail with the gestionnaire's own e-mail.
+        gestionnaireService
+          .getById(defaultGestionnaireId)
+          .then((g) => {
+            addOption(g);
+            if (g?.email) setEmail((cur) => cur || g.email || "");
+          })
+          .catch(() => {});
+      }
       offerService.list("ETABLISSEMENT").then(setOffres).catch(() => setOffres([]));
     }
   }, [visible, editingEstablishment, defaultGestionnaireId]);
@@ -115,7 +139,7 @@ export const CreateEstablishmentSheet = ({ visible, onClose, onCreated, editingE
     telephone: telephone.trim(),
     optionEnvoiMailNewClasse,
     optionTokenGeneral,
-    gestionnaire: selectedGestionnaire ? { id: selectedGestionnaire.id, type: (selectedGestionnaire as any).type } : undefined,
+    gestionnaire: gestionnaireId ? { id: gestionnaireId, type: (selectedGestionnaire as any)?.type } : undefined,
   });
 
   const doSubmit = async (paymentInfo?: PaymentInfo) => {
@@ -241,9 +265,10 @@ export const CreateEstablishmentSheet = ({ visible, onClose, onCreated, editingE
                 </TouchableOpacity>
               </View>
               {periodicite === "ANNUEL" && offreReduction != null && offreReduction > 0 && (
-                <Text style={styles.reductionText}>
-                  🎉 Réduction de {Math.round(offreReduction * 100)}% en optant pour l'annuel !
-                </Text>
+                <View style={styles.reductionRow}>
+                  <FontAwesome5 name="tags" size={12} color={styles.reductionText.color as string} />
+                  <Text style={styles.reductionText}>Réduction de {Math.round(offreReduction * 100)}% en optant pour l'annuel !</Text>
+                </View>
               )}
             </>
           )}
@@ -311,15 +336,21 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
   periodBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   periodBtnText: { ...typography.caption, color: colors.text, fontWeight: "600" },
   periodBtnTextActive: { color: colors.white },
-  reductionText: {
-    ...typography.caption,
-    color: colors.success,
+  reductionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     backgroundColor: colors.successLight,
     borderWidth: 1,
     borderColor: colors.success,
     borderRadius: 8,
     padding: spacing.sm,
     marginTop: spacing.sm,
+  },
+  reductionText: {
+    ...typography.caption,
+    color: colors.success,
+    flexShrink: 1,
   },
 });
 

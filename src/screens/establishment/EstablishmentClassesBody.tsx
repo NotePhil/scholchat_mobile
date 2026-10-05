@@ -10,6 +10,8 @@ import ClassDetails from "../professeurs/components/classes/ClassDetails";
 import { UIClass, enrichClassForDetails } from "../professeurs/components/classes/DashboardClassesBody";
 import { ClassEntity, Etablissement } from "../../types";
 import { useUser } from "../../context/UserContext";
+import { useT } from "../../i18n";
+import { getClassActionTexts, useClassActionConfirm } from "../../hooks/useClassActionConfirm";
 
 const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   ACTIF: "success",
@@ -25,7 +27,12 @@ const STATUS_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> 
  * approve/reject, no way to actually manage the class, unlike every other
  * role's class list.
  */
-const EstablishmentClassesBody = () => {
+interface EstablishmentClassesBodyProps {
+  /** Opens the create form right away — the "Créer une classe" entry of web's Classes dropdown. */
+  autoCreate?: boolean;
+}
+
+const EstablishmentClassesBody = ({ autoCreate }: EstablishmentClassesBodyProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
@@ -33,12 +40,14 @@ const EstablishmentClassesBody = () => {
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreate, setShowCreate] = useState(!!autoCreate);
   const [rejectingClass, setRejectingClass] = useState<ClassEntity | null>(null);
   const [managedClass, setManagedClass] = useState<ClassEntity | null>(null);
   const [selectedClass, setSelectedClass] = useState<UIClass | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState("info");
   const [managing, setManaging] = useState(false);
+  const { t } = useT();
+  const { askConfirm, confirmDialog } = useClassActionConfirm();
 
   const load = useCallback(async () => {
     if (!user?.userId) return;
@@ -61,18 +70,23 @@ const EstablishmentClassesBody = () => {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (autoCreate) setShowCreate(true);
+  }, [autoCreate]);
+
   // Uses classAdminService.approve/reject (PATCH /classes/{id}/approve|reject)
   // — the same endpoints web's gestionnaire screen calls
   // (classService.approuverClasse/rejeterClasse) — instead of the
   // establishment-scoped pair, which takes no rejection reason at all and
   // doesn't verify the class actually belongs to this établissement.
-  const handleApprove = async (cls: ClassEntity) => {
-    try {
+  // Every action goes through a confirmation first (same wording as web,
+  // see hooks/useClassActionConfirm). Reject's confirmation is the reason
+  // sheet itself (explicit Confirmer / Annuler).
+  const handleApprove = (cls: ClassEntity) => {
+    askConfirm("approve", cls.nom, async () => {
       await classAdminService.approve(cls.id);
       load();
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'approbation.");
-    }
+    });
   };
 
   const handleConfirmReject = async (motif: string) => {
@@ -80,28 +94,18 @@ const EstablishmentClassesBody = () => {
     try {
       await classAdminService.reject(rejectingClass.id, motif);
       setRejectingClass(null);
+      Alert.alert(t("classConfirm.successTitle"), t("classConfirm.rejectSuccess"));
       load();
     } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du rejet.");
+      Alert.alert(t("common.error"), err instanceof Error ? err.message : t("classConfirm.rejectError"));
     }
   };
 
   const handleDelete = (cls: ClassEntity) => {
-    Alert.alert("Supprimer la classe", `Supprimer définitivement "${cls.nom ?? "cette classe"}" ?`, [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await classAdminService.remove(cls.id);
-            load();
-          } catch (err) {
-            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression.");
-          }
-        },
-      },
-    ]);
+    askConfirm("delete", cls.nom, async () => {
+      await classAdminService.remove(cls.id);
+      load();
+    });
   };
 
   const handleManage = async (cls: ClassEntity) => {
@@ -210,13 +214,17 @@ const EstablishmentClassesBody = () => {
 
       <PromptSheet
         visible={!!rejectingClass}
-        title="Motif du rejet"
-        message={rejectingClass ? `Pourquoi rejeter "${rejectingClass.nom}" ?` : undefined}
-        placeholder="Motif"
-        submitLabel="Rejeter"
+        title={t("classConfirm.rejectTitle")}
+        description={rejectingClass ? getClassActionTexts("reject", rejectingClass.nom, t).message : undefined}
+        message={t("classConfirm.reasonLabel")}
+        placeholder={t("classConfirm.reasonPlaceholder")}
+        submitLabel={t("classConfirm.confirm")}
+        cancelLabel={t("classConfirm.cancel")}
+        destructive
         onCancel={() => setRejectingClass(null)}
         onSubmit={handleConfirmReject}
       />
+      {confirmDialog}
     </View>
   );
 };
