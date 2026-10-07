@@ -29,6 +29,13 @@ interface UiState {
   pendingClass: { classId: string; tab: string } | null;
   requestClass: (classId: string, tab: string) => void;
   clearPendingClass: () => void;
+  /**
+   * "Rejoindre une classe" requested from outside the classes screen (dashboard CTA): the
+   * student / parent classes screen opens its join flow on mount and clears the flag.
+   */
+  pendingJoinClass: boolean;
+  requestJoinClass: () => void;
+  clearPendingJoinClass: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -37,6 +44,7 @@ export const useUiStore = create<UiState>((set) => ({
   activeSection: 'dashboard',
   pendingTab: null,
   pendingClass: null,
+  pendingJoinClass: false,
   setTheme: (theme) => set({ theme }),
   setLanguage: (language) => set({ language }),
   setActiveSection: (activeSection) => set({ activeSection }),
@@ -44,4 +52,6 @@ export const useUiStore = create<UiState>((set) => ({
   clearPendingTab: () => set({ pendingTab: null }),
   requestClass: (classId, tab) => set({ pendingClass: { classId, tab } }),
   clearPendingClass: () => set({ pendingClass: null }),
+  requestJoinClass: () => set({ pendingJoinClass: true }),
+  clearPendingJoinClass: () => set({ pendingJoinClass: false }),
 }));

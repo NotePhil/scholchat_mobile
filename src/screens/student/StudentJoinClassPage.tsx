@@ -7,6 +7,9 @@ import { accederService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useT } from "../../i18n";
 import { formatDate } from "../../utils/dates";
+import { useClassPreview } from "../../hooks/useClassPreview";
+import ClassPreviewCard from "../../components/common/ClassPreviewCard";
+import type { ClassPreview } from "../../services/api/classPreviewService";
 
 interface StudentJoinClassPageProps {
   /** Active classes already loaded by the list (web looks the code up in this same list). */
@@ -32,31 +35,43 @@ const StudentJoinClassPage = ({ allClasses, userId, onBack, onRequested }: Stude
   const { t } = useT();
 
   const [code, setCode] = useState("");
-  const [searchDone, setSearchDone] = useState(false);
-  const [warning, setWarning] = useState("");
   const [found, setFound] = useState<ClassEntity | null>(null);
+  const [foundPreview, setFoundPreview] = useState<ClassPreview | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [requestError, setRequestError] = useState("");
+  // Public class preview from the activation code, looked up only by the "Vérifier le code" button.
+  const lookup = useClassPreview(code, "eleve");
 
   const clearSearch = () => {
     setCode("");
-    setSearchDone(false);
-    setWarning("");
+    lookup.reset();
   };
 
-  const handleSearch = () => {
-    const c = code.trim();
-    if (!c) {
-      setWarning(t("studentClasses.codeRequired"));
+  /** Class entity for step 2: the full one when the active-classes list has it, else built from the preview. */
+  const toEntity = (p: ClassPreview): ClassEntity => {
+    const local = allClasses.find((cl) => cl.id === p.classeId) ?? allClasses.find((cl) => cl.codeActivation === code.trim());
+    if (local) return local;
+    return {
+      id: p.classeId,
+      nom: p.nom,
+      niveau: p.niveau ?? undefined,
+      etablissement: p.etablissementNom ? ({ nom: p.etablissementNom } as ClassEntity["etablissement"]) : undefined,
+    };
+  };
+
+  const openRequest = (p: ClassPreview) => {
+    setRequestError("");
+    setFoundPreview(p);
+    setFound(toEntity(p));
+  };
+
+  // Single button: "Vérifier le code" shows the class card (or the error); once found it becomes "Suivant".
+  const handleSearch = async () => {
+    if (lookup.status === "found" && lookup.preview) {
+      openRequest(lookup.preview);
       return;
     }
-    setWarning("");
-    const match = allClasses.find((cl) => cl.codeActivation === c) ?? null;
-    setSearchDone(true);
-    if (match) {
-      setRequestError("");
-      setFound(match);
-    }
+    await lookup.check();
   };
 
   const handleSubmit = async () => {
@@ -115,8 +130,9 @@ const StudentJoinClassPage = ({ allClasses, userId, onBack, onRequested }: Stude
       >
         {header(t("studentClasses.requestTitle"), found.nom ?? "", () => {
           setFound(null);
-          setSearchDone(false);
         })}
+
+        {foundPreview ? <ClassPreviewCard status="found" preview={foundPreview} heading={t("classPreview.joining")} /> : null}
 
         <View style={styles.section}>
           <View style={styles.sectionHead}>
@@ -197,7 +213,6 @@ const StudentJoinClassPage = ({ allClasses, userId, onBack, onRequested }: Stude
             style={styles.outlineBtn}
             onPress={() => {
               setFound(null);
-              setSearchDone(false);
             }}
             activeOpacity={0.8}
           >
@@ -239,14 +254,10 @@ const StudentJoinClassPage = ({ allClasses, userId, onBack, onRequested }: Stude
           <TextInput
             style={styles.codeInput}
             value={code}
-            onChangeText={(v) => {
-              setCode(v);
-              setWarning("");
-              if (!v) setSearchDone(false);
-            }}
+            onChangeText={setCode}
             onSubmitEditing={handleSearch}
             returnKeyType="search"
-            autoCapitalize="none"
+            autoCapitalize="characters"
             autoCorrect={false}
             placeholder={t("studentClasses.codePlaceholder")}
             placeholderTextColor={colors.textLight}
@@ -257,27 +268,34 @@ const StudentJoinClassPage = ({ allClasses, userId, onBack, onRequested }: Stude
             </TouchableOpacity>
           ) : null}
         </View>
-        <TouchableOpacity style={[styles.primaryBtn, styles.searchBtn]} onPress={handleSearch} activeOpacity={0.85}>
-          <FontAwesome5 name="search" size={12} color="#FFFFFF" />
-          <Text style={styles.primaryBtnText}>{t("studentClasses.search")}</Text>
-        </TouchableOpacity>
 
-        {warning ? (
-          <View style={[styles.alert, { backgroundColor: "rgba(217,119,6,0.10)", borderColor: "rgba(217,119,6,0.35)" }]}>
-            <FontAwesome5 name="exclamation-triangle" size={13} color="#d97706" />
-            <Text style={[styles.alertText, { color: "#d97706" }]}>{warning}</Text>
-          </View>
-        ) : searchDone ? (
-          <View style={[styles.alert, { backgroundColor: "rgba(220,38,38,0.10)", borderColor: "rgba(220,38,38,0.35)" }]}>
-            <FontAwesome5 name="times-circle" size={13} color="#dc2626" />
-            <Text style={[styles.alertText, { color: "#dc2626" }]}>{t("studentClasses.notFound")}</Text>
-          </View>
-        ) : (
+        {lookup.status === "idle" ? (
           <View style={styles.hintBox}>
             <FontAwesome5 name="lock" size={34} color={colors.textLight} style={{ opacity: 0.5 }} />
             <Text style={styles.hintText}>{t("studentClasses.codeHint")}</Text>
           </View>
+        ) : (
+          <ClassPreviewCard status={lookup.status} preview={lookup.preview} error={lookup.error} />
         )}
+        <TouchableOpacity
+          style={[styles.primaryBtn, styles.searchBtn, (!code.trim() || lookup.status === "loading") && { opacity: 0.6 }]}
+          onPress={handleSearch}
+          disabled={!code.trim() || lookup.status === "loading"}
+          activeOpacity={0.85}
+        >
+          {lookup.status === "loading" ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <FontAwesome5 name={lookup.status === "found" ? "arrow-right" : "search"} size={12} color="#FFFFFF" />
+          )}
+          <Text style={styles.primaryBtnText}>
+            {lookup.status === "loading"
+              ? t("classPreview.verifying")
+              : lookup.status === "found"
+                ? t("common.next")
+                : t("classPreview.verify")}
+          </Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );

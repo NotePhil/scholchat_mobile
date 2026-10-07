@@ -4,8 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BrandColors, ff, roleAccents, useBrandColors } from '../../components/brand';
-import { SignupPayload, SignupRole, authService } from '../../services/home/authService';
-import { NIVEAUX } from '../../constants/niveaux';
+import { CLASS_APPROVAL_PENDING, SignupPayload, SignupRole, authService } from '../../services/home/authService';
 import {
   AuthScreen,
   AuthTitle,
@@ -18,20 +17,60 @@ import {
   TextField,
   TextLink,
 } from './components/AuthKit';
-import { EMAIL_REGEX } from './components/passwordRules';
-import { TFunction, translate, useT } from '../../i18n';
+import { SIGNUP_EMAIL_REGEX } from './components/passwordRules';
+import { TFunction, TranslationKey, translate, useT } from '../../i18n';
 import type { AccountCreatedParams } from './AccountCreatedScreen';
+import { useClassPreview } from '../../hooks/useClassPreview';
+import ClassPreviewCard from '../../components/common/ClassPreviewCard';
 
 type DocumentAsset = DocumentPicker.DocumentPickerAsset;
 type DocKey = 'cniRecto' | 'cniVerso' | 'selfie';
 
-type StepId = 'infos' | 'niveau' | 'documents';
+type StepId = 'infos' | 'classe' | 'confirmation' | 'documents';
 
-/** Same steps as web SignUp.jsx (the role itself is picked beforehand on RoleChoiceScreen). */
+/** Existing e-mail reported by the sign-up (actions shown under the e-mail field). */
+type EmailIssue = 'exists' | 'pending' | 'inactive' | 'other';
+
+const EMAIL_ISSUE_KEYS: Record<'exists' | 'pending' | 'inactive', TranslationKey> = {
+  exists: 'auth.signup.errors.emailExists',
+  pending: 'auth.signup.errors.emailPendingClass',
+  inactive: 'auth.signup.errors.emailInactive',
+};
+
+/**
+ * Failed sign-up about the e-mail (existing account, pending class sign-up, invalid format…) or the
+ * phone → field error (same cases as web utils/signupErrors.js), or null.
+ */
+const mapSignupFieldError = (
+  code: string | undefined,
+  message: string
+): { field: 'email' | 'phone'; message: string; issue?: EmailIssue } | null => {
+  const c = String(code || '').toUpperCase();
+  if (c === 'EMAIL_DEJA_UTILISE') return { field: 'email', issue: 'exists', message: translate(EMAIL_ISSUE_KEYS.exists) };
+  // Existing account not active (never activated / awaiting validation): refused, nothing changed.
+  if (c === 'COMPTE_NON_ACTIVE') return { field: 'email', issue: 'inactive', message: translate(EMAIL_ISSUE_KEYS.inactive) };
+  if (c === 'COMPTE_EN_ATTENTE_VALIDATION') {
+    return { field: 'email', issue: 'inactive', message: translate('auth.signup.errors.emailAwaitingValidation') };
+  }
+  if (c === 'INSCRIPTION_EN_ATTENTE') return { field: 'email', issue: 'pending', message: translate(EMAIL_ISSUE_KEYS.pending) };
+  if (c === 'ROLE_INCOMPATIBLE') {
+    return { field: 'email', issue: 'other', message: message || translate('auth.signup.errors.roleIncompatible') };
+  }
+  // Existing account (not active) that already has / requested this profile.
+  if (c === 'DUPLICATE_RESOURCE') return { field: 'email', issue: 'exists', message: message || translate(EMAIL_ISSUE_KEYS.exists) };
+  if (/invalid email|email is required/i.test(message)) return { field: 'email', message: translate('auth.signup.errors.invalidEmail') };
+  if (/invalid phone/i.test(message)) return { field: 'phone', message: translate('auth.signup.errors.phone') };
+  return null;
+};
+
+/**
+ * Steps per role (the role itself is picked beforehand on RoleChoiceScreen). Parent / élève:
+ * Infos perso → Classe (required class code) → Confirmation, then the class teacher approves.
+ */
 const STEPS: Record<SignupRole, StepId[]> = {
   professeur: ['infos', 'documents'],
-  eleve: ['infos', 'niveau'],
-  parent: ['infos'],
+  eleve: ['infos', 'classe', 'confirmation'],
+  parent: ['infos', 'classe', 'confirmation'],
 };
 
 const roleLabel = (t: TFunction, role: SignupRole) => t(`auth.roleChoice.roles.${role}.title`);
@@ -74,11 +113,12 @@ const DOCS: { key: DocKey; icon: string }[] = [
 ];
 
 /**
- * Sign-up (Professeur / Élève / Parent) — exactly the fields of web SignUp.jsx:
- * nom, prénom, téléphone, email, adresse for everyone; an optional niveau for the élève; CNI
- * recto/verso + selfie (+ optional matricule) for the professeur. No password: the account is
- * created via POST /utilisateurs without motDePasse and the user chooses the password from the
- * e-mailed link (after activation for élève / parent, after admin validation for a professor).
+ * Sign-up (Professeur / Élève / Parent): nom, prénom, téléphone, email, adresse for everyone;
+ * CNI recto/verso + selfie (+ optional matricule) for the professeur; the class code (codeClasse)
+ * for a parent / élève, then a confirmation summary. No password: the account is created via
+ * POST /utilisateurs without motDePasse. A professor chooses the password from the e-mailed link
+ * after admin validation; a parent / élève receives a temporary password by e-mail once the class
+ * teacher approved the request, and must change it at first login.
  */
 const SignUpScreen = () => {
   const c = useBrandColors();
@@ -100,20 +140,24 @@ const SignUpScreen = () => {
   const [countryCode, setCountryCode] = useState<CountryCode>('237');
   const [phone, setPhone] = useState('');
   const [adresse, setAdresse] = useState('');
-  // Élève
-  const [niveau, setNiveau] = useState('');
-  const [niveauQuery, setNiveauQuery] = useState('');
+  // Parent / élève
+  const [codeClasse, setCodeClasse] = useState('');
   // Professeur
   const [matricule, setMatricule] = useState('');
   const [docs, setDocs] = useState<Record<DocKey, DocumentAsset | null>>({ cniRecto: null, cniVerso: null, selfie: null });
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [emailIssue, setEmailIssue] = useState<EmailIssue | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   // Professor profile already posted (an upload failed afterwards): retry only the uploads.
-  const [createdProfessor, setCreatedProfessor] = useState<{ id: string; statut?: string } | null>(null);
+  const [createdProfessor, setCreatedProfessor] = useState<{ id: string; statut?: string; uploadToken?: string } | null>(null);
+
+  // Class code (parent / élève): public preview, looked up only by the "Vérifier le code" button.
+  const classLookup = useClassPreview(codeClasse, role === 'parent' ? 'parent' : 'eleve');
 
   const isLast = step === steps.length - 1;
+  const verifyingCode = steps[step] === 'classe' && classLookup.status !== 'found';
   const accent = roleAccents[role];
   const current = steps[step];
 
@@ -131,8 +175,10 @@ const SignUpScreen = () => {
       if (!phone.trim()) errs.phone = t('auth.signup.errors.phoneRequired');
       else if (!normalizePhone(countryCode, phone)) errs.phone = t('auth.signup.errors.phone');
       if (!email.trim()) errs.email = t('auth.signup.errors.emailRequired');
-      else if (!EMAIL_REGEX.test(email.trim())) errs.email = t('auth.common.invalidEmail');
+      else if (!SIGNUP_EMAIL_REGEX.test(email.trim())) errs.email = t('auth.signup.errors.invalidEmail');
       if (!adresse.trim()) errs.adresse = t('auth.signup.errors.address');
+    } else if (current === 'classe') {
+      if (!codeClasse.trim()) errs.codeClasse = t('auth.signup.errors.classCodeRequired');
     } else if (current === 'documents') {
       if (!docs.cniRecto || !docs.cniVerso || !docs.selfie) {
         setError(t('auth.signup.errors.documents'));
@@ -160,10 +206,12 @@ const SignUpScreen = () => {
     }
   };
 
-  const upload = async (file: DocumentAsset, ownerId: string, documentType: string) => {
+  // uploadToken: signed token from the sign-up response, required by the backend for these
+  // unauthenticated document uploads.
+  const upload = async (file: DocumentAsset, ownerId: string, documentType: string, uploadToken?: string) => {
     const mimeType = file.mimeType ?? 'application/octet-stream';
-    const presigned = await authService.getPresignedUrl(file.name, mimeType, ownerId, documentType);
-    await authService.uploadFile(presigned.url, { uri: file.uri, mimeType, name: file.name });
+    const presigned = await authService.getPresignedUrl(file.name, mimeType, ownerId, documentType, uploadToken);
+    await authService.uploadFile(presigned.url, { uri: file.uri, mimeType, name: file.name }, uploadToken);
     return presigned.url.split('?')[0];
   };
 
@@ -171,19 +219,29 @@ const SignUpScreen = () => {
   const finish = (params: AccountCreatedParams) => navigation.navigate('AccountCreated', params);
 
   /** End screen from the sign-up response's inscriptionStatut (same cases as web SignUp.jsx). */
-  const afterCreate = (statut?: string) => {
+  const afterCreate = (statut?: string, statutInscription?: string, classeNom?: string) => {
+    if (statutInscription === CLASS_APPROVAL_PENDING) {
+      // Parent / élève: the class teacher must approve, then login + temporary password by e-mail.
+      finish({ variant: 'classPending', email: email.trim(), classeNom: classeNom || undefined });
+      return;
+    }
     if (statut === 'ROLE_ADDED') {
       // Existing active account: role usable now, with the account's existing password.
       finish({ variant: 'roleAdded' });
       return;
     }
-    if (statut === 'ROLE_PENDING_VALIDATION') {
-      finish({ variant: 'rolePending' });
+    if (statut === 'ROLE_PENDING_VALIDATION' && role !== 'professeur') {
+      // Existing account (not active yet): the student profile request was added to it.
+      navigation.navigate('Login', {
+        email: email.trim(),
+        message: classeNom
+          ? translate('auth.signup.errors.studentRequestAddedNamed', { classe: classeNom })
+          : translate('auth.signup.errors.studentRequestAdded'),
+      });
       return;
     }
-    if (statut === 'ACTIVATION_REQUIRED') {
-      // Existing account never activated: a new activation link was e-mailed.
-      finish({ variant: 'activation', email: email.trim(), roleAdded: true });
+    if (statut === 'ROLE_PENDING_VALIDATION') {
+      finish({ variant: 'rolePending' });
       return;
     }
     if (role === 'professeur') {
@@ -191,6 +249,13 @@ const SignUpScreen = () => {
       return;
     }
     finish({ variant: 'activation', email: email.trim() });
+  };
+
+  const showEmailIssue = (issue: EmailIssue | null, message: string, field: 'email' | 'phone' = 'email') => {
+    setStep(0);
+    setError('');
+    setFieldErrors({ [field]: message });
+    setEmailIssue(field === 'email' ? issue : null);
   };
 
   const submit = async () => {
@@ -207,34 +272,58 @@ const SignUpScreen = () => {
           telephone: `+${countryCode}${normalizePhone(countryCode, phone) ?? phone.replace(/\D/g, '')}`,
           adresse: adresse.trim(),
         };
-        if (role === 'eleve') payload.niveau = niveau;
+        if (role !== 'professeur') payload.codeClasse = codeClasse.trim();
         const res = await authService.signUp(payload);
-        if (role !== 'professeur' || res.inscriptionStatut === 'ROLE_ADDED' || res.inscriptionStatut === 'ACTIVATION_REQUIRED' || !res.id) {
-          afterCreate(res.inscriptionStatut);
+        if (role !== 'professeur' || res.inscriptionStatut === 'ROLE_ADDED' || !res.id) {
+          afterCreate(
+            res.inscriptionStatut,
+            typeof res.statutInscription === 'string' ? res.statutInscription : undefined,
+            typeof res.classeNom === 'string' ? res.classeNom : undefined
+          );
           return;
         }
-        created = { id: String(res.id), statut: res.inscriptionStatut };
+        created = { id: String(res.id), statut: res.inscriptionStatut, uploadToken: res.uploadToken };
         setCreatedProfessor(created);
       }
 
       // Professor: documents → PATCH urls + matricule (web handleDocumentSubmission).
       const urls = {
-        cniRecto: docs.cniRecto ? await upload(docs.cniRecto, created.id, 'cni-recto') : '',
-        cniVerso: docs.cniVerso ? await upload(docs.cniVerso, created.id, 'cni-verso') : '',
-        selfie: docs.selfie ? await upload(docs.selfie, created.id, 'selfie') : '',
+        cniRecto: docs.cniRecto ? await upload(docs.cniRecto, created.id, 'cni-recto', created.uploadToken) : '',
+        cniVerso: docs.cniVerso ? await upload(docs.cniVerso, created.id, 'cni-verso', created.uploadToken) : '',
+        selfie: docs.selfie ? await upload(docs.selfie, created.id, 'selfie', created.uploadToken) : '',
       };
-      await authService.updateProfessorUrls(created.id, urls, matricule);
+      await authService.updateProfessorUrls(created.id, urls, matricule, created.uploadToken);
       afterCreate(created.statut);
     } catch (err) {
       const msg = err instanceof Error ? err.message : translate('auth.signup.errors.createFailed');
+      const code = (err as { code?: string })?.code;
+      const fieldError = mapSignupFieldError(code, msg);
+      if (fieldError && !createdProfessor) {
+        // E-mail (existing account…) or phone refused: back to the infos step, error under the field.
+        showEmailIssue(fieldError.issue ?? null, fieldError.message, fieldError.field);
+        return;
+      }
+      if (role !== 'professeur' && code && /CODE_CLASSE|CLASSE_/.test(code)) {
+        // Class code refused: back to the code step, error under the field.
+        classLookup.reset();
+        setStep(steps.indexOf('classe'));
+        setFieldErrors({ codeClasse: msg });
+        return;
+      }
       setError(createdProfessor ? `${msg} ${translate('auth.signup.errors.retryUploads')}` : msg);
     } finally {
       setLoading(false);
     }
   };
 
-  const next = () => {
+  const next = async () => {
     if (loading || !validateStep()) return;
+    if (current === 'classe' && classLookup.status !== 'found') {
+      // Single button: "Vérifier le code" runs the lookup (class card or error under the field); once the
+      // class is found the same button becomes "Suivant".
+      await classLookup.check();
+      return;
+    }
     if (isLast) submit();
     else setStep((v) => v + 1);
   };
@@ -321,6 +410,7 @@ const SignUpScreen = () => {
         onChangeText={(v) => {
           setEmail(v);
           clear('email');
+          setEmailIssue(null);
         }}
         keyboardType="email-address"
         autoCapitalize="none"
@@ -329,6 +419,21 @@ const SignUpScreen = () => {
         autoComplete="email"
         error={fieldErrors.email}
       />
+      {emailIssue && emailIssue !== 'pending' && fieldErrors.email ? (
+        <View style={s.emailActions}>
+          {emailIssue === 'inactive' ? (
+            <TextLink label={t('verifyAccount.link')} onPress={() => navigation.navigate('VerifyAccount', { email: email.trim() })} />
+          ) : (
+            <>
+              <TextLink label={t('auth.login.signIn')} onPress={() => navigation.navigate('Login', { email: email.trim() })} />
+              <TextLink
+                label={t('auth.login.forgotPassword')}
+                onPress={() => navigation.navigate('ForgotPassword', { email: email.trim() })}
+              />
+            </>
+          )}
+        </View>
+      ) : null}
       <TextField
         label={t('auth.signup.infos.address')}
         required
@@ -348,61 +453,72 @@ const SignUpScreen = () => {
     </>
   );
 
-  const renderNiveau = () => {
-    const q = niveauQuery.trim().toLowerCase();
-    const matches = q ? NIVEAUX.filter((n) => n.toLowerCase().includes(q)) : NIVEAUX;
+  const renderClasse = () => (
+    <>
+      <AuthTitle align="left" title={t('auth.signup.classe.title')} subtitle={t('auth.signup.classe.subtitle')} />
+      <TextField
+        label={t('auth.signup.classe.label')}
+        required
+        icon="key"
+        placeholder={t('auth.signup.classe.placeholder')}
+        value={codeClasse}
+        onChangeText={(v) => {
+          setCodeClasse(v);
+          clear('codeClasse');
+        }}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        returnKeyType={classLookup.status === 'found' ? 'next' : 'search'}
+        onSubmitEditing={next}
+        error={fieldErrors.codeClasse}
+      />
+      <ClassPreviewCard
+        status={classLookup.status}
+        preview={classLookup.preview}
+        error={classLookup.error}
+        style={s.previewCard}
+      />
+      <Banner type="info" message={t('auth.signup.classe.hint')} />
+      <Text style={s.hint}>{t(role === 'parent' ? 'auth.signup.classe.approvalParent' : 'auth.signup.classe.approvalStudent')}</Text>
+    </>
+  );
+
+  const renderConfirmation = () => {
+    const rows: { icon: string; label: string; value: string }[] = [
+      { icon: 'user-tag', label: t('auth.signup.confirmation.profile'), value: roleLabel(t, role) },
+      { icon: 'user', label: t('auth.signup.confirmation.name'), value: `${prenom.trim()} ${nom.trim()}`.trim() },
+      { icon: 'envelope', label: t('auth.common.email'), value: email.trim() },
+      {
+        icon: 'phone',
+        label: t('auth.common.phone'),
+        value: `+${countryCode} ${normalizePhone(countryCode, phone) ?? phone.trim()}`,
+      },
+      { icon: 'map-marker-alt', label: t('auth.signup.infos.address'), value: adresse.trim() },
+      { icon: 'key', label: t('auth.signup.classe.label'), value: codeClasse.trim() },
+    ];
     return (
       <>
-        <AuthTitle align="left" title={t('auth.signup.niveau.title')} subtitle={t('auth.signup.niveau.subtitle')} />
-        <TextField
-          label={t('auth.signup.niveau.label')}
-          icon="search"
-          placeholder={t('auth.signup.niveau.searchPlaceholder')}
-          value={niveauQuery}
-          onChangeText={setNiveauQuery}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
-        />
-        {niveau ? (
-          <View style={s.selectedRow}>
-            <FontAwesome5 name="graduation-cap" size={13} color={c.primary} />
-            <Text style={s.selectedText}>{t('auth.signup.niveau.selected', { niveau })}</Text>
-            <TouchableOpacity
-              onPress={() => setNiveau('')}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityRole="button"
-              accessibilityLabel={t('auth.signup.niveau.clear')}
-            >
-              <FontAwesome5 name="times-circle" size={15} color={c.textSecondary} />
-            </TouchableOpacity>
-          </View>
-        ) : null}
-        <View style={s.levelList}>
-          {matches.length === 0 ? (
-            <Text style={s.noResult}>{t('auth.signup.niveau.noResult')}</Text>
-          ) : (
-            matches.map((n, i) => {
-              const active = n === niveau;
-              return (
-                <TouchableOpacity
-                  key={n}
-                  style={[s.levelRow, i > 0 && s.levelRowBorder, active && { backgroundColor: c.primarySoft }]}
-                  onPress={() => {
-                    setNiveau(active ? '' : n);
-                    setNiveauQuery('');
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: active }}
-                >
-                  <Text style={[s.levelText, active && { color: c.primary }]}>{n}</Text>
-                  {active ? <FontAwesome5 name="check" size={13} color={c.primary} /> : null}
-                </TouchableOpacity>
-              );
-            })
-          )}
+        <AuthTitle align="left" title={t('auth.signup.confirmation.title')} subtitle={t('auth.signup.confirmation.subtitle')} />
+        <View style={s.summary}>
+          {rows.map((r, i) => (
+            <View key={r.label} style={[s.summaryRow, i > 0 && s.summaryRowBorder]}>
+              <View style={s.summaryIcon}>
+                <FontAwesome5 name={r.icon} size={12} color={c.primary} />
+              </View>
+              <View style={s.flex}>
+                <Text style={s.summaryLabel}>{r.label}</Text>
+                <Text style={s.summaryValue} numberOfLines={2}>
+                  {r.value || '—'}
+                </Text>
+              </View>
+            </View>
+          ))}
         </View>
+        <TextLink label={t('auth.signup.confirmation.edit')} onPress={() => setStep(0)} disabled={loading} style={s.editLink} />
+        {classLookup.preview ? (
+          <ClassPreviewCard status="found" preview={classLookup.preview} heading={t('classPreview.joining')} style={s.previewCard} />
+        ) : null}
+        <Banner type="info" message={t('auth.signup.confirmation.nextSteps')} />
       </>
     );
   };
@@ -481,13 +597,25 @@ const SignUpScreen = () => {
       <Banner message={error} />
 
       {current === 'infos' && renderInfos()}
-      {current === 'niveau' && renderNiveau()}
+      {current === 'classe' && renderClasse()}
+      {current === 'confirmation' && renderConfirmation()}
       {current === 'documents' && renderDocuments()}
 
       <GradientButton
-        label={isLast ? (role === 'professeur' ? t('auth.signup.sendRequest') : t('auth.signup.createMyAccount')) : t('common.next')}
+        label={
+          isLast
+            ? role === 'professeur'
+              ? t('auth.signup.sendRequest')
+              : t('auth.signup.createMyAccount')
+            : verifyingCode
+              ? classLookup.status === 'loading'
+                ? t('classPreview.verifying')
+                : t('classPreview.verify')
+              : t('common.next')
+        }
         onPress={next}
-        loading={loading}
+        loading={loading || (verifyingCode && classLookup.status === 'loading')}
+        disabled={current === 'classe' && !codeClasse.trim()}
         style={s.cta}
       />
       <View style={s.links}>
@@ -512,35 +640,29 @@ const createStyles = (c: BrandColors) =>
     links: { alignItems: 'center', marginTop: 20, minHeight: 24 },
     rolePill: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
     rolePillText: { ...ff('semibold'), fontSize: 12 },
-    selectedRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      backgroundColor: c.primarySoft,
-      marginBottom: 12,
-    },
-    selectedText: { ...ff('medium'), fontSize: 14, color: c.text, flex: 1 },
-    levelList: {
+    summary: {
       borderWidth: 1,
       borderColor: c.border,
-      borderRadius: 12,
+      borderRadius: 14,
       backgroundColor: c.card,
       overflow: 'hidden',
-      marginBottom: 20,
+      marginBottom: 12,
     },
-    levelRow: {
-      flexDirection: 'row',
+    summaryRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
+    summaryRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
+    summaryIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: 9,
+      backgroundColor: c.primarySoft,
       alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 13,
+      justifyContent: 'center',
     },
-    levelRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.border },
-    levelText: { ...ff('medium'), fontSize: 14, color: c.text },
-    noResult: { ...ff('regular'), fontSize: 13, color: c.textSecondary, textAlign: 'center', paddingVertical: 16 },
+    summaryLabel: { ...ff('regular'), fontSize: 12, color: c.textSecondary },
+    summaryValue: { ...ff('semibold'), fontSize: 14, color: c.text, marginTop: 1 },
+    editLink: { alignSelf: 'flex-end', marginBottom: 14 },
+    emailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: -6, marginBottom: 14 },
+    previewCard: { marginBottom: 14 },
     docField: { marginBottom: 14 },
     docLabel: { ...ff('medium'), fontSize: 14, color: c.text, marginBottom: 8 },
     docBox: {

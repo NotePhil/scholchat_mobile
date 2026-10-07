@@ -1,23 +1,29 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { BottomSheet, Button, Input } from "../../components/ui";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { mediaService, userService } from "../../services/api";
-import { authService } from "../../services/home/authService";
+import { CLASS_APPROVAL_PENDING, authService } from "../../services/home/authService";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useUiStore } from "../../store/useUiStore";
 import { normalizeRoleKey, roleDisplay } from "./RoleSelectorSheet";
 import { translate, useT } from "../../i18n";
-import { useAddableRoles } from "../../utils/roleRules";
+import { AddableRoleKey, useAddableRoles } from "../../utils/roleRules";
+import { useClassPreview } from "../../hooks/useClassPreview";
+import ClassPreviewCard from "../../components/common/ClassPreviewCard";
+
+type AddType = "parent" | "professeur" | "eleve";
 
 /**
- * Roles a user can add to their own account. The student profile is exclusive (never added,
- * and a student account adds nothing) — see utils/roleRules + backend ROLE_INCOMPATIBLE.
+ * Profiles a user can add to their own account from a parent / professor session (a student
+ * session adds nothing — see utils/roleRules + backend CHANGEMENT_PROFIL_INTERDIT_ELEVE).
  */
-const ADDABLE: { type: "parent" | "professeur"; key: "parent" | "professor" }[] = [
+const ADDABLE: { type: AddType; key: AddableRoleKey }[] = [
   { type: "parent", key: "parent" },
   { type: "professeur", key: "professor" },
+  { type: "eleve", key: "student" },
 ];
 
 type DocField = "cniUrlRecto" | "cniUrlVerso" | "selfieUrl";
@@ -36,49 +42,73 @@ interface PickedFile {
 interface AddRoleSheetProps {
   visible: boolean;
   onClose: () => void;
+  /** Pre-selected profile (e.g. "Compléter les documents" of a professor request). */
+  initialType?: AddType;
+  /** Called once a profile was added / requested (lets the caller reload statuses). */
+  onDone?: () => void;
 }
 
+type Done = { title: string; message: string; pending: boolean };
+
 /**
- * "Ajouter un profil" for the logged-in user — the in-app version of web's
- * SignUp.jsx "existing email" path: POST /utilisateurs with the account's own
- * email and the requested type adds that role to the SAME account.
- *  - parent: usable immediately (the session is refreshed so it shows up
- *    in the profile switcher);
- *  - professeur: identity documents are required, then the profile waits for
- *    admin validation (shown as "en attente" until then).
+ * "Ajouter un profil" for the logged-in user — POST /utilisateurs with the account's own
+ * e-mail and the requested type adds that role to the SAME account (web SignUp.jsx's
+ * "existing email" path). The personal details are reused from the account:
+ *  - parent: usable immediately;
+ *  - professeur: only the identity documents are asked (CNI recto/verso + selfie, authenticated
+ *    upload) → PATCH /utilisateurs/{id}; then admin validation (status shown in "Mes profils");
+ *  - élève: class code (previewed with GET /public/classes/apercu) → request approved by the
+ *    class teacher, then the profile becomes active (notification).
+ * The session is refreshed afterwards so availableRoles / pendingRoles are up to date.
  */
-const AddRoleSheet = ({ visible, onClose }: AddRoleSheetProps) => {
+const AddRoleSheet = ({ visible, onClose, initialType, onDone }: AddRoleSheetProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useT();
   const authUser = useAuthStore((s) => s.user);
-  const tokenRoles = useAuthStore((s) => s.roles);
   const currentRole = useAuthStore((s) => s.role);
   const login = useAuthStore((s) => s.login);
 
-  const [type, setType] = useState<"parent" | "professeur" | null>(null);
+  const [type, setType] = useState<AddType | null>(null);
   const [matricule, setMatricule] = useState("");
   const [files, setFiles] = useState<Partial<Record<DocField, PickedFile>>>({});
+  const [codeClasse, setCodeClasse] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState<Done | null>(null);
+  const [profile, setProfile] = useState<{ nom: string; prenom: string } | null>(null);
+  // Professor role already requested (POST done) but an upload failed: retry only the documents.
+  const [professorRequested, setProfessorRequested] = useState(false);
+  const lookup = useClassPreview(codeClasse, "eleve");
+  const verifyingCode = type === "eleve" && lookup.status !== "found";
+
+  const addable = useAddableRoles();
+  const userId = (authUser?.userId as string | undefined) ?? "";
+  const email = (authUser?.userEmail as string | undefined) ?? (authUser?.email as string | undefined) ?? "";
+  const pendingKeys = new Set(((authUser?.pendingRoles as string[] | null | undefined) ?? []).map(normalizeRoleKey));
 
   useEffect(() => {
     if (!visible) {
       setType(null);
       setMatricule("");
       setFiles({});
+      setCodeClasse("");
+      setError("");
+      setDone(null);
+      setProfessorRequested(false);
+      lookup.reset();
+      return;
     }
+    if (initialType) setType(initialType);
+    // Personal details reused from the account (POST /utilisateurs requires nom / prénom).
+    if (userId) {
+      userService
+        .getUserById(userId)
+        .then((p) => setProfile({ nom: String(p.nom ?? ""), prenom: String(p.prenom ?? "") }))
+        .catch(() => setProfile({ nom: String(authUser?.nom ?? ""), prenom: String(authUser?.prenom ?? "") }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
-
-  const owned = new Set(
-    [
-      ...((authUser?.availableRoles as string[] | undefined) ?? tokenRoles),
-      ...((authUser?.pendingRoles as string[] | null | undefined) ?? []),
-    ].map(normalizeRoleKey)
-  );
-  const addable = useAddableRoles();
-  const pendingKeys = new Set(((authUser?.pendingRoles as string[] | null | undefined) ?? []).map(normalizeRoleKey));
-  const userId = (authUser?.userId as string | undefined) ?? "";
-  const email = (authUser?.userEmail as string | undefined) ?? (authUser?.email as string | undefined) ?? "";
 
   const pickFile = async (field: DocField) => {
     try {
@@ -86,6 +116,7 @@ const AddRoleSheet = ({ visible, onClose }: AddRoleSheetProps) => {
       if (!result.canceled && result.assets?.length) {
         const a = result.assets[0];
         setFiles((prev) => ({ ...prev, [field]: { uri: a.uri, name: a.name, mimeType: a.mimeType || "image/jpeg" } }));
+        setError("");
       }
     } catch (err) {
       console.warn("Document picking failed:", err);
@@ -102,73 +133,118 @@ const AddRoleSheet = ({ visible, onClose }: AddRoleSheetProps) => {
     }
   };
 
+  const uploadDocuments = async () => {
+    const urls: Partial<Record<DocField, string>> = {};
+    for (const doc of DOCS) {
+      const f = files[doc.field] as PickedFile;
+      const ext = f.name.split(".").pop() || "jpg";
+      // Authenticated presign → PUT (xhrUpload, with backend proxy fallback).
+      urls[doc.field] = await mediaService.uploadFile(
+        { uri: f.uri, name: `${doc.docType}_${Date.now()}.${ext}`, mimeType: f.mimeType },
+        userId,
+        "IMAGE",
+        doc.docType
+      );
+    }
+    await authService.updateProfessorUrls(
+      userId,
+      { cniRecto: urls.cniUrlRecto ?? "", cniVerso: urls.cniUrlVerso ?? "", selfie: urls.selfieUrl ?? "" },
+      matricule
+    );
+  };
+
   const handleSubmit = async () => {
     if (!type || !userId || !email) return;
+    setError("");
     if (type === "professeur" && DOCS.some((d) => !files[d.field])) {
-      Alert.alert(t("addRole.docsRequiredTitle"), t("addRole.docsRequiredMessage"));
+      setError(t("addRole.docsRequiredMessage"));
+      return;
+    }
+    let preview = lookup.preview;
+    if (type === "eleve" && (lookup.status !== "found" || !preview)) {
+      // Single button: "Vérifier le code" first (class card or error), then "Envoyer la demande".
+      await lookup.check();
       return;
     }
     setSubmitting(true);
     try {
-      // The account's own name: POST /utilisateurs requires nom/prenom. The phone number and address
-      // are NOT re-sent: the backend keeps the account's stored details when adding a role, and a phone
-      // saved in an older format (e.g. "0123456789") made the call fail with "Invalid phone number format".
-      const profile = await userService.getUserById(userId);
-      const result = await authService.addRole({
-        type,
-        nom: String(profile.nom ?? ""),
-        prenom: String(profile.prenom ?? ""),
-        email,
-      });
+      const names = profile ?? { nom: String(authUser?.nom ?? ""), prenom: String(authUser?.prenom ?? "") };
+      let result: Record<string, unknown> = {};
+      if (!(type === "professeur" && professorRequested)) {
+        // Phone / address are NOT re-sent: the backend keeps the account's stored details.
+        result = await authService.addRole({
+          type,
+          nom: names.nom,
+          prenom: names.prenom,
+          email,
+          ...(type === "eleve" ? { codeClasse: codeClasse.trim(), niveau: preview?.niveau ?? undefined } : {}),
+        });
+      }
 
       if (type === "professeur") {
-        const urls: Partial<Record<DocField, string>> = {};
-        for (const doc of DOCS) {
-          const f = files[doc.field] as PickedFile;
-          const ext = f.name.split(".").pop() || "jpg";
-          urls[doc.field] = await mediaService.uploadFile(
-            { uri: f.uri, name: `${doc.docType}_${Date.now()}.${ext}`, mimeType: f.mimeType },
-            userId,
-            "IMAGE",
-            doc.docType
-          );
+        setProfessorRequested(true);
+        try {
+          await uploadDocuments();
+        } catch (uploadErr) {
+          const msg = uploadErr instanceof Error ? uploadErr.message : "";
+          setError(`${msg} ${translate("addRoleFlow.retryUploads")}`.trim());
+          return;
         }
-        await authService.updateProfessorUrls(
-          userId,
-          { cniRecto: urls.cniUrlRecto ?? "", cniVerso: urls.cniUrlVerso ?? "", selfie: urls.selfieUrl ?? "" },
-          matricule
-        );
       }
 
       await refreshRoles();
-      onClose();
-      if (result.inscriptionStatut === "ROLE_PENDING_VALIDATION" || type === "professeur") {
-        Alert.alert(translate("auth.signup.rolePending.title"), translate("addRole.pendingMessage"));
+      onDone?.();
+      if (type === "professeur") {
+        setDone({ title: t("addRoleFlow.sentTitle"), message: t("addRoleFlow.sentMessage"), pending: true });
+      } else if (type === "eleve" || result.statutInscription === CLASS_APPROVAL_PENDING || result.inscriptionStatut === "ROLE_PENDING_VALIDATION") {
+        setDone({
+          title: t("addRoleFlow.sentTitle"),
+          message: t("addRoleFlow.studentSentMessage", { name: preview?.nom ?? String(result.classeNom ?? "") }),
+          pending: true,
+        });
       } else {
-        Alert.alert(translate("auth.signup.roleAdded.title"), translate("addRole.addedMessage"));
+        setDone({ title: t("auth.signup.roleAdded.title"), message: t("addRole.addedMessage"), pending: false });
       }
     } catch (err) {
-      Alert.alert(translate("common.error"), err instanceof Error ? err.message : translate("auth.errors.addRoleFailed"));
+      setError(err instanceof Error ? err.message : translate("auth.errors.addRoleFailed"));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const options = ADDABLE.filter((o) => addable.includes(o.key));
-  const pendingOptions = ADDABLE.filter((o) => pendingKeys.has(o.key));
+  const goToProfile = () => {
+    onClose();
+    useUiStore.getState().requestTab("settings");
+  };
+
+  const options = ADDABLE.filter((o) => addable.includes(o.key) || (initialType === o.type && o.type === "professeur"));
+  const fullName = profile ? `${profile.prenom} ${profile.nom}`.trim() : "";
+
+  if (done) {
+    return (
+      <BottomSheet visible={visible} onClose={onClose} title={done.title}>
+        <View style={styles.doneWrap}>
+          <View style={[styles.doneIcon, { backgroundColor: done.pending ? `${colors.warning}22` : `${colors.success}22` }]}>
+            <FontAwesome5 name={done.pending ? "paper-plane" : "check"} size={24} color={done.pending ? colors.warningDark : colors.success} />
+          </View>
+          <Text style={styles.doneText}>{done.message}</Text>
+        </View>
+        <Button label={t("addRoleFlow.seeProfile")} icon="user-cog" onPress={goToProfile} fullWidth style={{ marginBottom: spacing.sm }} />
+        <Button label={t("addRoleFlow.continue")} variant="ghost" onPress={onClose} fullWidth style={{ marginBottom: spacing.lg }} />
+      </BottomSheet>
+    );
+  }
 
   return (
     <BottomSheet visible={visible} onClose={onClose} title={t("roles.addProfile")}>
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={styles.subtitle}>
-          {t("addRole.subtitle", { email })}
-        </Text>
+        <Text style={styles.subtitle}>{t("addRole.subtitle", { email })}</Text>
 
         {options.length === 0 ? (
           <Text style={styles.empty}>
-            {owned.has("student")
+            {currentRole === "student"
               ? t("addRole.studentExclusive")
-              : pendingOptions.length > 0
+              : pendingKeys.size > 0
                 ? t("addRole.allOwnedPending")
                 : t("addRole.allOwned")}
           </Text>
@@ -178,11 +254,15 @@ const AddRoleSheet = ({ visible, onClose }: AddRoleSheetProps) => {
               const cfg = roleDisplay(o.key);
               const selected = type === o.type;
               const tint = cfg?.color ?? colors.primary;
+              const hint = o.type === "professeur" ? t("addRole.teacherHint") : o.type === "eleve" ? t("addRoleFlow.studentHint") : cfg?.subtitle;
               return (
                 <TouchableOpacity
                   key={o.type}
                   style={[styles.option, { borderColor: selected ? tint : colors.border, backgroundColor: `${tint}14` }]}
-                  onPress={() => setType(o.type)}
+                  onPress={() => {
+                    setType(o.type);
+                    setError("");
+                  }}
                   activeOpacity={0.75}
                   disabled={submitting}
                 >
@@ -192,7 +272,7 @@ const AddRoleSheet = ({ visible, onClose }: AddRoleSheetProps) => {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.optionLabel, { color: tint }]}>{cfg?.label ?? o.type}</Text>
                     <Text style={styles.optionSub} numberOfLines={2}>
-                      {o.type === "professeur" ? t("addRole.teacherHint") : cfg?.subtitle}
+                      {hint}
                     </Text>
                   </View>
                   <FontAwesome5 name={selected ? "check-circle" : "circle"} size={16} color={selected ? tint : colors.textMuted} />
@@ -204,6 +284,10 @@ const AddRoleSheet = ({ visible, onClose }: AddRoleSheetProps) => {
 
         {type === "professeur" ? (
           <View>
+            <View style={styles.infoBox}>
+              <FontAwesome5 name="info-circle" size={13} color={colors.infoDark} />
+              <Text style={styles.infoText}>{t("addRoleFlow.docsOnlyIntro", { name: fullName || "—", email })}</Text>
+            </View>
             <Input
               label={t("auth.signup.verification.matricule")}
               value={matricule}
@@ -235,12 +319,47 @@ const AddRoleSheet = ({ visible, onClose }: AddRoleSheetProps) => {
           </View>
         ) : null}
 
+        {type === "eleve" ? (
+          <View>
+            <View style={styles.infoBox}>
+              <FontAwesome5 name="info-circle" size={13} color={colors.infoDark} />
+              <Text style={styles.infoText}>{t("addRoleFlow.studentIntro")}</Text>
+            </View>
+            <Input
+              label={t("joinClass.codeLabel")}
+              value={codeClasse}
+              onChangeText={setCodeClasse}
+              placeholder={t("joinClass.codePlaceholder")}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => lookup.check()}
+            />
+            <ClassPreviewCard status={lookup.status} preview={lookup.preview} error={lookup.error} />
+          </View>
+        ) : null}
+
+        {error ? (
+          <View style={styles.errorRow}>
+            <FontAwesome5 name="exclamation-circle" size={12} color={colors.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
+
         <Button
-          label={type === "professeur" ? t("addRole.sendRequest") : t("addRole.addThis")}
-          icon="plus"
+          label={
+            verifyingCode
+              ? lookup.status === "loading"
+                ? t("classPreview.verifying")
+                : t("classPreview.verify")
+              : type === "parent" || !type
+                ? t("addRole.addThis")
+                : t("addRole.sendRequest")
+          }
+          icon={verifyingCode ? "search" : type === "parent" || !type ? "plus" : "paper-plane"}
           onPress={handleSubmit}
-          loading={submitting}
-          disabled={!type}
+          loading={submitting || (verifyingCode && lookup.status === "loading")}
+          disabled={!type || (type === "eleve" && !codeClasse.trim())}
           fullWidth
           style={{ marginTop: spacing.md, marginBottom: spacing.lg }}
         />
@@ -265,6 +384,15 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     optionIcon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
     optionLabel: { ...typography.bodyBold, fontSize: 15 },
     optionSub: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+    infoBox: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      padding: spacing.md,
+      borderRadius: radius.md,
+      backgroundColor: `${colors.info}14`,
+      marginBottom: spacing.md,
+    },
+    infoText: { ...typography.caption, color: colors.text, flex: 1, lineHeight: 18 },
     docRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -278,6 +406,11 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     docLabel: { ...typography.bodyBold, color: colors.text },
     docSub: { ...typography.caption, color: colors.textMuted },
+    errorRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.sm },
+    errorText: { ...typography.caption, color: colors.danger, flex: 1 },
+    doneWrap: { alignItems: "center", paddingVertical: spacing.md, gap: spacing.md },
+    doneIcon: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center" },
+    doneText: { ...typography.body, color: colors.text, textAlign: "center", lineHeight: 22, marginBottom: spacing.md },
   });
 
 export default AddRoleSheet;

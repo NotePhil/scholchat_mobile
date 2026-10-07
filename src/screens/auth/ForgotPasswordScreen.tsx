@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { BrandColors, ff, useBrandColors } from '../../components/brand';
 import { forgotPasswordService } from '../../services/api';
 import { resetToLogin } from '../../navigation/authRoutes';
@@ -21,7 +21,9 @@ const ForgotPasswordScreen = () => {
   const navigation = useNavigation<any>();
   const { width } = useWindowDimensions();
   const { t } = useT();
-  const [email, setEmail] = useState('');
+  // Prefilled from the login / sign-up ("Mot de passe oublié ?").
+  const route = useRoute<any>();
+  const [email, setEmail] = useState<string>(typeof route.params?.email === 'string' ? route.params.email : '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [step, setStep] = useState<'request' | 'confirmation'>('request');

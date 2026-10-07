@@ -32,6 +32,12 @@ export interface LoginResponse {
   professeurStatutVerification?: ProfessorVerificationStatus | null;
   /** Rejection reason, only when professeurStatutVerification is REJETE. */
   professeurMotifRejet?: string | null;
+  /**
+   * First login with the temporary password e-mailed after a class teacher approved a parent /
+   * élève sign-up: the user must choose a new password (POST /auth/change-password) before using
+   * the app. Persisted with the session (storageService user data) so a restart still forces it.
+   */
+  mustChangePassword?: boolean;
   [key: string]: any;
 }
 

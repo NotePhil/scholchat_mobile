@@ -13,6 +13,7 @@ import ChildSelectorRow from "../parent/ChildSelectorRow";
 import CourseProgressCard from "./CourseProgressCard";
 import type { QuickAction } from "./QuickActionsSheet";
 import { formatDate, parseServerDate } from "../../utils/dates";
+import { useT } from "../../i18n";
 
 const CHART_WIDTH = Dimensions.get("window").width - 32;
 const chartConfig = {
@@ -30,6 +31,8 @@ interface StudentParentStatsBodyProps {
   accentColor?: string;
   quickActions?: QuickAction[];
   onQuickAction?: (item: QuickAction) => void;
+  /** "Rejoindre une classe" call-to-action (opens the classes tab's join flow). */
+  onJoinClass?: () => void;
 }
 
 /**
@@ -42,7 +45,8 @@ interface StudentParentStatsBodyProps {
  * stat cards, the same two charts, and the same Classes/Cours à
  * Venir/Notifications three-column bottom section.
  */
-const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.primary, quickActions = [], onQuickAction }: StudentParentStatsBodyProps) => {
+const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.primary, quickActions = [], onQuickAction, onJoinClass }: StudentParentStatsBodyProps) => {
+  const { t } = useT();
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { user } = useUser();
@@ -185,6 +189,27 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
           {quickActions.length > 0 && onQuickAction ? <QuickActionGrid items={quickActions} onSelect={onQuickAction} /> : null}
         </HeroCard>
       </View>
+
+      {onJoinClass ? (
+        <TouchableOpacity
+          style={styles.joinCta}
+          onPress={onJoinClass}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={t("joinClass.cta")}
+        >
+          <View style={styles.joinCtaIcon}>
+            <FontAwesome5 name="user-plus" size={16} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.joinCtaTitle}>{t("joinClass.cta")}</Text>
+            <Text style={styles.joinCtaSub} numberOfLines={1}>
+              {isParent ? t("joinClass.ctaSubtitleParent") : t("joinClass.ctaSubtitle")}
+            </Text>
+          </View>
+          <FontAwesome5 name="chevron-right" size={13} color="#FFFFFF" />
+        </TouchableOpacity>
+      ) : null}
 
       {isParent ? <ChildSelectorRow /> : null}
 
@@ -382,6 +407,20 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
 };
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
+  joinCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "#2563EB",
+    elevation: 2,
+  },
+  joinCtaIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
+  joinCtaTitle: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  joinCtaSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 1 },
   content: { flex: 1, paddingHorizontal: 16 },
   header: { flexDirection: "row", alignItems: "flex-start", marginTop: 20, marginBottom: spacing.md },
   title: { ...typography.h1, color: colors.text, marginBottom: 4 },

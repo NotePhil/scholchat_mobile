@@ -28,6 +28,7 @@ type IconName = ComponentProps<typeof FontAwesome5>['name'];
  *  - CLASSE_ADHESION_DEMANDE CLASS     classeId   (gestionnaire / professor)
  *  - ETABLISSEMENT_CREATED   ETABLISSEMENT id     (gestionnaire)
  *  - PROFESSOR_CREATED       PROFESSOR professorId (admins: pending validation)
+ *  - PROFESSOR_ROLE_VALIDATED (and other profile decisions) → the user's own profile (settings)
  *  - OFFRE_EXPIRATION_BIENTOT / OFFRE_EXPIREE / SUPPRESSION_IMMINENTE  CLASSE | ETABLISSEMENT id
  */
 /**
@@ -115,6 +116,22 @@ export const getNotificationTargetTab = (n: NotificationItem, role: AppRole): st
     case 'PROFESSOR_CREATED':
       return isAdmin ? 'users-pending' : null;
 
+    // A profile request of the account itself was decided (see services/roleNotifications):
+    // the profile page shows each role with its status.
+    case 'PROFESSOR_ROLE_VALIDATED':
+    case 'PROFESSOR_ROLE_REJECTED':
+    case 'PROFESSOR_ROLE_DOCUMENTS_REQUIRED':
+    case 'PROFESSOR_VERIFICATION_VALIDATED':
+    case 'PROFESSOR_VERIFICATION_REJECTED':
+    case 'PROFESSOR_VERIFICATION_DOCUMENTS_REQUIRED':
+    case 'STUDENT_ROLE_VALIDATED':
+    case 'STUDENT_ROLE_APPROVED':
+    case 'STUDENT_ROLE_REJECTED':
+    case 'ROLE_VALIDATED':
+    case 'ROLE_REJECTED':
+    case 'ROLE_ADDED':
+      return 'settings';
+
     case 'OFFRE_EXPIRATION_BIENTOT':
     case 'OFFRE_EXPIREE':
     case 'SUPPRESSION_IMMINENTE':
@@ -167,12 +184,19 @@ export const getNotificationIcon = (type?: string): { icon: IconName; color: str
     case 'PROFESSOR_CREATED':
       return { icon: 'user-clock', color: '#DC2626' };
     case 'PROFESSOR_VERIFICATION_VALIDATED':
+    case 'PROFESSOR_ROLE_VALIDATED':
+    case 'STUDENT_ROLE_VALIDATED':
+    case 'STUDENT_ROLE_APPROVED':
+    case 'ROLE_ADDED':
     case 'ROLE_VALIDATED':
       return { icon: 'user-check', color: '#10B981' };
     case 'PROFESSOR_VERIFICATION_REJECTED':
+    case 'PROFESSOR_ROLE_REJECTED':
+    case 'STUDENT_ROLE_REJECTED':
     case 'ROLE_REJECTED':
       return { icon: 'user-times', color: '#EF4444' };
     case 'PROFESSOR_VERIFICATION_DOCUMENTS_REQUIRED':
+    case 'PROFESSOR_ROLE_DOCUMENTS_REQUIRED':
       return { icon: 'id-card', color: '#F59E0B' };
     case 'ETABLISSEMENT_CREATED':
       return { icon: 'school', color: '#0D9488' };

@@ -1,4 +1,5 @@
 import type { Dictionary } from './index';
+import { helpEn } from './help.en';
 
 /**
  * English dictionary. Typed as `Dictionary` (the shape of fr.ts): a missing or extra key
@@ -557,12 +558,12 @@ export const en: Dictionary = {
     current: 'Current profile',
     pending: 'Awaiting approval',
     available: 'Available',
-    studentExclusive: 'A student account cannot have any other profile (parent or teacher).',
+    studentExclusive: 'From a student profile you can neither switch nor add a profile: log out and choose the profile when logging in.',
   },
 
   addRole: {
-    subtitle: 'One account ({{email}}) can be both a parent and a teacher. Choose the profile to add.',
-    studentExclusive: 'A student account cannot have any other profile. Use another email address to create a parent or teacher account.',
+    subtitle: 'One account ({{email}}) can hold the parent, teacher and student profiles. Choose the profile to add.',
+    studentExclusive: 'A profile cannot be added from a student profile. Log in with your parent or teacher profile to add one.',
     allOwned: 'You already have every available profile.',
     allOwnedPending: 'You already have every available profile (some are awaiting approval).',
     teacherHint: 'ID documents + approval by the administration',
@@ -805,6 +806,7 @@ export const en: Dictionary = {
         generic: 'Invalid credentials. Please try again.',
         profileLogin: 'Unable to sign in with this profile.',
         pendingActivation: 'Your account is not activated yet. Activate it with the link you received by email.',
+        classApprovalPending: "Your sign-up is awaiting the class's approval.",
         inactive: 'Your account is inactive or awaiting approval by the administration.',
         invalidCredentials: 'Incorrect email or password.',
       },
@@ -821,7 +823,9 @@ export const en: Dictionary = {
     },
     signup: {
       steps: {
-        infos: 'Personal information',
+        infos: 'Personal info',
+        classe: 'Class / Code',
+        confirmation: 'Confirmation',
         niveau: 'Level',
         documents: 'Documents',
       },
@@ -843,6 +847,23 @@ export const en: Dictionary = {
         filePicker: 'Unable to open the file picker.',
         createFailed: 'An error occurred while creating the account.',
         retryUploads: 'Your request is saved: retry sending the documents.',
+        classCodeRequired: 'The class code is required.',
+        classCodeInvalid: 'Invalid class code or inactive class. Check the code you were given.',
+        classMinorsOnly: 'This class is reserved for minor students: an adult student cannot join it.',
+        classInactive: "This class is not accepting sign-ups at the moment.",
+        signupPending: "A sign-up with this email is already awaiting approval.",
+        emailUsed: 'This email address is already in use.',
+        invalidEmail: 'Invalid email address. Check its format (e.g. name@example.com).',
+        emailExists: 'An account already exists with this email address. Sign in or reset your password.',
+        emailPendingClass: "A sign-up with this email is already awaiting approval by the class teacher.",
+        emailInactive:
+          'An account already exists with this email address but it is not activated yet. Use “Verify my account?” on the sign-in page to activate it.',
+        emailAwaitingValidation:
+          'An account already exists with this email address but it is awaiting validation. You will receive an email as soon as it is validated.',
+        studentRequestAdded:
+          'An account already exists with this email address: your request was added to it and is awaiting approval by the class teacher.',
+        studentRequestAddedNamed:
+          'An account already exists with this email address: your request for the class {{classe}} was added to it and is awaiting approval by the class teacher.',
         roleIncompatible: 'A student account cannot be combined with any other profile (parent or teacher). Use another email address.',
       },
       roleAdded: {
@@ -864,7 +885,25 @@ export const en: Dictionary = {
         firstNamePlaceholder: 'E.g. Jean',
         address: 'Address',
         addressPlaceholder: 'Your full address',
-        passwordLater: 'No password to choose now: you will set it from the activation link sent by email.',
+        passwordLater: "No password to choose now: once the teacher approves, you'll receive a temporary password by email.",
+      },
+      classe: {
+        title: 'Class / Enrolment code',
+        subtitle: 'Enter the code of the class you want to join.',
+        label: 'Class code',
+        placeholder: 'E.g. ABC123',
+        hint: 'Code given by your teacher or your school.',
+        approvalStudent: "Your request will be sent to the class's teacher, who must approve it.",
+        approvalParent: "Your request will be sent to the class's teacher, who must approve it. You can then add your children.",
+      },
+      confirmation: {
+        title: 'Confirm your sign-up',
+        subtitle: 'Check your information before continuing.',
+        profile: 'Profile',
+        name: 'Full name',
+        edit: 'Edit',
+        nextSteps:
+          "Once the teacher approves, you'll receive by email your login and a temporary password, to be changed at your first sign-in.",
       },
       niveau: {
         title: 'Education level',
@@ -907,6 +946,23 @@ export const en: Dictionary = {
       spamHint: "Remember to check your Spam folder if you don't receive anything within a few minutes.",
       retry: 'Try again with another address',
     },
+    forceChange: {
+      title: 'New password',
+      subtitle: 'You signed in with a temporary password. Choose a secure password to continue.',
+      temporaryPassword: 'Temporary password',
+      currentRequired: 'Enter the temporary password you received by email.',
+      sameAsTemporary: 'The new password must be different from the temporary password.',
+      submit: 'Save and continue',
+      hint: 'This password will work on the web and in the mobile app.',
+      logout: 'Sign out',
+    },
+    addChildPrompt: {
+      title: 'Add your child',
+      message:
+        "Welcome to ScholChat! To follow your child's classes, courses, homework and results, first add their profile. You can add several children.",
+      add: 'Add my child',
+      later: 'Later',
+    },
     reset: {
       title: 'New password',
       subtitle: 'Create a strong password',
@@ -936,6 +992,15 @@ export const en: Dictionary = {
       openMail: 'Open my mailbox',
       resendIn: 'Resend the email ({{seconds}} s)',
       noMailApp: 'No email app available.',
+      classPendingTitle: 'Account created – awaiting approval',
+      classPendingMessage: 'Your request to join the class {{classe}} has been sent to its teacher.',
+      classPendingMessageNoClass: 'Your request to join the class has been sent to its teacher.',
+      classPendingSteps: {
+        approval: "The class's teacher reviews and approves your request.",
+        email: 'You then receive by email your login (your email address) and a temporary password.',
+        firstLogin:
+          "Sign in with these credentials, on the web or in the app: you'll choose a new password at your first sign-in.",
+      },
       pendingTitle: 'Request received',
       pendingMessage:
         'Your teacher registration request has been received. It is awaiting approval by the administration. Once approved, you will receive an email to set your password.',
@@ -1105,5 +1170,107 @@ export const en: Dictionary = {
       continueWithout: 'Continue without camera or mic',
       privacy: 'Your camera and microphone are only used during the session.',
     },
+  },
+
+  help: helpEn,
+
+  helpUi: {
+    button: 'Help',
+    title: 'Help',
+    purpose: 'What this screen is for',
+    steps: 'How to',
+    tips: 'Tips',
+    close: 'Got it',
+  },
+
+  classPreview: {
+    verify: 'Verify code',
+    verifying: 'Verifying…',
+    found: 'Class found',
+    searching: 'Looking up the class…',
+    level: 'Level',
+    establishment: 'School',
+    teacher: 'Teacher',
+    joining: 'You are joining',
+    verifyFirst: 'Check the class code before continuing.',
+    errors: {
+      invalid: 'No class matches this code. Check the code given by the teacher.',
+      inactive: 'This class is not accepting sign-ups at the moment.',
+      minorsOnly: 'This class is reserved for minor students: an adult student cannot join it.',
+      required: 'The class code is required.',
+      tooMany: 'Too many attempts. Please wait a few minutes before trying again.',
+      generic: 'Unable to check this code right now. Please try again.',
+    },
+  },
+
+  joinClass: {
+    title: 'Join a class',
+    cta: 'Join a class',
+    ctaSubtitle: 'Enter the code given by the teacher',
+    ctaSubtitleParent: "Enroll your child with the class code",
+    hint: 'Enter the activation code given by the teacher or the school.',
+    codeLabel: 'Activation code',
+    codePlaceholder: 'E.g. ABC123',
+    search: 'Search',
+    confirmTitle: 'Confirm the request',
+    confirmMessage: 'Send an access request for the class "{{name}}"?',
+    confirmAction: 'Send the request',
+    sentTitle: 'Request sent',
+    sentMessage: 'Your access request has been sent. You will be notified once it is approved.',
+    sendFailed: 'Failed to send the request.',
+    noChild: 'Add or select a child first.',
+  },
+
+  verifyAccount: {
+    link: 'Verify my account?',
+    title: 'Verify my account',
+    subtitle: "Enter your account's e-mail address: we will send you a 6-digit code to activate it.",
+    emailLabel: 'E-mail address',
+    send: 'Send the code',
+    codeTitle: 'Enter the code',
+    codeSubtitle: 'If an account awaiting verification matches {{email}}, a 6-digit code has just been sent to it.',
+    codeLabel: 'Verification code',
+    verify: 'Verify',
+    resend: 'Resend the code',
+    resendIn: 'Resend the code in {{seconds}} s',
+    resent: 'A new code has been sent.',
+    changeEmail: 'Change the e-mail address',
+    codeIncomplete: 'Enter the 6 digits of the code.',
+    spamHint: 'Remember to check your spam folder. The code is only valid for a few minutes.',
+    success: 'Account verified! Now choose your password.',
+    errors: {
+      invalid: 'Incorrect code. Check the 6 digits received by e-mail.',
+      expired: 'This code has expired. Request a new code.',
+      tooMany: 'Too many attempts. Please wait a few minutes before trying again.',
+      notEligible: 'This account does not need to be verified (already activated or awaiting another validation). Try logging in.',
+      generic: 'Verification failed. Please try again.',
+      sendFailed: 'Unable to send the code right now. Please try again.',
+    },
+  },
+
+  roleStatus: {
+    active: 'Active',
+    current: 'Current profile',
+    pendingValidation: 'Awaiting validation',
+    pendingClass: 'Awaiting class approval',
+    documentsMissing: 'Missing documents',
+    rejected: 'Rejected',
+    reason: 'Reason: {{reason}}',
+    completeDocuments: 'Complete the documents',
+    studentSwitchNote: 'To use another profile, log out and choose it when logging in.',
+    switchForbiddenStudent: 'From a student profile you cannot switch or add a profile. Log out and choose the profile when logging in.',
+    refreshed: 'Your profiles have been updated.',
+  },
+
+  addRoleFlow: {
+    studentHint: "Class code + teacher's approval",
+    docsOnlyIntro: 'Your personal details ({{name}} — {{email}}) are taken from your account: only your ID documents are required.',
+    studentIntro: "Enter the code of the class to join as a student. The teacher will have to approve your request.",
+    sentTitle: 'Request sent',
+    sentMessage: 'Keep using your account; follow the status of the request in your profile.',
+    studentSentMessage: 'Your request to join "{{name}}" as a student has been sent. The student profile will be active once the teacher approves it; you will get a notification.',
+    seeProfile: 'View my profile',
+    continue: 'Continue',
+    retryUploads: 'The profile was requested, but uploading the documents failed. Please try again.',
   },
 };

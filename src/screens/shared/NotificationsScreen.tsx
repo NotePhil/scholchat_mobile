@@ -11,6 +11,8 @@ import { useUiStore } from '../../store/useUiStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useT } from '../../i18n';
+import { HelpButton, getHelpTarget } from './HelpSheet';
+import { handleRoleNotification } from '../../services/roleNotifications';
 import { formatNotificationDate, getNotificationClassTarget, getNotificationIcon, getNotificationTargetTab } from '../../services/notificationRouting';
 
 type Filter = 'all' | 'unread';
@@ -67,6 +69,11 @@ const NotificationsScreen = () => {
     if (!notification.isRead) {
       markReadLocally(notification.id);
       notificationService.markAsRead(notification.id).catch(() => {});
+    }
+    // Profile validated/rejected (PROFESSOR_ROLE_VALIDATED…): profile tab + session roles refreshed.
+    if (handleRoleNotification(notification, role, useAuthStore.getState().login)) {
+      navigation.goBack();
+      return;
     }
     // A live session started: go straight to the join screen.
     if ((notification.type ?? '').toUpperCase() === 'LIVE_SESSION_STARTED' && notification.relatedEntityId && role !== 'professor' && role !== 'tutor') {
@@ -140,6 +147,7 @@ const NotificationsScreen = () => {
           <FontAwesome5 name="arrow-left" size={18} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{t('notifications.title')}</Text>
+        <HelpButton target={getHelpTarget(role, 'notifications')} style={{ marginRight: spacing.xs }} />
         <TouchableOpacity
           onPress={handleClearAll}
           style={[styles.iconButton, items.length === 0 && styles.disabled]}
@@ -251,7 +259,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean
     },
     iconButton: { padding: spacing.sm },
     disabled: { opacity: 0.4 },
-    headerTitle: { ...typography.h3, color: colors.text },
+    headerTitle: { ...typography.h3, color: colors.text, flex: 1, marginLeft: spacing.sm },
     toolbar: {
       flexDirection: 'row',
       alignItems: 'center',

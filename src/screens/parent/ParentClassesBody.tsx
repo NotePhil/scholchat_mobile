@@ -14,6 +14,7 @@ import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 import { serverDateMs } from "../../utils/dates";
 import { useT } from "../../i18n";
+import { useUiStore } from "../../store/useUiStore";
 
 type AccessState = "APPROVED" | "EN_ATTENTE" | "REJETEE" | "NONE";
 
@@ -40,6 +41,15 @@ const ParentClassesBody = () => {
   useEffect(() => {
     if (user?.userId) loadChildren(user.userId);
   }, [user?.userId, loadChildren]);
+
+  // Dashboard "Rejoindre une classe" CTA: open the join flow on arrival.
+  const pendingJoinClass = useUiStore((s) => s.pendingJoinClass);
+  useEffect(() => {
+    if (!pendingJoinClass) return;
+    useUiStore.getState().clearPendingJoinClass();
+    setSelectedClass(null);
+    setTimeout(() => (useSelectedChildStore.getState().selectedChildId ? setShowJoin(true) : setShowAddChild(true)), 250);
+  }, [pendingJoinClass]);
 
   // Mirrors web's StudentClassList.jsx (isParentView): only the child's classes are
   // listed — the ones they're in, plus those with a pending/rejected request — each with
@@ -145,18 +155,26 @@ const ParentClassesBody = () => {
           >
             <FontAwesome5 name="child" size={14} color={colors.primary} />
           </TouchableOpacity>
-          {selectedChildId ? (
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={() => setShowJoin(true)}
-              activeOpacity={0.7}
-              accessibilityLabel={t("parentClasses.joinForChild")}
-            >
-              <FontAwesome5 name="plus" size={14} color={colors.white} />
-            </TouchableOpacity>
-          ) : null}
         </View>
       </View>
+
+      {/* Prominent "Rejoindre une classe" — visible without scrolling. */}
+      <TouchableOpacity
+        style={styles.joinBtn}
+        onPress={() => (selectedChildId ? setShowJoin(true) : setShowAddChild(true))}
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        accessibilityLabel={t("joinClass.cta")}
+      >
+        <FontAwesome5 name="user-plus" size={14} color={colors.white} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.joinBtnText}>{t("joinClass.cta")}</Text>
+          <Text style={styles.joinBtnSub} numberOfLines={1}>
+            {selectedChildId ? t("joinClass.ctaSubtitleParent") : t("joinClass.noChild")}
+          </Text>
+        </View>
+        <FontAwesome5 name="chevron-right" size={12} color={colors.white} />
+      </TouchableOpacity>
 
       <ChildSelectorRow />
 
@@ -274,7 +292,21 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     marginTop: 20,
     marginBottom: spacing.md,
   },
-  title: { ...typography.h1, color: colors.text },
+  title: { ...typography.h1, color: colors.text, flex: 1, marginRight: spacing.sm },
+  joinBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginHorizontal: 16,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    elevation: 2,
+  },
+  joinBtnText: { color: colors.white, fontSize: 15, fontWeight: "700" },
+  joinBtnSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, marginTop: 1 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   headerIconButton: {
     width: 36,

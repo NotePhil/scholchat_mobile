@@ -1,8 +1,8 @@
 import { apiClient, extractErrorMessage } from '../api/client';
-import { mediaService } from '../api/mediaService';
+import { mediaService, xhrUpload } from '../api/mediaService';
 import { storageService } from '../storageService';
 import { LoginResponse } from '../../types';
-import { localizedServerMessage, translate } from '../../i18n';
+import { TranslationKey, localizedServerMessage, translate } from '../../i18n';
 
 export interface PresignedUrlResponse {
   url: string;
@@ -33,6 +33,12 @@ export interface SignupPayload {
   adresse: string;
   /** Élève only, optional (one of NIVEAUX). */
   niveau?: string;
+  /**
+   * Parent / élève only: activation code of the class to join (given by the teacher or the
+   * school). The account then waits for the class teacher's approval
+   * (statutInscription EN_ATTENTE_APPROBATION_CLASSE).
+   */
+  codeClasse?: string;
 }
 
 export interface SignupResponse {
@@ -44,8 +50,65 @@ export interface SignupResponse {
    * activation link was e-mailed).
    */
   inscriptionStatut?: 'CREATED' | 'ROLE_ADDED' | 'ROLE_PENDING_VALIDATION' | 'ACTIVATION_REQUIRED' | string;
+  /**
+   * Professor sign-up only: short-lived signed token (≈2 h) that authorizes the anonymous upload of
+   * THIS account's documents — sent as the X-Upload-Token header on presigned-url, proxy-upload and
+   * PATCH /utilisateurs/{id}. Without it the backend refuses the unauthenticated document upload.
+   */
+  uploadToken?: string;
+  /**
+   * Parent / élève sign-up with a class code: EN_ATTENTE_APPROBATION_CLASSE — the class teacher
+   * must approve; the user then receives by e-mail their login (e-mail) and a temporary password.
+   */
+  statutInscription?: 'EN_ATTENTE_APPROBATION_CLASSE' | string;
+  /** Name of the class matching codeClasse (parent / élève sign-up). */
+  classeNom?: string;
   [key: string]: unknown;
 }
+
+/** statutInscription of a parent / élève sign-up awaiting the class teacher's approval. */
+export const CLASS_APPROVAL_PENDING = 'EN_ATTENTE_APPROBATION_CLASSE';
+
+/** Sign-up error codes with a translated message (English UI; French keeps the server text). */
+const SIGNUP_ERROR_KEYS: Record<string, TranslationKey> = {
+  ROLE_INCOMPATIBLE: 'auth.signup.errors.roleIncompatible',
+  CODE_CLASSE_INVALIDE: 'auth.signup.errors.classCodeInvalid',
+  CODE_CLASSE_REQUIS: 'auth.signup.errors.classCodeRequired',
+  CLASSE_RESERVEE_MINEURS: 'auth.signup.errors.classMinorsOnly',
+  CLASSE_NON_ACTIVE: 'auth.signup.errors.classInactive',
+  INSCRIPTION_EN_ATTENTE: 'auth.signup.errors.signupPending',
+  EMAIL_DEJA_UTILISE: 'auth.signup.errors.emailUsed',
+  COMPTE_NON_ACTIVE: 'auth.signup.errors.emailInactive',
+  COMPTE_EN_ATTENTE_VALIDATION: 'auth.signup.errors.emailAwaitingValidation',
+};
+
+/** Profile switch / add attempted from a student session (POST /auth/switch-role, POST /utilisateurs). */
+export const STUDENT_SWITCH_FORBIDDEN = 'CHANGEMENT_PROFIL_INTERDIT_ELEVE';
+
+/** Error codes of the account verification by e-mail code. */
+const VERIFICATION_ERROR_KEYS: Record<string, TranslationKey> = {
+  CODE_VERIFICATION_INVALIDE: 'verifyAccount.errors.invalid',
+  CODE_VERIFICATION_EXPIRE: 'verifyAccount.errors.expired',
+  TROP_DE_TENTATIVES: 'verifyAccount.errors.tooMany',
+  COMPTE_NON_ELIGIBLE: 'verifyAccount.errors.notEligible',
+};
+
+type CodedError = Error & { code?: string; status?: number };
+
+/** Error with the backend `code` kept and the message translated (English UI) when the code is known. */
+const codedError = (error: unknown, fallback: string, keys: Record<string, TranslationKey>): CodedError => {
+  const message = extractErrorMessage(error, fallback);
+  const response = (error as { response?: { status?: number; data?: { code?: string } } })?.response;
+  const code = typeof response?.data?.code === 'string' ? response.data.code : undefined;
+  const err = new Error(localizedServerMessage(message, code ? keys[code] : undefined)) as CodedError;
+  if (code) err.code = code;
+  err.status = response?.status;
+  return err;
+};
+
+/** Header carrying the sign-up upload token (see SignupResponse.uploadToken). */
+export const uploadTokenHeaders = (uploadToken?: string): Record<string, string> =>
+  uploadToken ? { 'X-Upload-Token': uploadToken } : {};
 
 export const authService = {
   /**
@@ -92,7 +155,7 @@ export const authService = {
       await storageService.saveUserData(data);
       return data;
     } catch (error) {
-      throw new Error(extractErrorMessage(error, translate('auth.errors.switchFailed')));
+      throw codedError(error, translate('auth.errors.switchFailed'), { [STUDENT_SWITCH_FORBIDDEN]: 'roleStatus.switchForbiddenStudent' });
     }
   },
 
@@ -107,7 +170,7 @@ export const authService = {
       await storageService.saveUserData(data);
       return data;
     } catch (error) {
-      throw new Error(extractErrorMessage(error, translate('auth.errors.refreshFailed')));
+      throw codedError(error, translate('auth.errors.refreshFailed'), { [STUDENT_SWITCH_FORBIDDEN]: 'roleStatus.switchForbiddenStudent' });
     }
   },
 
@@ -126,7 +189,9 @@ export const authService = {
     adresse?: string;
     niveau?: string;
     matriculeProfesseur?: string;
-  }): Promise<{ id?: string; inscriptionStatut?: string; [key: string]: unknown }> => {
+    /** Student profile: activation code of the class to join (teacher approval). */
+    codeClasse?: string;
+  }): Promise<SignupResponse> => {
     try {
       const { data } = await apiClient.post('/utilisateurs', {
         ...payload,
@@ -135,17 +200,20 @@ export const authService = {
       });
       return data ?? {};
     } catch (error) {
-      const message = extractErrorMessage(error, translate('auth.errors.addRoleFailed'));
-      const code = (error as { response?: { data?: { code?: string } } })?.response?.data?.code;
-      // Forbidden combination (student profile is exclusive): localized when not in French.
-      throw new Error(localizedServerMessage(message, code === 'ROLE_INCOMPATIBLE' ? 'auth.signup.errors.roleIncompatible' : undefined));
+      // Forbidden combination / student session / class code errors: localized when not in French.
+      throw codedError(error, translate('auth.errors.addRoleFailed'), {
+        ...SIGNUP_ERROR_KEYS,
+        [STUDENT_SWITCH_FORBIDDEN]: 'roleStatus.switchForbiddenStudent',
+      });
     }
   },
 
   /**
    * Public sign-up (eleve / parent / professeur) — same call and payload as web SignUp.jsx
    * (createBasicProfile): no password; the backend e-mails an activation link whose page lets the
-   * user choose the password (a professor first waits for the admin validation). Like the web,
+   * user choose the password (a professor first waits for the admin validation). A parent / élève
+   * sends the class code (codeClasse): the class teacher approves the request, then the backend
+   * e-mails a temporary password (statutInscription EN_ATTENTE_APPROBATION_CLASSE). Like the web,
    * the e-mail is only trimmed.
    */
   signUp: async (payload: SignupPayload): Promise<SignupResponse> => {
@@ -160,13 +228,17 @@ export const authService = {
         etat: 'INACTIVE',
       };
       if (payload.type === 'eleve') body.niveau = payload.niveau ?? '';
+      if (payload.type !== 'professeur' && payload.codeClasse?.trim()) body.codeClasse = payload.codeClasse.trim();
       const { data } = await apiClient.post<SignupResponse>('/utilisateurs', body);
       return data ?? {};
     } catch (error) {
       const message = extractErrorMessage(error, translate('auth.signup.errors.createFailed'));
       const code = (error as { response?: { data?: { code?: string } } })?.response?.data?.code;
-      // Forbidden combination (student profile is exclusive): localized when not in French.
-      throw new Error(localizedServerMessage(message, code === 'ROLE_INCOMPATIBLE' ? 'auth.signup.errors.roleIncompatible' : undefined));
+      // Known business errors (student profile exclusive, invalid class code…): localized when
+      // not in French; the error keeps its `code` for the screen.
+      const err = new Error(localizedServerMessage(message, code ? SIGNUP_ERROR_KEYS[code] : undefined)) as Error & { code?: string };
+      if (code) err.code = code;
+      throw err;
     }
   },
 
@@ -174,16 +246,21 @@ export const authService = {
     fileName: string,
     contentType: string,
     ownerId: string,
-    documentType: string
+    documentType: string,
+    uploadToken?: string
   ): Promise<PresignedUrlResponse> => {
     try {
-      const { data } = await apiClient.post<PresignedUrlResponse>('/media/presigned-url', {
-        fileName,
-        contentType,
-        mediaType: 'IMAGE',
-        ownerId,
-        documentType,
-      });
+      const { data } = await apiClient.post<PresignedUrlResponse>(
+        '/media/presigned-url',
+        {
+          fileName,
+          contentType,
+          mediaType: 'IMAGE',
+          ownerId,
+          documentType,
+        },
+        { headers: uploadTokenHeaders(uploadToken) }
+      );
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, translate('auth.errors.uploadUrlFailed')));
@@ -192,29 +269,50 @@ export const authService = {
 
   // Direct PUT to a presigned MinIO URL, with automatic fallback to backend proxy-upload
   // if direct upload fails (e.g. CORS on web, network, or storage policies).
-  uploadFile: async (presignedUrl: string, file: UploadableFile): Promise<boolean> => {
+  uploadFile: async (presignedUrl: string, file: UploadableFile, uploadToken?: string): Promise<boolean> => {
     try {
-      const response = await fetch(presignedUrl, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': file.mimeType,
-        },
-        body: {
-          uri: file.uri,
-          type: file.mimeType,
-          name: file.name,
-        } as unknown as BodyInit,
+      const response = await xhrUpload('PUT', presignedUrl, { 'Content-Type': file.mimeType }, {
+        uri: file.uri,
+        type: file.mimeType,
+        name: file.name,
       });
 
-      if (!response.ok) {
+      if (response.status < 200 || response.status >= 300) {
         throw new Error(`Direct PUT failed with status: ${response.status}`);
       }
 
       return true;
     } catch (error) {
       console.warn('Direct upload failed (likely CORS or network), falling back to backend proxy:', error);
-      await mediaService.proxyUpload(file, presignedUrl, file.mimeType);
+      await mediaService.proxyUpload(file, presignedUrl, file.mimeType, uploadTokenHeaders(uploadToken));
       return true;
+    }
+  },
+
+  /**
+   * POST /auth/verification-compte/envoyer — e-mails a 6-digit code to verify (activate) an
+   * account. Always 200 (no account enumeration); only rate limiting can fail.
+   */
+  sendVerificationCode: async (email: string): Promise<void> => {
+    try {
+      await apiClient.post('/auth/verification-compte/envoyer', { email: email.trim() });
+    } catch (error) {
+      throw codedError(error, translate('verifyAccount.errors.sendFailed'), VERIFICATION_ERROR_KEYS);
+    }
+  },
+
+  /**
+   * POST /auth/verification-compte/verifier — checks the code; returns the activation token that
+   * authorizes POST /auth/registerPassword (same as the e-mailed activation link).
+   */
+  verifyAccountCode: async (email: string, code: string): Promise<{ activationToken: string; email: string }> => {
+    try {
+      const { data } = await apiClient.post('/auth/verification-compte/verifier', { email: email.trim(), code: code.trim() });
+      const token = (data?.activationToken ?? data?.token ?? '') as string;
+      if (!token) throw new Error(translate('verifyAccount.errors.generic'));
+      return { activationToken: token, email: (data?.email as string) || email.trim() };
+    } catch (error) {
+      throw codedError(error, translate('verifyAccount.errors.generic'), VERIFICATION_ERROR_KEYS);
     }
   },
 
@@ -253,7 +351,8 @@ export const authService = {
   updateProfessorUrls: async (
     professorId: string,
     urls: ProfessorDocumentUrls,
-    matriculeProfesseur?: string
+    matriculeProfesseur?: string,
+    uploadToken?: string
   ): Promise<Record<string, unknown>> => {
     try {
       const hasUploaded = !!(urls.cniRecto && urls.cniVerso && urls.selfie);
@@ -264,7 +363,7 @@ export const authService = {
         selfieUrl: urls.selfie || undefined,
         ...(matriculeProfesseur?.trim() ? { matriculeProfesseur: matriculeProfesseur.trim() } : {}),
         hasUploaded,
-      });
+      }, { headers: uploadTokenHeaders(uploadToken) });
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, translate('auth.errors.updateTeacherFailed')));

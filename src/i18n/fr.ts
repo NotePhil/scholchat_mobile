@@ -1,3 +1,4 @@
+import { helpFr } from './help.fr';
 /**
  * French dictionary — the source of truth for keys (en.ts must match it, enforced by its
  * `Dictionary` type). Wording reused from scholchat_front/src/locales/fr.json where the
@@ -556,12 +557,12 @@ export const fr = {
     current: 'Profil actuel',
     pending: 'En attente de validation',
     available: 'Disponible',
-    studentExclusive: "Un compte élève ne peut pas avoir d'autre profil (parent ou professeur).",
+    studentExclusive: "Depuis un profil élève, vous ne pouvez ni changer de profil ni en ajouter un : déconnectez-vous puis choisissez le profil à la connexion.",
   },
 
   addRole: {
-    subtitle: 'Un même compte ({{email}}) peut être à la fois parent et professeur. Choisissez le profil à ajouter.',
-    studentExclusive: "Un compte élève ne peut pas avoir d'autre profil. Utilisez une autre adresse e-mail pour créer un compte parent ou professeur.",
+    subtitle: 'Un même compte ({{email}}) peut cumuler les profils parent, professeur et élève. Choisissez le profil à ajouter.',
+    studentExclusive: "Depuis un profil élève, il n'est pas possible d'ajouter un profil. Connectez-vous avec votre profil parent ou professeur pour en ajouter un.",
     allOwned: 'Vous avez déjà tous les profils disponibles.',
     allOwnedPending: 'Vous avez déjà tous les profils disponibles (certains sont en attente de validation).',
     teacherHint: "Pièces d'identité + validation par l'administration",
@@ -805,6 +806,7 @@ export const fr = {
         generic: 'Identifiants invalides. Veuillez réessayer.',
         profileLogin: 'Impossible de se connecter avec ce profil.',
         pendingActivation: "Votre compte n'est pas encore activé. Activez-le via le lien reçu par email.",
+        classApprovalPending: "Votre inscription est en attente de l'approbation de la classe.",
         inactive: "Votre compte est inactif ou en attente de validation par l'administration.",
         invalidCredentials: 'Email ou mot de passe incorrect.',
       },
@@ -821,7 +823,9 @@ export const fr = {
     },
     signup: {
       steps: {
-        infos: 'Informations personnelles',
+        infos: 'Infos perso.',
+        classe: 'Classe / Code',
+        confirmation: 'Confirmation',
         niveau: 'Niveau',
         documents: 'Documents',
       },
@@ -843,6 +847,23 @@ export const fr = {
         filePicker: "Impossible d'ouvrir le sélecteur de fichiers.",
         createFailed: 'Une erreur est survenue lors de la création du compte.',
         retryUploads: "Votre demande est enregistrée : réessayez l'envoi des documents.",
+        classCodeRequired: 'Le code de la classe est requis.',
+        classCodeInvalid: 'Code de classe invalide ou classe inactive. Vérifiez le code fourni.',
+        classMinorsOnly: 'Cette classe est réservée aux élèves mineurs : un élève adulte ne peut pas la rejoindre.',
+        classInactive: "Cette classe n'accepte pas d'inscription pour le moment.",
+        signupPending: "Une inscription avec cet e-mail est déjà en attente d'approbation.",
+        emailUsed: 'Cette adresse e-mail est déjà utilisée.',
+        invalidEmail: 'Adresse e-mail invalide. Vérifiez son format (ex. nom@exemple.com).',
+        emailExists: 'Un compte existe déjà avec cette adresse e-mail. Connectez-vous ou réinitialisez votre mot de passe.',
+        emailPendingClass: "Une inscription avec cet e-mail est déjà en attente d'approbation par le professeur de la classe.",
+        emailInactive:
+          "Un compte existe déjà avec cet e-mail mais il n'est pas encore activé. Utilisez « Vérifier mon compte ? » sur la page de connexion pour l'activer.",
+        emailAwaitingValidation:
+          "Un compte existe déjà avec cet e-mail mais il est en attente de validation. Vous recevrez un e-mail dès qu'il sera validé.",
+        studentRequestAdded:
+          "Un compte existe déjà avec cette adresse e-mail : votre demande y a été ajoutée et attend l'approbation du professeur de la classe.",
+        studentRequestAddedNamed:
+          "Un compte existe déjà avec cette adresse e-mail : votre demande pour la classe {{classe}} y a été ajoutée et attend l'approbation du professeur de la classe.",
         roleIncompatible: "Un compte élève ne peut être combiné avec aucun autre profil (parent ou professeur). Utilisez une autre adresse e-mail.",
       },
       roleAdded: {
@@ -864,7 +885,25 @@ export const fr = {
         firstNamePlaceholder: 'Ex. Jean',
         address: 'Adresse',
         addressPlaceholder: 'Votre adresse complète',
-        passwordLater: "Pas de mot de passe à choisir maintenant : vous le définirez depuis le lien d'activation envoyé par e-mail.",
+        passwordLater: "Pas de mot de passe à choisir maintenant : après l'approbation de l'enseignant, vous recevrez par e-mail un mot de passe temporaire.",
+      },
+      classe: {
+        title: "Classe / Code d'inscription",
+        subtitle: 'Renseignez le code de la classe à rejoindre.',
+        label: 'Code de la classe',
+        placeholder: 'Ex. ABC123',
+        hint: 'Code fourni par votre professeur ou votre établissement.',
+        approvalStudent: "Votre demande sera envoyée à l'enseignant de la classe, qui devra l'approuver.",
+        approvalParent: "Votre demande sera envoyée à l'enseignant de la classe, qui devra l'approuver. Vous pourrez ensuite ajouter vos enfants.",
+      },
+      confirmation: {
+        title: 'Confirmez votre inscription',
+        subtitle: 'Vérifiez vos informations avant de continuer.',
+        profile: 'Profil',
+        name: 'Nom complet',
+        edit: 'Modifier',
+        nextSteps:
+          "Après validation par l'enseignant, vous recevrez par e-mail votre identifiant et un mot de passe temporaire, à changer lors de la première connexion.",
       },
       niveau: {
         title: "Niveau d'éducation",
@@ -907,6 +946,23 @@ export const fr = {
       spamHint: "Pensez à vérifier votre dossier Spam si vous ne recevez rien d'ici quelques minutes.",
       retry: 'Réessayer avec une autre adresse',
     },
+    forceChange: {
+      title: 'Nouveau mot de passe',
+      subtitle: 'Vous vous êtes connecté avec un mot de passe temporaire. Choisissez un mot de passe sécurisé pour continuer.',
+      temporaryPassword: 'Mot de passe temporaire',
+      currentRequired: 'Saisissez le mot de passe temporaire reçu par e-mail.',
+      sameAsTemporary: 'Le nouveau mot de passe doit être différent du mot de passe temporaire.',
+      submit: 'Enregistrer et continuer',
+      hint: "Ce mot de passe sera valable sur le web et sur l'application mobile.",
+      logout: 'Se déconnecter',
+    },
+    addChildPrompt: {
+      title: 'Ajoutez votre enfant',
+      message:
+        "Bienvenue sur ScholChat ! Pour suivre les classes, cours, devoirs et résultats de votre enfant, ajoutez d'abord son profil. Vous pourrez en ajouter plusieurs.",
+      add: 'Ajouter mon enfant',
+      later: 'Plus tard',
+    },
     reset: {
       title: 'Nouveau mot de passe',
       subtitle: 'Créez un mot de passe sécurisé',
@@ -936,6 +992,17 @@ export const fr = {
       openMail: 'Ouvrir ma messagerie',
       resendIn: "Renvoyer l'e-mail ({{seconds}} s)",
       noMailApp: 'Aucune application de messagerie disponible.',
+      classPendingTitle: "Compte créé – en attente d'approbation",
+      classPendingMessage:
+        "Votre demande pour rejoindre la classe {{classe}} a été transmise à son enseignant.",
+      classPendingMessageNoClass: "Votre demande pour rejoindre la classe a été transmise à son enseignant.",
+      classPendingSteps: {
+        approval: "L'enseignant de la classe examine et approuve votre demande.",
+        email:
+          "Vous recevez alors par e-mail votre identifiant (votre adresse e-mail) et un mot de passe temporaire.",
+        firstLogin:
+          "Connectez-vous avec ces identifiants, sur le web ou sur l'application : vous choisirez un nouveau mot de passe à la première connexion.",
+      },
       pendingTitle: 'Demande reçue',
       pendingMessage:
         "Votre demande d'inscription professeur a bien été reçue. Elle est en attente de validation par l'administration. Après validation, vous recevrez un e-mail pour définir votre mot de passe.",
@@ -1106,5 +1173,107 @@ export const fr = {
       continueWithout: 'Continuer sans caméra ni micro',
       privacy: 'Votre caméra et votre micro ne sont utilisés que pendant la session.',
     },
+  },
+
+  help: helpFr,
+
+  helpUi: {
+    button: 'Aide',
+    title: 'Aide',
+    purpose: 'À quoi sert cet écran',
+    steps: 'Comment faire',
+    tips: 'Astuces',
+    close: "J'ai compris",
+  },
+
+  classPreview: {
+    verify: 'Vérifier le code',
+    verifying: 'Vérification…',
+    found: 'Classe trouvée',
+    searching: 'Recherche de la classe…',
+    level: 'Niveau',
+    establishment: 'Établissement',
+    teacher: 'Professeur',
+    joining: 'Vous rejoignez',
+    verifyFirst: 'Vérifiez le code de la classe avant de continuer.',
+    errors: {
+      invalid: 'Aucune classe ne correspond à ce code. Vérifiez le code fourni par le professeur.',
+      inactive: "Cette classe n'accepte pas d'inscription pour le moment.",
+      minorsOnly: 'Cette classe est réservée aux élèves mineurs : un élève majeur ne peut pas la rejoindre.',
+      required: 'Le code de la classe est requis.',
+      tooMany: 'Trop de tentatives. Patientez quelques minutes avant de réessayer.',
+      generic: 'Impossible de vérifier ce code pour le moment. Réessayez.',
+    },
+  },
+
+  joinClass: {
+    title: 'Rejoindre une classe',
+    cta: 'Rejoindre une classe',
+    ctaSubtitle: 'Saisissez le code donné par le professeur',
+    ctaSubtitleParent: 'Inscrivez votre enfant avec le code de la classe',
+    hint: "Entrez le code d'activation communiqué par le professeur ou l'établissement.",
+    codeLabel: "Code d'activation",
+    codePlaceholder: 'Ex : ABC123',
+    search: 'Rechercher',
+    confirmTitle: 'Confirmer la demande',
+    confirmMessage: "Envoyer une demande d'accès pour la classe « {{name}} » ?",
+    confirmAction: 'Envoyer la demande',
+    sentTitle: 'Demande envoyée',
+    sentMessage: "Votre demande d'accès a été envoyée. Vous serez notifié dès qu'elle sera approuvée.",
+    sendFailed: "Échec de l'envoi de la demande.",
+    noChild: "Ajoutez ou sélectionnez d'abord un enfant.",
+  },
+
+  verifyAccount: {
+    link: 'Vérifier mon compte ?',
+    title: 'Vérifier mon compte',
+    subtitle: "Saisissez l'adresse e-mail de votre compte : nous vous enverrons un code à 6 chiffres pour l'activer.",
+    emailLabel: 'Adresse e-mail',
+    send: 'Envoyer le code',
+    codeTitle: 'Saisissez le code',
+    codeSubtitle: "Si un compte à vérifier correspond à {{email}}, un code à 6 chiffres vient d'y être envoyé.",
+    codeLabel: 'Code de vérification',
+    verify: 'Vérifier',
+    resend: 'Renvoyer le code',
+    resendIn: 'Renvoyer le code dans {{seconds}} s',
+    resent: 'Un nouveau code a été envoyé.',
+    changeEmail: "Modifier l'adresse e-mail",
+    codeIncomplete: 'Saisissez les 6 chiffres du code.',
+    spamHint: "Pensez à vérifier vos courriers indésirables (spam). Le code n'est valable que quelques minutes.",
+    success: 'Compte vérifié ! Choisissez maintenant votre mot de passe.',
+    errors: {
+      invalid: 'Code incorrect. Vérifiez les 6 chiffres reçus par e-mail.',
+      expired: 'Ce code a expiré. Demandez un nouveau code.',
+      tooMany: 'Trop de tentatives. Patientez quelques minutes avant de réessayer.',
+      notEligible: "Ce compte n'a pas besoin d'être vérifié (déjà activé ou en attente d'une autre validation). Essayez de vous connecter.",
+      generic: 'La vérification a échoué. Réessayez.',
+      sendFailed: "Impossible d'envoyer le code pour le moment. Réessayez.",
+    },
+  },
+
+  roleStatus: {
+    active: 'Actif',
+    current: 'Profil actuel',
+    pendingValidation: 'En attente de validation',
+    pendingClass: "En attente d'approbation de la classe",
+    documentsMissing: 'Documents manquants',
+    rejected: 'Refusée',
+    reason: 'Motif : {{reason}}',
+    completeDocuments: 'Compléter les documents',
+    studentSwitchNote: 'Pour utiliser un autre profil, déconnectez-vous puis choisissez-le à la connexion.',
+    switchForbiddenStudent: "Depuis un profil élève, il n'est pas possible de changer de profil ni d'en ajouter un. Déconnectez-vous puis choisissez le profil à la connexion.",
+    refreshed: 'Vos profils ont été mis à jour.',
+  },
+
+  addRoleFlow: {
+    studentHint: "Code de la classe + approbation de l'enseignant",
+    docsOnlyIntro: "Vos informations personnelles ({{name}} — {{email}}) sont reprises de votre compte : seuls vos documents d'identité sont demandés.",
+    studentIntro: "Saisissez le code de la classe à rejoindre en tant qu'élève. L'enseignant devra approuver votre demande.",
+    sentTitle: 'Demande envoyée',
+    sentMessage: "Continuez à utiliser votre compte ; suivez l'état de la demande dans votre profil.",
+    studentSentMessage: "Votre demande pour rejoindre « {{name}} » en tant qu'élève a été envoyée. Le profil élève sera actif après l'approbation de l'enseignant ; vous recevrez une notification.",
+    seeProfile: 'Voir mon profil',
+    continue: 'Continuer',
+    retryUploads: "Le profil a bien été demandé, mais l'envoi des documents a échoué. Réessayez.",
   },
 };

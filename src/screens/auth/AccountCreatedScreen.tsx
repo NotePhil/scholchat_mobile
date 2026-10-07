@@ -16,9 +16,12 @@ import { translate, useT } from '../../i18n';
  *   link to set the password.
  * - `roleAdded` / `rolePending`: role added to (or professor role requested on) an existing
  *   account — the user signs in with that account's existing password.
+ * - `classPending`: parent / élève signed up with a class code — "Compte créé – en attente
+ *   d'approbation": the class teacher must approve; the user then receives by e-mail their login
+ *   (e-mail) and a temporary password, valid on web and mobile (changed at first login).
  * Same outcomes and messages as web SignUp.jsx / VerifyEmail.jsx.
  */
-export type AccountCreatedVariant = 'activation' | 'pending' | 'roleAdded' | 'rolePending';
+export type AccountCreatedVariant = 'activation' | 'pending' | 'roleAdded' | 'rolePending' | 'classPending';
 
 export interface AccountCreatedParams {
   variant: AccountCreatedVariant;
@@ -26,6 +29,8 @@ export interface AccountCreatedParams {
   email?: string;
   /** true when a role was added to an existing never-activated account (ACTIVATION_REQUIRED). */
   roleAdded?: boolean;
+  /** Class requested with the code (variant `classPending`), when the backend returns its name. */
+  classeNom?: string;
 }
 
 const RESEND_COOLDOWN = 60;
@@ -63,6 +68,12 @@ const AccountCreatedScreen = () => {
     case 'pending':
       title = t('auth.accountCreated.pendingTitle');
       message = t('auth.accountCreated.pendingMessage');
+      break;
+    case 'classPending':
+      title = t('auth.accountCreated.classPendingTitle');
+      message = params.classeNom?.trim()
+        ? t('auth.accountCreated.classPendingMessage', { classe: params.classeNom.trim() })
+        : t('auth.accountCreated.classPendingMessageNoClass');
       break;
     case 'roleAdded':
       title = t('auth.signup.roleAdded.title');
@@ -114,7 +125,20 @@ const AccountCreatedScreen = () => {
       <Illustration name="accountCreated" width={Math.min(width * 0.62, 280)} style={s.illustration} />
       <AuthTitle title={title} subtitle={message} />
 
-      {variant === 'activation' && email ? (
+      {variant === 'classPending' ? (
+        <View style={s.steps}>
+          {(['approval', 'email', 'firstLogin'] as const).map((k, i) => (
+            <View key={k} style={s.stepRow}>
+              <View style={s.stepNum}>
+                <Text style={s.stepNumText}>{i + 1}</Text>
+              </View>
+              <Text style={s.stepText}>{t(`auth.accountCreated.classPendingSteps.${k}`)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {(variant === 'activation' || variant === 'classPending') && email ? (
         <View style={s.emailChip}>
           <FontAwesome5 name="envelope" size={13} color={c.primary} />
           <Text style={s.emailText} numberOfLines={1}>
@@ -170,6 +194,26 @@ const createStyles = (c: BrandColors) =>
     emailText: { ...ff('semibold'), fontSize: 14, color: c.text, flexShrink: 1 },
     hint: { ...ff('regular'), fontSize: 12, lineHeight: 17, color: c.textSecondary, textAlign: 'center', marginBottom: 18 },
     secondary: { marginTop: 12 },
+    steps: {
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: c.border,
+      backgroundColor: c.card,
+      padding: 14,
+      gap: 12,
+      marginBottom: 16,
+    },
+    stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    stepNum: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    stepNumText: { ...ff('semibold'), fontSize: 12, color: c.primary },
+    stepText: { ...ff('regular'), fontSize: 13, lineHeight: 19, color: c.text, flex: 1 },
     links: { alignItems: 'center', marginTop: 22 },
   });
 

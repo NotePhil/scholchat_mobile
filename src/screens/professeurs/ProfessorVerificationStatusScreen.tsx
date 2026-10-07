@@ -89,9 +89,10 @@ const ProfessorVerificationStatusScreen = ({ onLogout }: ProfessorVerificationSt
       setProfile(data);
       let next = asStatus(data?.statutVerification);
       if (!next) {
-        // Not reported (should not happen for a professor): infer from the documents on file.
-        const complete = !!(data?.cniUrlRecto && data?.cniUrlVerso && data?.selfieUrl);
-        next = complete ? 'EN_ATTENTE_VALIDATION' : 'DOCUMENTS_MANQUANTS';
+        // Not reported (backend without professor verification): no restriction, same as
+        // web Principal.jsx (`statutVerification || PROFESSOR_STATUS.VALIDE`). The server
+        // still enforces the professor rights on every request.
+        next = 'VALIDE';
       }
       if (next === 'VALIDE') {
         setPromoting(true);

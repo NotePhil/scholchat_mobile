@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { BrandColors, Logo, Wordmark, ff, useBrandColors } from '../../components/brand';
 import { authService } from '../../services/home/authService';
 import { useUser } from '../../context/UserContext';
 import RoleSelectorSheet from '../shared/RoleSelectorSheet';
 import { LoginResponse } from '../../types';
+import { useAuthStore } from '../../store/useAuthStore';
 import { AuthScreen, Banner, GradientButton, Illustration, PromptLink, TextField, TextLink } from './components/AuthKit';
 import { TranslationKey, localizedServerMessage, translate, useT } from '../../i18n';
 
@@ -20,6 +21,7 @@ const LOGIN_MESSAGES: Record<string, TranslationKey> = {
 const LOGIN_CODES: Record<string, TranslationKey> = {
   INVALID_STATE: 'auth.login.errors.pendingActivation',
   INACTIVE_USER: 'auth.login.errors.inactive',
+  COMPTE_EN_ATTENTE_APPROBATION: 'auth.login.errors.classApprovalPending',
 };
 
 /**
@@ -31,17 +33,29 @@ const LoginScreen = () => {
   const c = useBrandColors();
   const s = useMemo(() => createStyles(c), [c]);
   const navigation = useNavigation<any>();
+  // From the sign-up (existing e-mail): e-mail prefilled, optional information message.
+  const route = useRoute<any>();
+  const infoMessage: string = typeof route.params?.message === 'string' ? route.params.message : '';
   const { width } = useWindowDimensions();
   const { login } = useUser();
   const { t } = useT();
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState<string>(typeof route.params?.email === 'string' ? route.params.email : '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [offreExpireeBlocked, setOffreExpireeBlocked] = useState(false);
   const [pendingAuth, setPendingAuth] = useState<LoginResponse | null>(null);
   const [showRolePicker, setShowRolePicker] = useState(false);
+
+  /**
+   * Opens the session. First login with the e-mailed temporary password (mustChangePassword):
+   * the typed password is kept in memory only, for the forced "Nouveau mot de passe" screen.
+   */
+  const openSession = (response: LoginResponse) => {
+    useAuthStore.getState().setTempPassword(response.mustChangePassword ? password : null);
+    login(response);
+  };
 
   const clearError = () => {
     if (error) setError('');
@@ -62,7 +76,7 @@ const LoginScreen = () => {
         setShowRolePicker(true);
         return;
       }
-      login(loginResponse);
+      openSession(loginResponse);
     } catch (err) {
       const raw = err instanceof Error ? err.message : translate('auth.login.errors.generic');
       const code = (err as { code?: string })?.code;
@@ -84,7 +98,7 @@ const LoginScreen = () => {
     setError('');
     try {
       const chosen = await authService.login(email.trim(), password, selectedRole);
-      login(chosen);
+      openSession(chosen);
     } catch (err) {
       if ((err as { code?: string })?.code === 'ABONNEMENT_EXPIRE') setOffreExpireeBlocked(true);
       setError(err instanceof Error ? err.message : translate('auth.login.errors.profileLogin'));
@@ -102,6 +116,7 @@ const LoginScreen = () => {
         <Text style={s.tagline}>{t('brand.tagline')}</Text>
       </View>
 
+      {!error && infoMessage ? <Banner type="info" message={infoMessage} /> : null}
       <Banner message={error} />
       {offreExpireeBlocked ? (
         <TextLink
@@ -143,7 +158,10 @@ const LoginScreen = () => {
         onSubmitEditing={handleSignIn}
         containerStyle={s.passwordField}
       />
-      <TextLink label={t('auth.login.forgotPassword')} onPress={() => navigation.navigate('ForgotPassword')} style={s.forgot} />
+      <View style={s.linksRow}>
+        <TextLink label={t('verifyAccount.link')} onPress={() => navigation.navigate('VerifyAccount', { email: email.trim() })} />
+        <TextLink label={t('auth.login.forgotPassword')} onPress={() => navigation.navigate('ForgotPassword', { email: email.trim() })} />
+      </View>
 
       <GradientButton label={t('auth.login.signIn')} onPress={handleSignIn} loading={loading} />
 
@@ -182,7 +200,7 @@ const createStyles = (c: BrandColors) =>
     tagline: { ...ff('regular'), fontSize: 14, lineHeight: 20, color: c.textSecondary, marginTop: 2 },
     renewLink: { alignSelf: 'flex-start', marginTop: -6, marginBottom: 14 },
     passwordField: { marginBottom: 10 },
-    forgot: { alignSelf: 'flex-end', marginBottom: 22 },
+    linksRow: { flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 22 },
     signupRow: { marginTop: 22, alignItems: 'center' },
     spacer: { flex: 1, minHeight: 16 },
     hero: { marginTop: 8 },

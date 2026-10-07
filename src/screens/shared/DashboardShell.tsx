@@ -10,6 +10,7 @@ import { colors, useThemeColors } from "../../styles/theme";
 import { AppRole } from "../../types";
 import { TFunction, TranslationKey, useT } from "../../i18n";
 import ProfessorVerificationStatusScreen from "../professeurs/ProfessorVerificationStatusScreen";
+import { getHelpTarget } from "./HelpSheet";
 
 // Shared across every role
 import DashboardActivitiesBody from "../professeurs/components/DashboardActivitiesBody";
@@ -36,6 +37,7 @@ import ParentChildrenBody from "../parent/ParentChildrenBody";
 import ParentClassesBody from "../parent/ParentClassesBody";
 import ParentCoursesBody from "../parent/ParentCoursesBody";
 import ParentExercisesBody from "../parent/ParentExercisesBody";
+import AddChildPromptModal from "../parent/AddChildPromptModal";
 
 // Student
 import StudentClassesBody from "../student/StudentClassesBody";
@@ -276,6 +278,14 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   // from anywhere), but is redundant while already on the home screen.
   const homeQuickActions = config.quickActions.filter((a) => a.tab !== "dashboard");
 
+  // Dashboard "Rejoindre une classe" CTA (student / parent): open the classes tab's join flow.
+  const handleJoinClass = () => {
+    useUiStore.getState().requestJoinClass();
+    setActiveTab("classes");
+  };
+
+  const helpTarget = useMemo(() => getHelpTarget(role, activeTab), [role, activeTab]);
+
   const handleNavigateToCreateCours = () => {
     setEditingCours(null);
     setCoursViewMode("create");
@@ -353,6 +363,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
                 accentColor={config.accentColor}
                 quickActions={homeQuickActions}
                 onQuickAction={handleQuickAction}
+                onJoinClass={handleJoinClass}
               />
             );
           case "children":
@@ -382,6 +393,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
                 accentColor={config.accentColor}
                 quickActions={homeQuickActions}
                 onQuickAction={handleQuickAction}
+                onJoinClass={handleJoinClass}
               />
             );
         }
@@ -396,6 +408,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
                 accentColor={config.accentColor}
                 quickActions={homeQuickActions}
                 onQuickAction={handleQuickAction}
+                onJoinClass={handleJoinClass}
               />
             );
           case "classes":
@@ -422,6 +435,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
                 accentColor={config.accentColor}
                 quickActions={homeQuickActions}
                 onQuickAction={handleQuickAction}
+                onJoinClass={handleJoinClass}
               />
             );
         }
@@ -532,6 +546,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
         accentColor={config.accentColor}
         onLogout={onLogout}
         onNavigateToProfile={() => setActiveTab("settings")}
+        helpTarget={helpTarget}
       />
       {renderBody()}
       <MobileFooterNav
@@ -550,6 +565,8 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
         submenus={config.submenus}
         accentColor={config.accentColor}
       />
+      {/* Parent without any child yet (e.g. first connection): "Ajoutez votre enfant". */}
+      {role === "parent" ? <AddChildPromptModal onGoToChildren={() => setActiveTab("children")} /> : null}
     </View>
   );
 };

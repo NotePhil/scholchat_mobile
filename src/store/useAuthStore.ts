@@ -40,6 +40,21 @@ interface AuthState {
    * dashboard for the verification status screen, which re-reads it from GET /utilisateurs/{id}.
    */
   markProfessorNotValidated: () => void;
+  /**
+   * The account still uses its temporary password (login response `mustChangePassword`, or a 403
+   * MOT_DE_PASSE_A_CHANGER from the API): RootNavigator shows the forced "Nouveau mot de passe"
+   * screen instead of the dashboard. Persisted inside the stored user data.
+   */
+  mustChangePassword: boolean;
+  markMustChangePassword: () => void;
+  /** Password change done: back to the normal app. */
+  clearMustChangePassword: () => void;
+  /**
+   * Temporary password typed on the login screen — memory only (never persisted), so the forced
+   * change screen doesn't ask for it again. Null after an app restart: the screen then asks it.
+   */
+  tempPassword: string | null;
+  setTempPassword: (password: string | null) => void;
 }
 
 const deriveAuthState = (loginResponse: LoginResponse) => {
@@ -64,6 +79,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   isLoading: true,
   sessionExpired: false,
+  mustChangePassword: false,
+  tempPassword: null,
+
+  setTempPassword: (tempPassword) => set({ tempPassword }),
+
+  markMustChangePassword: () => {
+    if (!get().isAuthenticated || get().mustChangePassword) return;
+    set({ mustChangePassword: true });
+    get().updateUser({ mustChangePassword: true });
+  },
+
+  clearMustChangePassword: () => {
+    set({ mustChangePassword: false, tempPassword: null });
+    get().updateUser({ mustChangePassword: false });
+  },
 
   markSessionExpired: () => {
     if (get().isAuthenticated) set({ sessionExpired: true });
@@ -86,6 +116,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           roles,
           isAuthenticated: true,
           isLoading: false,
+          mustChangePassword: userData.mustChangePassword === true,
         });
       } else {
         if (token) {
@@ -115,6 +146,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isAuthenticated: true,
       isLoading: false,
       sessionExpired: false,
+      mustChangePassword: loginResponse.mustChangePassword === true,
     });
   },
 
@@ -134,6 +166,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: false,
         isLoading: false,
         sessionExpired: false,
+        mustChangePassword: false,
+        tempPassword: null,
       });
     }
   },

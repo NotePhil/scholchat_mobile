@@ -31,3 +31,5 @@ export { rejectionService } from './rejectionService';
 export { studentService } from './studentService';
 export { tutorService } from './tutorService';
 export { userService } from './userService';
+export { classPreviewService } from './classPreviewService';
+export type { ClassPreview, ClassPreviewType, ClassPreviewError } from './classPreviewService';

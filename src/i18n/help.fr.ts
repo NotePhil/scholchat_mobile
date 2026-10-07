@@ -1,0 +1,183 @@
+// Textes d'aide contextuelle (bouton « ? » de l'en-tête), par rôle et par écran.
+export const helpFr = {
+  parent: {
+    dashboard: {
+      title: "Accueil",
+      purpose: "Suivez en un coup d'œil la scolarité de l'enfant sélectionné : cours à venir, devoirs, notes et dernières notifications.",
+      steps: "Vérifiez l'enfant affiché dans la pastille « Enfant » de l'en-tête et touchez-la pour en choisir un autre.\nConsultez les cours à venir et les statistiques de devoirs de votre enfant.\nTouchez « Rejoindre une classe » pour inscrire votre enfant avec le code d'activation donné par le professeur.\nUtilisez le bouton « Accès rapide » de la barre du bas pour ouvrir n'importe quelle section.",
+      tips: "Tirez l'écran vers le bas pour actualiser les informations.\nLa cloche de l'en-tête affiche vos dernières notifications.",
+    },
+    activites: {
+      title: "Activités",
+      purpose: "Découvrez les activités et événements scolaires publiés par les professeurs et les établissements.",
+      steps: "Faites défiler le fil pour parcourir les dernières activités.\nTouchez une photo ou une vidéo pour l'ouvrir en grand.\nTirez l'écran vers le bas pour charger les nouvelles publications.",
+      tips: "Les nouvelles activités peuvent aussi vous être signalées par une notification.",
+    },
+    devoirs: {
+      title: "Devoirs",
+      purpose: "Suivez les devoirs et exercices donnés à votre enfant, ainsi que ses notes et les corrections du professeur.",
+      steps: "Assurez-vous que le bon enfant est sélectionné dans la pastille « Enfant ».\nParcourez la liste des devoirs et repérez les dates limites.\nTouchez un devoir pour voir son contenu et l'état de la remise.\nUne fois le devoir corrigé, consultez la note et la correction du professeur.",
+      tips: "Vous recevez une notification dès qu'une correction est publiée.\nAidez votre enfant à rendre ses devoirs avant la date limite.",
+    },
+    classes: {
+      title: "Classes",
+      purpose: "Retrouvez les classes de l'enfant sélectionné et inscrivez-le dans une nouvelle classe.",
+      steps: "Sélectionnez l'enfant concerné dans la pastille « Enfant » de l'en-tête.\nTouchez « Rejoindre une classe » puis saisissez le code d'activation donné par le professeur.\nVérifiez la fiche de la classe affichée (nom, niveau, établissement, professeur), puis confirmez la demande.\nAttendez la validation du professeur : la demande reste « En attente » jusque-là.",
+      tips: "Si une demande est refusée, le motif du refus est affiché sur la demande.\nVérifiez bien le code auprès du professeur en cas d'erreur.",
+    },
+    cours: {
+      title: "Cours",
+      purpose: "Consultez les cours programmés dans les classes de votre enfant.",
+      steps: "Sélectionnez l'enfant concerné dans la pastille « Enfant ».\nParcourez les cours programmés avec leur date et leur heure.\nTouchez un cours pour afficher ses détails et son contenu.",
+      tips: "Tirez l'écran vers le bas pour actualiser la liste.\nUn cours n'apparaît que si votre enfant a été accepté dans la classe.",
+    },
+    enfants: {
+      title: "Mes enfants",
+      purpose: "Gérez les profils de vos enfants et choisissez celui dont vous suivez la scolarité.",
+      steps: "Touchez « Ajouter un enfant » et remplissez les informations de son profil.\nTouchez la fiche d'un enfant pour le sélectionner.\nInscrivez ensuite l'enfant sélectionné dans sa classe depuis l'écran « Classes ».",
+      tips: "La pastille « Enfant » de l'en-tête permet de changer d'enfant depuis n'importe quel écran.\nLes écrans Classes, Cours et Devoirs affichent toujours les données de l'enfant sélectionné.",
+    },
+    messages: {
+      title: "Messages",
+      purpose: "Échangez en temps réel avec les professeurs et les membres des classes de vos enfants.",
+      steps: "Touchez une conversation pour l'ouvrir et lire les messages.\nTouchez le bouton de nouveau message, puis choisissez un destinataire parmi les membres de la classe ou les professeurs.\nRédigez votre message et ajoutez si besoin une image ou un fichier en pièce jointe.\nEnvoyez : votre interlocuteur reçoit le message instantanément.",
+      tips: "Les conversations avec des messages non lus apparaissent en évidence.\nRestez courtois : les professeurs reçoivent de nombreux messages.",
+    },
+    notifications: {
+      title: "Notifications",
+      purpose: "Retrouvez toutes vos notifications : classes, cours, devoirs, corrections et messages.",
+      steps: "Touchez une notification pour ouvrir directement l'écran concerné.\nFiltrez la liste pour n'afficher que les notifications lues ou non lues.\nTouchez « Tout lire » pour marquer toutes les notifications comme lues.",
+      tips: "La cloche de l'en-tête affiche les plus récentes ; touchez « Voir tout » pour revenir ici.",
+    },
+    profil: {
+      title: "Profil",
+      purpose: "Gérez vos informations personnelles, vos profils, votre sécurité et l'apparence de l'application.",
+      steps: "Modifiez votre nom, votre téléphone, votre adresse ou votre photo dans vos informations personnelles.\nDans « Mes profils », consultez l'état de chaque profil, touchez « Changer de profil » ou « Ajouter un profil ».\nDans l'onglet « Sécurité », changez votre mot de passe.\nDans l'onglet « Apparence », activez le mode sombre ou changez de langue.",
+      tips: "Une demande de profil professeur exige la CNI recto/verso et un selfie, puis la validation de l'administrateur.\nSi un profil est refusé, le motif est affiché dans « Mes profils ».",
+    },
+  },
+  eleve: {
+    dashboard: {
+      title: "Accueil",
+      purpose: "Retrouvez l'essentiel de votre scolarité : progression par cours, devoirs, cours à venir et dernières notifications.",
+      steps: "Utilisez les actions rapides pour accéder directement à vos cours ou à vos devoirs.\nConsultez votre progression par cours et vos statistiques de devoirs.\nVérifiez vos prochains cours et vos dernières notifications.\nTouchez « Rejoindre une classe » pour entrer dans une classe avec le code du professeur.",
+      tips: "Tirez l'écran vers le bas pour actualiser.\nLe bouton « Accès rapide » de la barre du bas liste toutes les sections.",
+    },
+    activites: {
+      title: "Activités",
+      purpose: "Découvrez les activités et événements scolaires publiés par vos professeurs et vos établissements.",
+      steps: "Faites défiler le fil pour parcourir les dernières activités.\nTouchez une photo ou une vidéo pour l'ouvrir en grand.\nTirez l'écran vers le bas pour charger les nouvelles publications.",
+      tips: "Les nouvelles activités peuvent aussi vous être signalées par une notification.",
+    },
+    devoirs: {
+      title: "Devoirs",
+      purpose: "Réalisez les devoirs et exercices donnés à vos classes, puis consultez vos notes et les corrections.",
+      steps: "Touchez un devoir pour l'ouvrir et lire les consignes.\nRépondez à chaque question.\nSoumettez vos réponses avant la date limite.\nUne fois le devoir corrigé, consultez votre note et la correction du professeur.",
+      tips: "Repérez les dates limites pour ne rien rendre en retard.\nVous êtes notifié dès qu'une correction est publiée.",
+    },
+    classes: {
+      title: "Mes classes",
+      purpose: "Rejoignez vos classes avec le code d'activation du professeur et accédez à leurs cours.",
+      steps: "Touchez « Rejoindre une classe » puis saisissez le code d'activation donné par le professeur.\nVérifiez la fiche de la classe affichée (nom, niveau, établissement, professeur), puis confirmez la demande.\nAttendez que le professeur approuve votre demande : elle reste « En attente » jusque-là.\nUne fois accepté, touchez « Entrer dans la classe » pour voir les cours programmés.",
+      tips: "Si le code ne fonctionne pas, vérifiez-le auprès de votre professeur.\nVous recevez une notification quand votre demande est traitée.",
+    },
+    cours: {
+      title: "Cours",
+      purpose: "Consultez les cours programmés de vos classes, rejoignez les sessions en direct et lisez leur contenu.",
+      steps: "Filtrez les cours par statut : planifié, en cours, terminé ou annulé.\nTouchez un cours pour lire son contenu (chapitres, fichiers PDF).\nQuand un cours est « en cours », touchez-le pour rejoindre la session en direct.",
+      tips: "Soyez prêt à l'heure : la session en direct n'est accessible que pendant le cours.\nTirez l'écran vers le bas pour actualiser la liste.",
+    },
+    messages: {
+      title: "Messages",
+      purpose: "Échangez en temps réel avec vos professeurs et les membres de vos classes.",
+      steps: "Touchez une conversation pour l'ouvrir et lire les messages.\nTouchez le bouton de nouveau message, puis choisissez un destinataire parmi les membres de la classe ou les professeurs.\nRédigez votre message et ajoutez si besoin une image ou un fichier en pièce jointe.\nEnvoyez : votre interlocuteur reçoit le message instantanément.",
+      tips: "Les conversations avec des messages non lus apparaissent en évidence.",
+    },
+    notifications: {
+      title: "Notifications",
+      purpose: "Retrouvez toutes vos notifications : classes, cours, devoirs, corrections et messages.",
+      steps: "Touchez une notification pour ouvrir directement l'écran concerné.\nFiltrez la liste pour n'afficher que les notifications lues ou non lues.\nTouchez « Tout lire » pour marquer toutes les notifications comme lues.",
+      tips: "La cloche de l'en-tête affiche les plus récentes ; touchez « Voir tout » pour revenir ici.",
+    },
+    profil: {
+      title: "Profil",
+      purpose: "Gérez vos informations personnelles, votre sécurité et l'apparence de l'application.",
+      steps: "Modifiez votre nom, votre téléphone, votre adresse ou votre photo dans vos informations personnelles.\nConsultez l'état de votre profil dans « Mes profils ».\nDans l'onglet « Sécurité », changez votre mot de passe.\nDans l'onglet « Apparence », activez le mode sombre ou changez de langue.",
+      tips: "Une session élève ne permet pas de changer de profil : déconnectez-vous et choisissez l'autre profil à la connexion.",
+    },
+  },
+  professeur: {
+    dashboard: {
+      title: "Accueil",
+      purpose: "Ayez une vue d'ensemble de votre activité d'enseignant et accédez rapidement aux actions principales.",
+      steps: "Consultez les statistiques de vos classes, cours et devoirs.\nUtilisez les actions rapides pour créer un cours, programmer une séance ou gérer vos classes.\nOuvrez le bouton « Accès rapide » de la barre du bas pour atteindre toutes les sections.",
+      tips: "Votre compte doit être validé par l'administrateur (pièces d'identité) avant d'utiliser l'espace professeur.\nTirez l'écran vers le bas pour actualiser.",
+    },
+    activites: {
+      title: "Activités",
+      purpose: "Suivez les activités et événements scolaires publiés par les professeurs et les établissements.",
+      steps: "Faites défiler le fil pour parcourir les dernières activités.\nTouchez une photo ou une vidéo pour l'ouvrir en grand.\nTirez l'écran vers le bas pour charger les nouvelles publications.",
+      tips: "Les nouvelles activités peuvent aussi vous être signalées par une notification.",
+    },
+    cours: {
+      title: "Cours",
+      purpose: "Créez et publiez vos cours : titre, matière, chapitres, contenu enrichi et pièces jointes.",
+      steps: "Touchez le bouton de création pour démarrer un nouveau cours.\nRenseignez le titre et la matière, puis ajoutez vos chapitres.\nRédigez le contenu et joignez vos fichiers.\nPubliez le cours lorsqu'il est prêt.",
+      tips: "Créez d'abord vos matières dans l'écran « Matières ».\nUne fois publié, programmez le cours pour une classe dans « Programmation ».",
+    },
+    programmation: {
+      title: "Programmation",
+      purpose: "Planifiez vos cours pour vos classes, en présentiel ou en session en direct, et lancez-les le moment venu.",
+      steps: "Touchez « Programmer » et choisissez le cours et la classe.\nIndiquez la date, l'heure et le lieu, ou choisissez une session en direct en ligne.\nÀ l'heure prévue, démarrez la session en direct.\nSi besoin, annulez la séance ou reprogrammez-la à une autre date.",
+      tips: "Les élèves de la classe voient la séance dans leur écran « Cours ».\nIls ne peuvent rejoindre la session en direct que lorsqu'elle est « en cours ».",
+    },
+    matieres: {
+      title: "Matières",
+      purpose: "Gérez la liste des matières utilisées pour classer vos cours.",
+      steps: "Parcourez la liste des matières existantes.\nTouchez le bouton d'ajout pour créer une nouvelle matière.\nTouchez une matière pour modifier son nom ou ses informations.",
+      tips: "Créez vos matières avant vos cours pour pouvoir les y associer.",
+    },
+    devoirs: {
+      title: "Exercices",
+      purpose: "Créez des exercices et programmez-les pour vos classes avec une date limite.",
+      steps: "Touchez le bouton de création pour démarrer un nouvel exercice.\nAjoutez vos questions, vos médias et choisissez le type de réponse attendu.\nTouchez « Programmer », choisissez la classe et fixez la date limite.\nLes élèves de la classe sont alors notifiés et peuvent répondre.",
+      tips: "Un même exercice peut être programmé pour plusieurs classes.\nSuivez ensuite les remises dans l'écran « Corrections ».",
+    },
+    corrections: {
+      title: "Corrections",
+      purpose: "Corrigez les copies rendues pour chaque exercice programmé et publiez les corrections.",
+      steps: "Choisissez un exercice programmé pour voir les copies rendues.\nOuvrez une copie, attribuez une note et ajoutez un commentaire.\nPubliez la correction : les élèves reçoivent une notification.",
+      tips: "Les parents voient aussi les notes et corrections de leurs enfants.",
+    },
+    classes: {
+      title: "Mes classes",
+      purpose: "Créez vos classes, partagez leur code d'activation et gérez les demandes d'accès.",
+      steps: "Touchez « Créer une classe » : elle est envoyée à l'établissement ou à l'administrateur pour validation.\nPartagez le code d'activation de la classe avec vos élèves et leurs parents.\nDans l'onglet « Demandes », approuvez ou refusez les demandes d'accès.\nTouchez une classe pour voir ses détails et ses membres.",
+      tips: "Indiquez un motif en cas de refus : il sera affiché au demandeur.\nNe partagez le code qu'avec les personnes concernées.",
+    },
+    utilisateurs: {
+      title: "Utilisateurs",
+      purpose: "Retrouvez les élèves et les parents de vos classes et contactez-les.",
+      steps: "Parcourez la liste des élèves et parents de vos classes.\nUtilisez la recherche pour trouver rapidement une personne.\nTouchez un utilisateur pour le contacter par message.",
+      tips: "Seuls les membres acceptés dans vos classes apparaissent ici.",
+    },
+    messages: {
+      title: "Messages",
+      purpose: "Échangez en temps réel avec les élèves, les parents et les membres de vos classes.",
+      steps: "Touchez une conversation pour l'ouvrir et lire les messages.\nTouchez le bouton de nouveau message, puis choisissez un destinataire parmi les membres de vos classes.\nRédigez votre message et ajoutez si besoin une image ou un fichier en pièce jointe.\nEnvoyez : votre interlocuteur reçoit le message instantanément.",
+      tips: "Les conversations avec des messages non lus apparaissent en évidence.",
+    },
+    notifications: {
+      title: "Notifications",
+      purpose: "Retrouvez toutes vos notifications : demandes d'accès, classes, cours, devoirs et messages.",
+      steps: "Touchez une notification pour ouvrir directement l'écran concerné.\nFiltrez la liste pour n'afficher que les notifications lues ou non lues.\nTouchez « Tout lire » pour marquer toutes les notifications comme lues.",
+      tips: "La cloche de l'en-tête affiche les plus récentes ; touchez « Voir tout » pour revenir ici.",
+    },
+    profil: {
+      title: "Profil",
+      purpose: "Gérez vos informations personnelles, vos profils, votre sécurité et l'apparence de l'application.",
+      steps: "Modifiez votre nom, votre téléphone, votre adresse ou votre photo dans vos informations personnelles.\nDans « Mes profils », vérifiez l'état de votre profil professeur et complétez les documents manquants.\nTouchez « Changer de profil » ou « Ajouter un profil » pour gérer vos autres profils.\nDans les onglets « Sécurité » et « Apparence », changez votre mot de passe, le thème ou la langue.",
+      tips: "Le profil professeur exige la CNI recto/verso et un selfie, puis la validation de l'administrateur.\nSi votre profil est refusé, le motif est affiché dans « Mes profils ».",
+    },
+  },
+};

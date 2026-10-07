@@ -7,17 +7,8 @@ import { forgotPasswordService } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
 import { resetToLogin } from '../../navigation/authRoutes';
 import { AuthScreen, AuthTitle, Banner, GradientButton, Illustration, TextField, TextLink } from './components/AuthKit';
-import { TranslationKey, useT } from '../../i18n';
-
-type RuleKey = 'length' | 'uppercase' | 'lowercase' | 'number';
-
-/** Same checklist as web ResetPassword.jsx (checkPasswordStrength). */
-const RULES: { key: RuleKey; label: TranslationKey; test: (v: string) => boolean }[] = [
-  { key: 'length', label: 'auth.reset.rules.length', test: (v) => v.length >= 8 },
-  { key: 'uppercase', label: 'auth.reset.rules.uppercase', test: (v) => /[A-Z]/.test(v) },
-  { key: 'lowercase', label: 'auth.reset.rules.lowercase', test: (v) => /[a-z]/.test(v) },
-  { key: 'number', label: 'auth.reset.rules.number', test: (v) => /[0-9]/.test(v) },
-];
+import { useT } from '../../i18n';
+import { PASSWORD_RULES as RULES } from './components/passwordRules';
 
 /**
  * "Nouveau mot de passe" — mirror of web ResetPassword.jsx, reached from the e-mailed reset link

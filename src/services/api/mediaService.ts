@@ -41,6 +41,27 @@ export interface UploadableFile {
  * (see scholchat_front's minioS3.js). Reused by activity images, message
  * attachments, and exercise question images.
  */
+/**
+ * Native file upload through XMLHttpRequest. Expo's global `fetch` (expo/fetch) can't send a
+ * React Native file reference ({ uri, type, name }) — neither as a body nor as a FormData part
+ * ("Unsupported FormDataPart implementation") — while RN's XMLHttpRequest streams it natively.
+ */
+export const xhrUpload = (
+  method: 'PUT' | 'POST',
+  url: string,
+  headers: Record<string, string>,
+  body: unknown
+): Promise<{ status: number; text: string }> =>
+  new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText ?? '' });
+    xhr.onerror = () => reject(new Error('Network request failed'));
+    xhr.ontimeout = () => reject(new Error('timeout'));
+    xhr.send(body as XMLHttpRequestBodyInit);
+  });
+
 export const mediaService = {
   getPresignedUploadUrl: async (
     fileName: string,
@@ -75,12 +96,12 @@ export const mediaService = {
    */
   putToPresignedUrl: async (presignedUrl: string, file: UploadableFile): Promise<void> => {
     try {
-      const response = await fetch(presignedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.mimeType },
-        body: { uri: file.uri, type: file.mimeType, name: file.name } as unknown as BodyInit,
+      const response = await xhrUpload('PUT', presignedUrl, { 'Content-Type': file.mimeType }, {
+        uri: file.uri,
+        type: file.mimeType,
+        name: file.name,
       });
-      if (!response.ok) {
+      if (response.status < 200 || response.status >= 300) {
         throw new Error(`Direct PUT failed with status: ${response.status}`);
       }
     } catch (directError) {
@@ -147,7 +168,12 @@ export const mediaService = {
   },
 
   /** FormData fallback proxy upload, matching backend POST /media/proxy-upload */
-  proxyUpload: async (file: UploadableFile, presignedUrl: string, contentType: string): Promise<PresignedUrlResponse> => {
+  proxyUpload: async (
+    file: UploadableFile,
+    presignedUrl: string,
+    contentType: string,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<PresignedUrlResponse> => {
     try {
       const token = await storageService.getUserToken();
       const formData = new FormData();
@@ -155,21 +181,23 @@ export const mediaService = {
       formData.append('presignedUrl', presignedUrl);
       formData.append('contentType', contentType || file.mimeType);
 
-      const response = await fetch(`${environment.baseUrl}/media/proxy-upload`, {
-        method: 'POST',
-        headers: {
+      // No explicit Content-Type: XMLHttpRequest sets multipart/form-data with its boundary.
+      const response = await xhrUpload(
+        'POST',
+        `${environment.baseUrl}/media/proxy-upload`,
+        {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...timeZoneHeaders(),
-          'Content-Type': 'multipart/form-data',
+          ...extraHeaders,
+          Accept: 'application/json',
         },
-        body: formData,
-      });
+        formData
+      );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Échec du téléversement: ${response.status} ${errorText}`);
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(`Échec du téléversement: ${response.status} ${response.text}`);
       }
-      return await response.json();
+      return JSON.parse(response.text || '{}');
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du téléversement via proxy.'));
     }

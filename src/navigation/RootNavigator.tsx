@@ -13,12 +13,14 @@ import { poppinsFonts, setPoppinsReady } from '../components/brand';
 import { usePoppinsStore } from '../components/brand/fonts';
 import { storageService } from '../services/storageService';
 import SplashScreen from '../screens/auth/SplashScreen';
+import ForceChangePasswordScreen from '../screens/auth/ForceChangePasswordScreen';
 import AccountCreatedScreen from '../screens/auth/AccountCreatedScreen';
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import ResetPasswordScreen from '../screens/auth/ResetPasswordScreen';
 import AccountActivationScreen from '../screens/auth/AccountActivationScreen';
 import SetPasswordScreen from '../screens/auth/SetPasswordScreen';
 import VerifyEmailScreen from '../screens/auth/VerifyEmailScreen';
+import VerifyAccountScreen from '../screens/auth/VerifyAccountScreen';
 import ClassApprovalScreen from '../screens/auth/ClassApprovalScreen';
 import ClassRejectionScreen from '../screens/auth/ClassRejectionScreen';
 import RenewalScreen from '../screens/auth/RenewalScreen';
@@ -39,6 +41,7 @@ const AppShell = () => {
   const isLoading = useAuthStore((state) => state.isLoading);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const role = useAuthStore((state) => state.role);
+  const mustChangePassword = useAuthStore((state) => state.mustChangePassword);
   const logout = useAuthStore((state) => state.logout);
   const boot = useBoot();
 
@@ -48,6 +51,11 @@ const AppShell = () => {
 
   if (!isAuthenticated) {
     return <AuthNavigator showOnboarding={boot.showOnboarding} />;
+  }
+
+  // First login with the e-mailed temporary password: a new password first, whatever the role.
+  if (mustChangePassword) {
+    return <ForceChangePasswordScreen />;
   }
 
   switch (role) {
@@ -150,6 +158,7 @@ const RootNavigator = () => {
           <Stack.Screen name="AccountActivation" component={AccountActivationScreen} />
           <Stack.Screen name="SetPassword" component={SetPasswordScreen} />
           <Stack.Screen name="VerifyEmail" component={VerifyEmailScreen} />
+          <Stack.Screen name="VerifyAccount" component={VerifyAccountScreen} />
           <Stack.Screen name="ClassApproval" component={ClassApprovalScreen} />
           <Stack.Screen name="ClassRejection" component={ClassRejectionScreen} />
           <Stack.Screen name="Renewal" component={RenewalScreen} />

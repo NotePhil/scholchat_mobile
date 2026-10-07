@@ -22,15 +22,19 @@ import { BottomSheet } from "../../components/ui";
 import LanguageSwitch from "../../components/common/LanguageSwitch";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useT } from "../../i18n";
+import { HelpButton, HelpTarget } from "./HelpSheet";
+import { handleRoleNotification } from "../../services/roleNotifications";
 
 interface AppHeaderProps {
   roleLabel: string;
   accentColor?: string;
   onLogout: () => void;
   onNavigateToProfile?: () => void;
+  /** Guidelines of the current screen ("?" button, top-right) — null hides it. */
+  helpTarget?: HelpTarget | null;
 }
 
-const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNavigateToProfile }: AppHeaderProps) => {
+const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNavigateToProfile, helpTarget = null }: AppHeaderProps) => {
   const { user } = useUser();
   const navigation = useNavigation<any>();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -64,8 +68,11 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
   // Available roles from authResponse or token roles (+ roles awaiting validation, shown greyed out)
   const availableRoles: string[] = (authUser?.availableRoles as string[]) || (roles.length > 0 ? roles : [currentRole]);
   const pendingRoles: string[] = (authUser?.pendingRoles as string[] | null | undefined) ?? [];
-  // "Ajouter un profil" only while a combinable profile is missing (never for students).
+  // "Ajouter un profil" only while a profile is missing — never from a student session.
   const canAddRole = useAddableRoles().length > 0;
+  // A student session can't switch profile (POST /auth/switch-role → 403
+  // CHANGEMENT_PROFIL_INTERDIT_ELEVE): log out and pick the profile at login instead.
+  const canSwitchRole = currentRole !== "student" && (availableRoles.length > 1 || pendingRoles.length > 0);
 
   const name = user?.username || `${user?.prenom ?? ""} ${user?.nom ?? ""}`.trim() || roleLabel;
   const initial = name.charAt(0).toUpperCase();
@@ -88,6 +95,8 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
       notificationService.markAsRead(n.id).catch(() => {});
     }
     setShowNotifications(false);
+    // Profile validated/rejected (e.g. PROFESSOR_ROLE_VALIDATED): refresh the session's roles, open the profile.
+    if (handleRoleNotification(n, currentRole, login)) return;
     // A live session started: go straight to the join screen.
     if ((n.type ?? "").toUpperCase() === "LIVE_SESSION_STARTED" && n.relatedEntityId && currentRole !== "professor" && currentRole !== "tutor") {
       navigation.navigate("LiveSession", { coursId: n.relatedEntityId, isHost: false });
@@ -140,7 +149,11 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
       >
         {/* Top-middle language switch (own slim row so the action row stays uncluttered on 360 px phones). */}
         <View style={styles.langRow}>
+          <View style={styles.langSide} />
           <LanguageSwitch />
+          <View style={[styles.langSide, styles.langSideRight]}>
+            <HelpButton target={helpTarget} />
+          </View>
         </View>
         <View style={styles.mainRow}>
           <TouchableOpacity
@@ -161,7 +174,7 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
 
           <View style={styles.right}>
             {/* Multi-role button if user has > 1 role */}
-            {(availableRoles.length > 1 || pendingRoles.length > 0) && (
+            {canSwitchRole && (
               <TouchableOpacity
                 style={[styles.roleSwitchBtn, { borderColor: accentColor }]}
                 onPress={() => setShowRoleSheet(true)}
@@ -363,7 +376,9 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     elevation: 3,
     zIndex: 1001,
   },
-  langRow: { alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  langRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  langSide: { flex: 1, flexDirection: "row" },
+  langSideRight: { justifyContent: "flex-end" },
   mainRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   left: { flexDirection: "row", alignItems: "center", flex: 1, marginRight: spacing.xs },
   avatar: {

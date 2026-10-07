@@ -20,6 +20,7 @@ import { accederService, classAdminService, coursProgrammerService } from "../..
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { useT } from "../../i18n";
+import { useUiStore } from "../../store/useUiStore";
 import { formatDate } from "../../utils/dates";
 
 /**
@@ -154,6 +155,14 @@ const StudentClassesBody = () => {
     fetchData();
   }, [fetchData]);
 
+  // Dashboard "Rejoindre une classe" CTA: open the join page on arrival.
+  const pendingJoinClass = useUiStore((s) => s.pendingJoinClass);
+  useEffect(() => {
+    if (!pendingJoinClass) return;
+    useUiStore.getState().clearPendingJoinClass();
+    setView({ name: "join" });
+  }, [pendingJoinClass]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await fetchData();
@@ -214,10 +223,6 @@ const StudentClassesBody = () => {
             <Text style={styles.heroTitle}>{t("studentClasses.title")}</Text>
             <Text style={styles.heroSub}>{t("studentClasses.available", { count: userClasses.length })}</Text>
           </View>
-          <TouchableOpacity style={styles.heroBtn} onPress={() => setView({ name: "join" })} activeOpacity={0.75}>
-            <FontAwesome5 name="search" size={11} color="#FFFFFF" />
-            <Text style={styles.heroBtnText}>{t("studentClasses.join")}</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.heroIconBtn}
             onPress={handleRefresh}
@@ -232,6 +237,24 @@ const StudentClassesBody = () => {
             )}
           </TouchableOpacity>
         </View>
+
+        {/* Prominent "Rejoindre une classe" — first thing visible, no scrolling needed. */}
+        <TouchableOpacity
+          style={styles.joinBtn}
+          onPress={() => setView({ name: "join" })}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={t("joinClass.cta")}
+        >
+          <View style={styles.joinBtnIcon}>
+            <FontAwesome5 name="user-plus" size={14} color="#1d3557" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.joinBtnText}>{t("joinClass.cta")}</Text>
+            <Text style={styles.joinBtnSub} numberOfLines={1}>{t("joinClass.ctaSubtitle")}</Text>
+          </View>
+          <FontAwesome5 name="chevron-right" size={12} color="#1d3557" />
+        </TouchableOpacity>
 
         <View style={styles.statsStrip}>
           {[
@@ -413,6 +436,18 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     content: { paddingHorizontal: 16, paddingTop: spacing.sm, gap: spacing.md },
     hero: { borderRadius: radius.md, overflow: "hidden", padding: spacing.lg, gap: spacing.md },
     heroTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    joinBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: "#FFFFFF",
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+    },
+    joinBtnIcon: { width: 30, height: 30, borderRadius: 8, backgroundColor: "rgba(29,53,87,0.12)", alignItems: "center", justifyContent: "center" },
+    joinBtnText: { color: "#1d3557", fontSize: 15, fontWeight: "700" },
+    joinBtnSub: { color: "#457b9d", fontSize: 12, marginTop: 1 },
     heroIcon: {
       width: 40,
       height: 40,

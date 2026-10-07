@@ -1,0 +1,183 @@
+// Contextual help texts (header "?" button), per role and per screen.
+export const helpEn = {
+  parent: {
+    dashboard: {
+      title: "Home",
+      purpose: "Follow the selected child's schooling at a glance: upcoming courses, homework, grades and latest notifications.",
+      steps: "Check which child is shown in the \"Child\" pill in the header and tap it to choose another one.\nReview your child's upcoming courses and homework stats.\nTap \"Join a class\" to enroll your child with the activation code given by the teacher.\nUse the \"Quick access\" button in the bottom bar to open any section.",
+      tips: "Pull down to refresh the information.\nThe bell in the header shows your latest notifications.",
+    },
+    activites: {
+      title: "Activities",
+      purpose: "Discover school activities and events published by teachers and schools.",
+      steps: "Scroll through the feed to browse the latest activities.\nTap a photo or video to open it full screen.\nPull down to load new posts.",
+      tips: "New activities may also be announced by a notification.",
+    },
+    devoirs: {
+      title: "Homework",
+      purpose: "Follow the homework and exercises assigned to your child, along with grades and the teacher's corrections.",
+      steps: "Make sure the right child is selected in the \"Child\" pill.\nBrowse the homework list and note the deadlines.\nTap a homework item to see its content and submission status.\nOnce it has been corrected, view the grade and the teacher's correction.",
+      tips: "You get a notification as soon as a correction is published.\nHelp your child submit homework before the deadline.",
+    },
+    classes: {
+      title: "Classes",
+      purpose: "See the selected child's classes and enroll them in a new class.",
+      steps: "Select the child in the \"Child\" pill in the header.\nTap \"Join a class\" and enter the activation code given by the teacher.\nCheck the class card shown (name, level, school, teacher), then confirm the request.\nWait for the teacher's approval: the request stays \"Pending\" until then.",
+      tips: "If a request is rejected, the reason is shown on the request.\nIf the code fails, double-check it with the teacher.",
+    },
+    cours: {
+      title: "Courses",
+      purpose: "View the courses scheduled in your child's classes.",
+      steps: "Select the child in the \"Child\" pill.\nBrowse the scheduled courses with their date and time.\nTap a course to see its details and content.",
+      tips: "Pull down to refresh the list.\nCourses only appear once your child has been accepted into the class.",
+    },
+    enfants: {
+      title: "My children",
+      purpose: "Manage your children's profiles and choose the child whose schooling you are following.",
+      steps: "Tap \"Add a child\" and fill in their profile information.\nTap a child's card to select them.\nThen enroll the selected child in their class from the \"Classes\" screen.",
+      tips: "The \"Child\" pill in the header lets you switch child from any screen.\nThe Classes, Courses and Homework screens always show the selected child's data.",
+    },
+    messages: {
+      title: "Messages",
+      purpose: "Chat in real time with teachers and members of your children's classes.",
+      steps: "Tap a conversation to open it and read the messages.\nTap the new message button, then choose a recipient among class members or teachers.\nWrite your message and attach an image or file if needed.\nSend it: the recipient gets it instantly.",
+      tips: "Conversations with unread messages are highlighted.\nStay courteous: teachers receive many messages.",
+    },
+    notifications: {
+      title: "Notifications",
+      purpose: "Find all your notifications: classes, courses, homework, corrections and messages.",
+      steps: "Tap a notification to go straight to the related screen.\nFilter the list to show only read or unread notifications.\nTap \"Mark all read\" to mark every notification as read.",
+      tips: "The header bell shows the most recent ones; tap \"See all\" to come back here.",
+    },
+    profil: {
+      title: "Profile",
+      purpose: "Manage your personal information, profiles, security and the app's appearance.",
+      steps: "Edit your name, phone, address or photo in your personal information.\nIn \"My profiles\", check each profile's status, tap \"Switch profile\" or \"Add a profile\".\nIn the \"Security\" tab, change your password.\nIn the \"Appearance\" tab, turn on dark mode or change the language.",
+      tips: "A teacher profile request requires your ID card (front/back) and a selfie, then admin validation.\nIf a profile is rejected, the reason is shown in \"My profiles\".",
+    },
+  },
+  eleve: {
+    dashboard: {
+      title: "Home",
+      purpose: "See the essentials of your schooling: progress per course, homework, upcoming courses and latest notifications.",
+      steps: "Use the quick actions to go straight to your courses or homework.\nCheck your progress per course and your homework stats.\nReview your upcoming courses and latest notifications.\nTap \"Join a class\" to enter a class with your teacher's code.",
+      tips: "Pull down to refresh.\nThe \"Quick access\" button in the bottom bar lists every section.",
+    },
+    activites: {
+      title: "Activities",
+      purpose: "Discover school activities and events published by your teachers and schools.",
+      steps: "Scroll through the feed to browse the latest activities.\nTap a photo or video to open it full screen.\nPull down to load new posts.",
+      tips: "New activities may also be announced by a notification.",
+    },
+    devoirs: {
+      title: "Homework",
+      purpose: "Complete the homework and exercises assigned to your classes, then check your grades and corrections.",
+      steps: "Tap a homework item to open it and read the instructions.\nAnswer each question.\nSubmit your answers before the deadline.\nOnce it has been corrected, view your grade and the teacher's correction.",
+      tips: "Keep an eye on deadlines so you never submit late.\nYou are notified as soon as a correction is published.",
+    },
+    classes: {
+      title: "My classes",
+      purpose: "Join your classes with the teacher's activation code and access their courses.",
+      steps: "Tap \"Join a class\" and enter the activation code given by your teacher.\nCheck the class card shown (name, level, school, teacher), then confirm the request.\nWait for the teacher to approve your request: it stays \"Pending\" until then.\nOnce accepted, tap \"Enter the class\" to see the scheduled courses.",
+      tips: "If the code doesn't work, check it with your teacher.\nYou get a notification when your request has been processed.",
+    },
+    cours: {
+      title: "Courses",
+      purpose: "View your classes' scheduled courses, join live sessions and read their content.",
+      steps: "Filter courses by status: scheduled, in progress, finished or cancelled.\nTap a course to read its content (chapters, PDF files).\nWhen a course is \"in progress\", tap it to join the live session.",
+      tips: "Be on time: the live session is only available during the course.\nPull down to refresh the list.",
+    },
+    messages: {
+      title: "Messages",
+      purpose: "Chat in real time with your teachers and members of your classes.",
+      steps: "Tap a conversation to open it and read the messages.\nTap the new message button, then choose a recipient among class members or teachers.\nWrite your message and attach an image or file if needed.\nSend it: the recipient gets it instantly.",
+      tips: "Conversations with unread messages are highlighted.",
+    },
+    notifications: {
+      title: "Notifications",
+      purpose: "Find all your notifications: classes, courses, homework, corrections and messages.",
+      steps: "Tap a notification to go straight to the related screen.\nFilter the list to show only read or unread notifications.\nTap \"Mark all read\" to mark every notification as read.",
+      tips: "The header bell shows the most recent ones; tap \"See all\" to come back here.",
+    },
+    profil: {
+      title: "Profile",
+      purpose: "Manage your personal information, security and the app's appearance.",
+      steps: "Edit your name, phone, address or photo in your personal information.\nCheck your profile's status in \"My profiles\".\nIn the \"Security\" tab, change your password.\nIn the \"Appearance\" tab, turn on dark mode or change the language.",
+      tips: "A student session cannot switch profiles: log out and choose the other profile when logging in.",
+    },
+  },
+  professeur: {
+    dashboard: {
+      title: "Home",
+      purpose: "Get an overview of your teaching activity and quick access to the main actions.",
+      steps: "Review the stats for your classes, courses and homework.\nUse the quick actions to create a course, schedule a session or manage your classes.\nOpen the \"Quick access\" button in the bottom bar to reach every section.",
+      tips: "Your account must be validated by the admin (ID documents) before you can use the teacher space.\nPull down to refresh.",
+    },
+    activites: {
+      title: "Activities",
+      purpose: "Follow school activities and events published by teachers and schools.",
+      steps: "Scroll through the feed to browse the latest activities.\nTap a photo or video to open it full screen.\nPull down to load new posts.",
+      tips: "New activities may also be announced by a notification.",
+    },
+    cours: {
+      title: "Courses",
+      purpose: "Create and publish your courses: title, subject, chapters, rich content and attachments.",
+      steps: "Tap the create button to start a new course.\nEnter the title and subject, then add your chapters.\nWrite the content and attach your files.\nPublish the course when it is ready.",
+      tips: "Create your subjects first in the \"Subjects\" screen.\nOnce published, schedule the course for a class in \"Scheduling\".",
+    },
+    programmation: {
+      title: "Scheduling",
+      purpose: "Schedule your courses for your classes, in person or as a live session, and start them when the time comes.",
+      steps: "Tap \"Schedule\" and choose the course and the class.\nSet the date, time and place, or choose a live online session.\nAt the scheduled time, start the live session.\nIf needed, cancel the session or reschedule it for another date.",
+      tips: "Students in the class see the session in their \"Courses\" screen.\nThey can only join the live session while it is \"in progress\".",
+    },
+    matieres: {
+      title: "Subjects",
+      purpose: "Manage the list of subjects used to organize your courses.",
+      steps: "Browse the list of existing subjects.\nTap the add button to create a new subject.\nTap a subject to edit its name or details.",
+      tips: "Create your subjects before your courses so you can link them.",
+    },
+    devoirs: {
+      title: "Exercises",
+      purpose: "Create exercises and schedule them for your classes with a deadline.",
+      steps: "Tap the create button to start a new exercise.\nAdd your questions and media, and choose the expected answer type.\nTap \"Schedule\", choose the class and set the deadline.\nStudents in the class are then notified and can answer.",
+      tips: "The same exercise can be scheduled for several classes.\nThen follow submissions in the \"Corrections\" screen.",
+    },
+    corrections: {
+      title: "Corrections",
+      purpose: "Grade the submissions for each scheduled exercise and publish the corrections.",
+      steps: "Choose a scheduled exercise to see its submissions.\nOpen a submission, give a grade and add a comment.\nPublish the correction: students receive a notification.",
+      tips: "Parents can also see their children's grades and corrections.",
+    },
+    classes: {
+      title: "My classes",
+      purpose: "Create your classes, share their activation code and manage access requests.",
+      steps: "Tap \"Create a class\": it is sent to the school or admin for validation.\nShare the class activation code with your students and their parents.\nIn the \"Requests\" tab, approve or reject access requests.\nTap a class to see its details and members.",
+      tips: "Give a reason when rejecting: it will be shown to the requester.\nOnly share the code with the people concerned.",
+    },
+    utilisateurs: {
+      title: "Users",
+      purpose: "Find the students and parents of your classes and contact them.",
+      steps: "Browse the list of students and parents in your classes.\nUse search to quickly find someone.\nTap a user to contact them by message.",
+      tips: "Only members accepted into your classes appear here.",
+    },
+    messages: {
+      title: "Messages",
+      purpose: "Chat in real time with students, parents and members of your classes.",
+      steps: "Tap a conversation to open it and read the messages.\nTap the new message button, then choose a recipient among your class members.\nWrite your message and attach an image or file if needed.\nSend it: the recipient gets it instantly.",
+      tips: "Conversations with unread messages are highlighted.",
+    },
+    notifications: {
+      title: "Notifications",
+      purpose: "Find all your notifications: access requests, classes, courses, homework and messages.",
+      steps: "Tap a notification to go straight to the related screen.\nFilter the list to show only read or unread notifications.\nTap \"Mark all read\" to mark every notification as read.",
+      tips: "The header bell shows the most recent ones; tap \"See all\" to come back here.",
+    },
+    profil: {
+      title: "Profile",
+      purpose: "Manage your personal information, profiles, security and the app's appearance.",
+      steps: "Edit your name, phone, address or photo in your personal information.\nIn \"My profiles\", check your teacher profile's status and add any missing documents.\nTap \"Switch profile\" or \"Add a profile\" to manage your other profiles.\nIn the \"Security\" and \"Appearance\" tabs, change your password, theme or language.",
+      tips: "The teacher profile requires your ID card (front/back) and a selfie, then admin validation.\nIf your profile is rejected, the reason is shown in \"My profiles\".",
+    },
+  },
+};
