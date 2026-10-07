@@ -533,7 +533,16 @@ const ClassDetails = ({
   const classId = selectedClass.id;
 
   const isAdmin = !!isAdminProp || role === "admin";
-  const activeTab = normalizeTab(activeDetailTab, isAdmin);
+
+  // Permissions on THIS class, mirroring the backend AccessControlService:
+  // - canManage  = isClassManager (admin, moderator, creator, gestionnaire of the class's
+  //   établissement, co-moderator, or publication right with peutModerer=true)
+  // - canPublish = manager or holder of a publication right (peutPublier)
+  // Access requests, member management and the offer/contract panel are for managers only.
+  const [perms, setPerms] = useState<{ canManage: boolean; canPublish: boolean }>({ canManage: false, canPublish: false });
+  const canManageRef = useRef(false);
+  const rawTab = normalizeTab(activeDetailTab, isAdmin);
+  const activeTab: TabKey = rawTab === "access-requests" && !perms.canManage ? "overview" : rawTab;
 
   // ── Data ──
   const [classDetails, setClassDetails] = useState<AnyUser | null>(null);
@@ -669,6 +678,7 @@ const ClassDetails = ({
   };
 
   const loadAccessRequests = useCallback(async () => {
+    if (!canManageRef.current) return; // server answers 403 to non-managers
     try {
       const reqs = (await accederService.getRequestsForClass(classId)) as AnyUser[];
       const built = buildAccessRequests(reqs);
@@ -678,6 +688,29 @@ const ClassDetails = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId]);
+
+  const resolveClassPermissions = async (details: AnyUser): Promise<{ canManage: boolean; canPublish: boolean }> => {
+    if (isAdmin) return { canManage: true, canPublish: true };
+    if (!currentUserId || role === "student" || role === "parent") return { canManage: false, canPublish: false };
+    const me = currentUserId;
+    const etab = details.etablissement;
+    if (
+      details.moderatorId === me ||
+      details.moderator?.id === me ||
+      details.creatorId === me ||
+      details.createurId === me ||
+      (etab && (etab.gestionnaireId === me || etab.gestionnaire?.id === me))
+    ) {
+      return { canManage: true, canPublish: true };
+    }
+    const [mods, rights] = await Promise.all([
+      classService.getClassModerators(classId).catch(() => [] as AnyUser[]),
+      publicationRightsService.getClassesWithRightsDetail(me).catch(() => []),
+    ]);
+    const myRight = rights.find((d) => d.classe?.id === classId);
+    const canManage = (mods || []).some((m: AnyUser) => m?.id === me) || myRight?.peutModerer === true;
+    return { canManage, canPublish: canManage || !!myRight?.peutPublier };
+  };
 
   const loadAll = useCallback(
     async (mode: "initial" | "refresh") => {
@@ -695,12 +728,18 @@ const ClassDetails = ({
         const enriched: AnyUser = {
           ...details,
           dateCreation: details.dateCreation || details.date_creation || null,
-          createurId: details.createurId || details.createur_id || details.cree_par || details.utilisateur_id || currentUserId,
+          // Backend field is `creatorId` (Classes.java). No fallback to the viewer: that made every visitor
+          // look like the creator (management tabs shown, then refused by the server).
+          createurId: details.creatorId || details.createurId || details.createur_id || details.cree_par || null,
           droitPublication: details.droitPublication || details.droit_publication || "PROFESSEURS_SEULEMENT",
           etablissement: details.etablissement || (details.etablissement_id ? { id: details.etablissement_id } : null),
           moderatorId: details.moderatorId || details.moderator_id || null,
         };
         setClassDetails(enriched);
+
+        const p = await resolveClassPermissions(enriched);
+        canManageRef.current = p.canManage;
+        setPerms(p);
 
         // Profile pools used to enrich members & requests (web: scholchatService.getAll*)
         const [profs, students, parents] = await Promise.all([
@@ -733,10 +772,12 @@ const ClassDetails = ({
 
         // Access requests
         let accessRequests: AnyUser[] = [];
-        try {
-          accessRequests = buildAccessRequests(((await accederService.getRequestsForClass(classId)) || []) as AnyUser[]);
-        } catch {
-          showError("Erreur lors du chargement des demandes d'accès");
+        if (p.canManage) {
+          try {
+            accessRequests = buildAccessRequests(((await accederService.getRequestsForClass(classId)) || []) as AnyUser[]);
+          } catch {
+            showError("Erreur lors du chargement des demandes d'accès");
+          }
         }
 
         // Publication rights — merged into the member lists like web's loadModeratorsAndRights()
@@ -818,16 +859,9 @@ const ClassDetails = ({
     [usersWithRights]
   );
 
-  const isUserModerator = (): boolean => {
-    if (role === "student" || role === "parent") return false;
-    if (isAdmin) return true;
-    if (!currentUserId || !classDetails) return false;
-    if (classDetails.moderatorId === currentUserId) return true;
-    if (classDetails.moderator?.id === currentUserId) return true;
-    if (classDetails.createurId === currentUserId) return true;
-    return moderatorsWithRights.some((m) => m.id === currentUserId);
-  };
-  const isModerator = isUserModerator();
+  // "isModerator" = class manager (backend isClassManager); publishers only get canPublish.
+  const isModerator = perms.canManage;
+  const canPublish = perms.canPublish;
 
   const isPending = classDetails?.etat === "EN_ATTENTE_APPROBATION" || classDetails?.etat === "PENDING";
 
@@ -852,12 +886,13 @@ const ClassDetails = ({
   const roleBadge = (() => {
     if (!classDetails) return null;
     const isCreator = classDetails.creatorId === currentUserId || classDetails.creator_id === currentUserId;
-    const isMod = classDetails.moderator?.id === currentUserId || classDetails.moderatorId === currentUserId;
+    const isMod =
+      classDetails.moderator?.id === currentUserId || classDetails.moderatorId === currentUserId || (perms.canManage && !isAdmin);
     const hasPubRight = usersWithRights.some((u) => u.id === currentUserId);
-    if (isCreator) return { label: "Créateur", tone: "indigo" as Tone };
-    if (isMod) return { label: "Modérateur", tone: "cyan" as Tone };
-    if (hasPubRight) return { label: "Droit de publication", tone: "purple" as Tone };
-    return { label: "Membre", tone: "gray" as Tone };
+    if (isCreator) return { label: tr("profClasses.details.roleCreator"), tone: "indigo" as Tone };
+    if (isMod) return { label: tr("profClasses.details.roleModerator"), tone: "cyan" as Tone };
+    if (hasPubRight) return { label: tr("profClasses.details.rolePublication"), tone: "purple" as Tone };
+    return { label: tr("profClasses.details.roleMember"), tone: "gray" as Tone };
   })();
 
   // ── Navigation (web: onNavigateTo* — hidden for admin) ──
@@ -871,6 +906,7 @@ const ClassDetails = ({
   // ── Actions ──
 
   const handleTabChange = (key: TabKey) => {
+    if (key === "access-requests" && !isModerator) return;
     setActiveDetailTab(key);
     setPage(1);
     setStatusFilter("all");
@@ -1340,8 +1376,7 @@ const ClassDetails = ({
       : etat === "EN_ATTENTE_APPROBATION"
         ? { label: "En attente", tone: "orange" as Tone }
         : { label: "Inactif", tone: "red" as Tone };
-  const canManageModerator =
-    isAdmin || classDetails.createurId === currentUserId || classDetails.moderatorId === currentUserId;
+  const canManageModerator = isModerator;
 
   const renderBanners = () => (
     <>
@@ -1432,7 +1467,7 @@ const ClassDetails = ({
             disabled={etat === "EN_ATTENTE_APPROBATION"}
           />
         ) : null}
-        {isAdmin || isModerator ? (
+        {isModerator ? (
           <HeroButton icon="shield-alt" label="Droits" onPress={() => setRightsOpen(true)} disabled={etat === "EN_ATTENTE_APPROBATION"} />
         ) : null}
         <HeroButton icon="history" label="Historique" onPress={openHistory} loading={actionLoading === "history"} />
@@ -1484,7 +1519,13 @@ const ClassDetails = ({
     { key: "eleves", label: `Élèves (${users.eleves.length})`, icon: "user-friends" },
     { key: "parents", label: `Parents (${users.parents.length})`, icon: "user-friends" },
     { key: "utilisateurs", label: `Utilisateurs (${users.utilisateurs.length})`, icon: "user" },
-    { key: "access-requests", label: `Demandes (${users.accessRequests.length})`, icon: "clock" },
+    ...(isModerator
+      ? ([{ key: "access-requests", label: `Demandes (${users.accessRequests.length})`, icon: "clock" }] as {
+          key: TabKey;
+          label: string;
+          icon: string;
+        }[])
+      : []),
     ...(!isAdmin
       ? ([
           { key: "courses", label: `Cours (${courses.length})`, icon: "book" },
@@ -1587,9 +1628,11 @@ const ClassDetails = ({
           </View>
         </SectionCard>
 
-        <View style={{ marginBottom: 14 }}>
-          <OffreInfoPanel type="CLASSE" entityId={classId} />
-        </View>
+        {isModerator ? (
+          <View style={{ marginBottom: 14 }}>
+            <OffreInfoPanel type="CLASSE" entityId={classId} />
+          </View>
+        ) : null}
 
         <SectionCard icon="crown" title="MODÉRATEUR">
           <View style={styles.cardBody}>{renderModeratorInfo()}</View>
@@ -1815,7 +1858,7 @@ const ClassDetails = ({
   };
 
   const renderMajeurBox = () => {
-    if (!classDetails.accesMajeur) return null;
+    if (!classDetails.accesMajeur || !isModerator) return null;
     const t = tone("blue");
     return (
       <View style={[styles.majeurBox, { backgroundColor: t.bg, borderColor: t.bd }]}>
@@ -1914,13 +1957,13 @@ const ClassDetails = ({
                 <Text style={styles.smallOutlineText}>Voir tout</Text>
               </TouchableOpacity>
             ) : null}
-            {kind === "courses" && isModerator && navCourseCreation ? (
+            {kind === "courses" && canPublish && navCourseCreation ? (
               <TouchableOpacity style={[styles.smallSolid, { backgroundColor: "#4F46E5" }]} onPress={() => navCourseCreation(classId)}>
                 <FontAwesome5 name="plus" size={10} color="#FFFFFF" />
                 <Text style={styles.smallSolidText}>Programmer</Text>
               </TouchableOpacity>
             ) : null}
-            {kind === "exercises" && isModerator && navExercises ? (
+            {kind === "exercises" && canPublish && navExercises ? (
               <TouchableOpacity style={[styles.smallSolid, { backgroundColor: "#9333EA" }]} onPress={() => navExercises(classId)}>
                 <FontAwesome5 name="plus" size={10} color="#FFFFFF" />
                 <Text style={styles.smallSolidText}>Programmer</Text>

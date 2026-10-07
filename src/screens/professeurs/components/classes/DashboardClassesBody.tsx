@@ -25,6 +25,7 @@ import {
   coursProgrammerService,
   establishmentService,
   offerService,
+  publicationRightsService,
 } from "../../../../services/api";
 import { PaymentInfo } from "../../../../services/api/contratService";
 import PaymentModal from "../../../../components/common/PaymentModal";
@@ -35,6 +36,7 @@ import { useUiStore } from "../../../../store/useUiStore";
 import { useThemeColors } from "../../../../styles/theme";
 import { useThemeStore } from "../../../../store/useThemeStore";
 import { formatDate } from "../../../../utils/dates";
+import { TranslationKey, translate, useT } from "../../../../i18n";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -102,7 +104,22 @@ export interface UIClass {
   accessRequests: FormattedAccessRequest[];
   etablissementDetails?: Etablissement;
   moderatorDetails?: Professor;
+  /**
+   * Caller's role on the class — same buckets as web's "Mes classes" (ManageClassContent/ManageClassList):
+   * created (backend role CREATEUR), moderator (MODERATEUR: main or co-moderator), publication
+   * (PUBLICATION: granted right), member (access only). Undefined outside the professor list.
+   */
+  classRole?: ClassRole;
+  /** "Par : <name>" on classes the user didn't create — the class CREATOR's name (backend creatorNom). */
+  grantedBy?: string;
+  /** "Modérateur : <name>" when the main moderator is neither the creator nor the current user. */
+  moderatorName?: string;
 }
+
+export type ClassRole = "created" | "moderator" | "publication" | "member";
+
+/** Managers (created/moderator) may see the class's access requests; others get 403 from the server. */
+export const isManagerRole = (r?: ClassRole) => r === "created" || r === "moderator";
 
 /**
  * Fetches everything ClassDetails' Professeurs/Élèves/Parents/Utilisateurs/
@@ -111,10 +128,16 @@ export interface UIClass {
  * (this list, admin's AdminClassesBody and gestionnaire's
  * EstablishmentClassesBody).
  */
-export const enrichClassForDetails = async (cls: ClassEntity): Promise<UIClass> => {
+export const enrichClassForDetails = async (
+  cls: ClassEntity,
+  opts: { loadAccessRequests?: boolean } = {}
+): Promise<UIClass> => {
+  // GET /acceder/classes/{id}/demandes is reserved to class managers (403 otherwise): skip it for
+  // publishers / members.
+  const withRequests = opts.loadAccessRequests !== false;
   const [classDetails, accessRequests, classUsers] = await Promise.all([
     classService.getClassDetails(cls.id),
-    classService.getClassAccessRequests(cls.id).catch(() => []),
+    withRequests ? classService.getClassAccessRequests(cls.id).catch(() => []) : Promise.resolve([]),
     classService.getClassUsers(cls.id).catch(() => []),
   ]);
 
@@ -129,7 +152,7 @@ export const enrichClassForDetails = async (cls: ClassEntity): Promise<UIClass> 
   const formattedAccessRequests: FormattedAccessRequest[] = (accessRequests || []).map((request: any) => ({
     id: request.id,
     name: `${request.utilisateurPrenom || ""} ${request.utilisateurNom || ""}`.trim(),
-    role: "Utilisateur",
+    role: translate("profClasses.fallback.user"),
     date: request.dateDemande ? formatDate(request.dateDemande) : "",
     status: request.etat || "EN_ATTENTE",
   }));
@@ -137,8 +160,8 @@ export const enrichClassForDetails = async (cls: ClassEntity): Promise<UIClass> 
   const d = classDetails as any;
   return {
     id: cls.id,
-    name: d.nom || cls.nom || "Nom non défini",
-    level: d.niveau || cls.niveau || "Niveau non défini",
+    name: d.nom || cls.nom || translate("profClasses.fallback.unnamed"),
+    level: d.niveau || cls.niveau || translate("profClasses.fallback.noLevel"),
     state: d.etat === "ACTIF" ? "ACTIVE" : "INACTIVE",
     etat: d.etat || cls.etat || d.statut || cls.statut,
     matiere: d.matiere || cls.matiere,
@@ -148,24 +171,26 @@ export const enrichClassForDetails = async (cls: ClassEntity): Promise<UIClass> 
     othersCount: others.length,
     creationDate: d.dateCreation || cls.dateCreation || new Date().toISOString(),
     description: d.description || "",
-    etablissement: d.etablissement?.nom || "Non spécifié",
-    moderator: d.moderator ? `${d.moderator.prenom || ""} ${d.moderator.nom || ""}`.trim() : "Non spécifié",
-    teacherRights: "Droit de publication",
+    etablissement: d.etablissement?.nom || translate("profClasses.fallback.notSpecified"),
+    moderator: d.moderator
+      ? `${d.moderator.prenom || ""} ${d.moderator.nom || ""}`.trim()
+      : translate("profClasses.fallback.notSpecified"),
+    teacherRights: translate("profClasses.roles.publication"),
     codeActivation: d.codeActivation || cls.codeActivation,
     droitPublication: d.droitPublication || d.droit_publication || "PROFESSEURS_SEULEMENT",
     accesMajeur: !!d.accesMajeur,
     students: students.map((s) => ({
       id: s.id,
       name: `${s.prenom || ""} ${s.nom || ""}`.trim(),
-      email: s.email || s.telephone || "Non spécifié",
-      niveau: (s as any).niveau || "Non spécifié",
+      email: s.email || s.telephone || translate("profClasses.fallback.notSpecified"),
+      niveau: (s as any).niveau || translate("profClasses.fallback.notSpecified"),
       dateCreation: (s as any).dateCreation || (s as any).creationDate,
       etat: (s as any).etat,
     })),
     parents: parents.map((p) => ({
       id: p.id,
       name: `${p.prenom || ""} ${p.nom || ""}`.trim(),
-      phone: p.telephone || p.email || "Non spécifié",
+      phone: p.telephone || p.email || translate("profClasses.fallback.notSpecified"),
       adresse: (p as any).adresse,
       dateCreation: (p as any).dateCreation || (p as any).creationDate,
       etat: (p as any).etat,
@@ -181,8 +206,8 @@ export const enrichClassForDetails = async (cls: ClassEntity): Promise<UIClass> 
 /** Minimal UIClass when the per-class enrichment calls fail — the card still renders from the list row. */
 const fallbackUIClass = (cls: ClassEntity): UIClass => ({
   id: cls.id,
-  name: cls.nom || "Nom non défini",
-  level: cls.niveau || "Niveau non défini",
+  name: cls.nom || translate("profClasses.fallback.unnamed"),
+  level: cls.niveau || translate("profClasses.fallback.noLevel"),
   state: cls.etat === "ACTIF" ? "ACTIVE" : "INACTIVE",
   etat: cls.etat || cls.statut,
   matiere: cls.matiere,
@@ -190,9 +215,9 @@ const fallbackUIClass = (cls: ClassEntity): UIClass => ({
   parentsCount: 0,
   creationDate: cls.dateCreation || new Date().toISOString(),
   description: cls.description || "",
-  etablissement: cls.etablissement?.nom || "Non spécifié",
-  moderator: "Non spécifié",
-  teacherRights: "Droit de publication",
+  etablissement: cls.etablissement?.nom || translate("profClasses.fallback.notSpecified"),
+  moderator: translate("profClasses.fallback.notSpecified"),
+  teacherRights: translate("profClasses.roles.publication"),
   codeActivation: cls.codeActivation,
   droitPublication: cls.droitPublication || "PROFESSEURS_SEULEMENT",
   accesMajeur: !!cls.accesMajeur,
@@ -237,11 +262,21 @@ const calculerReduction = (offre: Offre | null): number | null => {
 
 type StatusTab = "all" | "active" | "pending";
 
+// Web ManageClassList role filter ("Tous les rôles" / "Créée par moi" / …).
+type RoleFilter = "all" | ClassRole;
+const ROLE_FILTERS: { id: RoleFilter; label: TranslationKey }[] = [
+  { id: "all", label: "profClasses.roles.all" },
+  { id: "created", label: "profClasses.roles.created" },
+  { id: "moderator", label: "profClasses.roles.moderator" },
+  { id: "publication", label: "profClasses.roles.publication" },
+  { id: "member", label: "profClasses.roles.member" },
+];
+
 // Web ClassesContentMobile tabs (All / Active / Pending), default "active".
-const STATUS_TABS: { id: StatusTab; label: string }[] = [
-  { id: "all", label: "Toutes" },
-  { id: "active", label: "Actives" },
-  { id: "pending", label: "En attente" },
+const STATUS_TABS: { id: StatusTab; label: TranslationKey }[] = [
+  { id: "all", label: "profClasses.statusTabs.all" },
+  { id: "active", label: "profClasses.statusTabs.active" },
+  { id: "pending", label: "profClasses.statusTabs.pending" },
 ];
 
 const usePalette = () => {
@@ -341,6 +376,7 @@ interface CreateClassViewProps {
 }
 
 const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
+  const { t, locale } = useT();
   const colors = useThemeColors();
   const p = usePalette();
   const styles = useMemo(() => createStyles(colors, p), [colors, p]);
@@ -388,8 +424,8 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
       onDone();
       return;
     }
-    const t = setTimeout(() => setCountdown((c) => c - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
   }, [success, countdown, onDone]);
 
   const progress = useRef(new Animated.Value(0)).current;
@@ -422,13 +458,13 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
-    if (!formData.nom.trim()) newErrors.nom = "Le nom de la classe est requis";
-    else if (formData.nom.trim().length < 2) newErrors.nom = "Le nom doit contenir au moins 2 caractères";
-    if (!formData.niveau.trim()) newErrors.niveau = "Le niveau est requis";
+    if (!formData.nom.trim()) newErrors.nom = t("profClasses.create.errors.nameRequired");
+    else if (formData.nom.trim().length < 2) newErrors.nom = t("profClasses.create.errors.nameMin");
+    if (!formData.niveau.trim()) newErrors.niveau = t("profClasses.create.errors.levelRequired");
     if (formData.etablissement && selectedEstablishment?.optionTokenGeneral && !formData.codeUnique.trim()) {
-      newErrors.codeUnique = "Le code unique de l'établissement est requis";
+      newErrors.codeUnique = t("profClasses.create.errors.codeRequired");
     }
-    if (!formData.etablissement && !selectedOffreId) newErrors.offre = "Veuillez sélectionner une offre pour votre classe";
+    if (!formData.etablissement && !selectedOffreId) newErrors.offre = t("profClasses.create.errors.offerRequired");
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -458,7 +494,7 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
       setSuccess(true);
       setCountdown(5);
     } catch (error: any) {
-      setErrors({ submit: error?.message || "Erreur lors de la création de la classe" });
+      setErrors({ submit: error?.message || t("profClasses.create.errors.createFailed") });
     } finally {
       setLoading(false);
     }
@@ -489,17 +525,17 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
           <View style={styles.successIconWrap}>
             <FontAwesome5 name="check-circle" size={40} color="#16A34A" />
           </View>
-          <Text style={styles.successTitle}>Classe créée avec succès!</Text>
+          <Text style={styles.successTitle}>{t("profClasses.create.successTitle")}</Text>
           <Text style={styles.successText}>
             {formData.etablissement
-              ? "Votre classe a ete creee et est en attente d'approbation."
-              : "Votre classe a ete creee et approuvee automatiquement!"}
+              ? t("profClasses.create.successPending")
+              : t("profClasses.create.successApproved")}
           </Text>
           {userId ? (
-            <Text style={styles.successRights}>Les droits de publication vous ont ete automatiquement attribues.</Text>
+            <Text style={styles.successRights}>{t("profClasses.create.successRights")}</Text>
           ) : null}
           <Text style={styles.successText}>
-            Redirection dans {countdown} seconde{countdown > 1 ? "s" : ""}...
+            {t("profClasses.create.redirect", { count: countdown })}
           </Text>
           <View style={styles.progressTrack}>
             <Animated.View
@@ -511,7 +547,7 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
           </View>
           <TouchableOpacity onPress={onDone} activeOpacity={0.85}>
             <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.successBtn}>
-              <Text style={styles.successBtnText}>Aller à la gestion des classes maintenant</Text>
+              <Text style={styles.successBtnText}>{t("profClasses.create.goToManagement")}</Text>
             </LinearGradient>
           </TouchableOpacity>
           <ActivityIndicator size="large" color="#2563EB" style={{ marginTop: 16 }} />
@@ -531,29 +567,29 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
         <View style={styles.formCard}>
           {/* Header */}
           <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.formHeader}>
-            <TouchableOpacity onPress={onBack} style={styles.backBtn} accessibilityLabel="Retour" disabled={busy}>
+            <TouchableOpacity onPress={onBack} style={styles.backBtn} accessibilityLabel={t("profClasses.create.back")} disabled={busy}>
               <FontAwesome5 name="arrow-left" size={14} color="#FFFFFF" />
             </TouchableOpacity>
             <View style={styles.formHeaderIcon}>
               <FontAwesome5 name="graduation-cap" size={18} color="#FFFFFF" />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.formHeaderTitle}>Créer une Classe</Text>
-              <Text style={styles.formHeaderSubtitle}>Ajoutez une nouvelle classe à votre système</Text>
+              <Text style={styles.formHeaderTitle}>{t("profClasses.create.title")}</Text>
+              <Text style={styles.formHeaderSubtitle}>{t("profClasses.create.subtitle")}</Text>
             </View>
           </LinearGradient>
 
           <View style={styles.formBody}>
             {/* Nom */}
             <View style={styles.field}>
-              <Text style={styles.label}>Nom de la classe *</Text>
+              <Text style={styles.label}>{t("profClasses.create.nameLabel")}</Text>
               <View style={[styles.inputWrap, !!errors.nom && styles.inputError]}>
                 <FontAwesome5 name="book-open" size={16} color={p.muted} style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   value={formData.nom}
                   onChangeText={(v) => setField("nom", v)}
-                  placeholder="Ex: Classe de 3ème A"
+                  placeholder={t("profClasses.create.namePlaceholder")}
                   placeholderTextColor={p.muted}
                 />
               </View>
@@ -562,14 +598,14 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
 
             {/* Niveau */}
             <View style={styles.field}>
-              <Text style={styles.label}>Niveau *</Text>
+              <Text style={styles.label}>{t("profClasses.create.levelLabel")}</Text>
               <SelectField
                 icon="graduation-cap"
                 value={formData.niveau}
                 options={NIVEAUX.map((n) => ({ value: n, label: n }))}
-                placeholder="Sélectionner un niveau"
+                placeholder={t("profClasses.create.levelPlaceholder")}
                 onChange={(v) => setField("niveau", v)}
-                title="Niveau"
+                title={t("profClasses.create.levelTitle")}
                 hasError={!!errors.niveau}
                 styles={styles}
                 muted={p.muted}
@@ -587,36 +623,36 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
                 {formData.accesMajeur ? <FontAwesome5 name="check" size={10} color="#FFFFFF" /> : null}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.majeurTitle}>Classe Majeure</Text>
-                <Text style={styles.majeurText}>Les élèves rejoignent par recherche d'email</Text>
+                <Text style={styles.majeurTitle}>{t("profClasses.create.majeurTitle")}</Text>
+                <Text style={styles.majeurText}>{t("profClasses.create.majeurText")}</Text>
               </View>
             </TouchableOpacity>
 
             {/* Établissement */}
             <View style={styles.field}>
-              <Text style={styles.label}>Établissement (Optionnel)</Text>
+              <Text style={styles.label}>{t("profClasses.create.etabLabel")}</Text>
               <SelectField
                 icon="school"
                 value={formData.etablissement}
                 options={establishments.map((e) => ({ value: e.id, label: e.nom || "—" }))}
                 placeholder={
-                  loadingEstablishments ? "Chargement des établissements..." : "Aucun établissement (Classe indépendante)"
+                  loadingEstablishments ? t("profClasses.create.etabLoading") : t("profClasses.create.etabNone")
                 }
                 onChange={(v) => setField("etablissement", v)}
-                title="Établissement"
+                title={t("profClasses.create.etabTitle")}
                 disabled={loadingEstablishments}
                 styles={styles}
                 muted={p.muted}
               />
               {loadingEstablishments ? (
-                <Text style={styles.helpText}>Chargement des établissements disponibles...</Text>
+                <Text style={styles.helpText}>{t("profClasses.create.etabLoadingHelp")}</Text>
               ) : null}
             </View>
 
             {/* Code unique */}
             {formData.etablissement && selectedEstablishment?.optionTokenGeneral ? (
               <View style={styles.field}>
-                <Text style={styles.label}>Code Unique de l'établissement *</Text>
+                <Text style={styles.label}>{t("profClasses.create.codeLabel")}</Text>
                 <View style={[styles.inputWrap, !!errors.codeUnique && styles.inputError]}>
                   <FontAwesome5 name="key" size={16} color={p.muted} style={styles.inputIcon} />
                   <TextInput
@@ -636,24 +672,24 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
             <View style={styles.infoBox}>
               <FontAwesome5 name="exclamation-circle" size={16} color="#2563EB" style={{ marginTop: 2 }} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoTitle}>Information importante</Text>
-                <Text style={styles.infoText}>Les champs marqués d'un * sont obligatoires.</Text>
+                <Text style={styles.infoTitle}>{t("profClasses.create.infoTitle")}</Text>
+                <Text style={styles.infoText}>{t("profClasses.create.infoRequired")}</Text>
                 {selectedEstablishment?.optionEnvoiMailVersClasse ? (
                   <View style={styles.infoLine}>
                     <FontAwesome5 name="envelope" size={11} color="#1D4ED8" />
-                    <Text style={styles.infoText}>Cet établissement envoie des emails aux classes.</Text>
+                    <Text style={styles.infoText}>{t("profClasses.create.infoMail")}</Text>
                   </View>
                 ) : null}
                 {selectedEstablishment?.optionTokenGeneral ? (
                   <View style={styles.infoLine}>
                     <FontAwesome5 name="key" size={11} color="#1D4ED8" />
-                    <Text style={styles.infoText}>Un token général est requis pour cet établissement.</Text>
+                    <Text style={styles.infoText}>{t("profClasses.create.infoToken")}</Text>
                   </View>
                 ) : null}
                 {selectedEstablishment?.codeUnique ? (
                   <View style={styles.infoLine}>
                     <FontAwesome5 name="bullseye" size={11} color="#1D4ED8" />
-                    <Text style={styles.infoText}>Un code unique est requis pour cet établissement.</Text>
+                    <Text style={styles.infoText}>{t("profClasses.create.infoCode")}</Text>
                   </View>
                 ) : null}
               </View>
@@ -663,13 +699,13 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
             {!formData.etablissement ? (
               <View style={styles.offreBox}>
                 <View>
-                  <Text style={styles.label}>Offre / Forfait *</Text>
+                  <Text style={styles.label}>{t("profClasses.create.offerLabel")}</Text>
                   <SelectField
                     value={selectedOffreId}
                     options={offres.map((o) => ({ value: o.id, label: `${o.nom || "—"}${o.estTest ? " (TEST)" : ""}` }))}
-                    placeholder={loadingOffres ? "Chargement des offres..." : "Choisir une offre..."}
+                    placeholder={loadingOffres ? t("profClasses.create.offerLoading") : t("profClasses.create.offerPlaceholder")}
                     onChange={handleOffreChange}
-                    title="Offre / Forfait"
+                    title={t("profClasses.create.offerTitle")}
                     disabled={loadingOffres}
                     hasError={!!errors.offre}
                     styles={styles}
@@ -680,7 +716,7 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
 
                 {selectedOffre ? (
                   <View style={{ marginTop: 16 }}>
-                    <Text style={styles.label}>Périodicité</Text>
+                    <Text style={styles.label}>{t("profClasses.create.periodicity")}</Text>
                     <View style={styles.periodRow}>
                       {(["MENSUEL", "ANNUEL"] as const).map((per) => {
                         const disabled = per === "MENSUEL" ? selectedOffre.prixMensuel == null : selectedOffre.prixAnnuel == null;
@@ -693,22 +729,24 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
                             disabled={disabled}
                           >
                             <Text style={[styles.periodText, active && styles.periodTextActive]}>
-                              {per === "MENSUEL" ? "Mensuel" : "Annuel"}
+                              {per === "MENSUEL" ? t("profClasses.create.monthly") : t("profClasses.create.yearly")}
                             </Text>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
                     <Text style={styles.priceText}>
-                      Prix : <Text style={{ fontWeight: "800" }}>{montantSelectionne.toLocaleString("fr-FR")} FCFA</Text>{" "}
-                      {periodicite === "ANNUEL" ? "/ an" : "/ mois"}
+                      {t("profClasses.create.price")}{" "}
+                      <Text style={{ fontWeight: "800" }}>{montantSelectionne.toLocaleString(locale)} FCFA</Text>{" "}
+                      {periodicite === "ANNUEL" ? t("profClasses.create.perYear") : t("profClasses.create.perMonth")}
                     </Text>
                     {periodicite === "ANNUEL" && offreReduction != null && offreReduction > 0 ? (
                       <View style={styles.reductionBox}>
                         <FontAwesome5 name="tags" size={12} color="#15803D" />
                         <Text style={styles.reductionText}>
-                          Réduction de {offreReduction > 1 ? Math.round(offreReduction) : Math.round(offreReduction * 100)}% pour
-                          l'offre annuelle !
+                          {t("profClasses.create.reduction", {
+                            pct: offreReduction > 1 ? Math.round(offreReduction) : Math.round(offreReduction * 100),
+                          })}
                         </Text>
                       </View>
                     ) : null}
@@ -739,7 +777,11 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
                   <FontAwesome5 name={!formData.etablissement ? "credit-card" : "check"} size={14} color="#FFFFFF" />
                 )}
                 <Text style={styles.submitText}>
-                  {busy ? "Traitement en cours..." : !formData.etablissement ? "Procéder au paiement" : "Créer la classe"}
+                  {busy
+                    ? t("profClasses.create.processing")
+                    : !formData.etablissement
+                      ? t("profClasses.create.proceedPayment")
+                      : t("profClasses.create.submit")}
                 </Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -752,8 +794,14 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
         onClose={() => setShowPaymentModal(false)}
         onSuccess={handlePaymentSuccess}
         montant={montantSelectionne}
-        label={selectedOffre?.nom || "Création de classe"}
-        subLabel={selectedOffre ? (periodicite === "ANNUEL" ? "Périodicité annuelle" : "Périodicité mensuelle") : ""}
+        label={selectedOffre?.nom || t("profClasses.create.paymentLabel")}
+        subLabel={
+          selectedOffre
+            ? periodicite === "ANNUEL"
+              ? t("profClasses.create.periodYearly")
+              : t("profClasses.create.periodMonthly")
+            : ""
+        }
       />
     </View>
   );
@@ -770,6 +818,7 @@ interface DashboardClassesBodyProps {
 
 const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) => {
   const { user } = useUser();
+  const { t } = useT();
   const colors = useThemeColors();
   const p = usePalette();
   const styles = useMemo(() => createStyles(colors, p), [colors, p]);
@@ -782,6 +831,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentTab, setCurrentTab] = useState<StatusTab>("active");
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [programmationCounts, setProgrammationCounts] = useState<Record<string, number>>({});
 
   const [selectedClass, setSelectedClass] = useState<UIClass | null>(null);
@@ -821,20 +871,61 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
     if (!userId) return;
     setLoading(true);
     try {
-      // Professor scope: classes the professor holds publication rights on
-      // (web filters to cls.professeur/moderator === user for PROFESSEUR).
-      const raw = await classService.getClassesWithPublicationRights(userId);
-      const list = Array.isArray(raw) ? raw : [];
-      const enriched = await Promise.all(list.map((c) => enrichClassForDetails(c).catch(() => fallbackUIClass(c))));
+      // Same sources as web's "Mes classes" (ManageClassContent.fetchUserClasses):
+      // 1. /droits-publication/utilisateurs/{id}/classes-avec-droits → created / moderator / publication
+      // 2. /acceder/utilisateurs/{id}/classes → classes the user merely has access to (member)
+      const [detailRes, accRes] = await Promise.allSettled([
+        publicationRightsService.getClassesWithRightsDetail(userId),
+        accederService.getAccessibleClasses(userId),
+      ]);
+      if (detailRes.status === "rejected" && accRes.status === "rejected") {
+        throw detailRes.reason;
+      }
+      const detailList = detailRes.status === "fulfilled" ? detailRes.value : [];
+      const accList = accRes.status === "fulfilled" && Array.isArray(accRes.value) ? accRes.value : [];
+      // Backend role (CREATEUR / MODERATEUR / PUBLICATION, strongest one, deduplicated); legacy flags as fallback.
+      const ROLE_MAP: Record<string, ClassRole> = { CREATEUR: "created", MODERATEUR: "moderator", PUBLICATION: "publication" };
+      type Row = { cls: ClassEntity; role: ClassRole; creatorNom?: string | null; moderateurNom?: string | null };
+      const rows: Row[] = [];
+      const seen = new Set<string>();
+      detailList.forEach((d) => {
+        if (!d?.classe?.id || seen.has(d.classe.id)) return;
+        seen.add(d.classe.id);
+        const role: ClassRole =
+          (d.role && ROLE_MAP[d.role]) || (d.peutModerer ? (d.estCreateur ? "created" : "moderator") : "publication");
+        rows.push({ cls: d.classe, role, creatorNom: d.creatorNom, moderateurNom: d.moderateurNom });
+      });
+      accList.forEach((c) => {
+        if (!c?.id || seen.has(c.id)) return;
+        seen.add(c.id);
+        rows.push({ cls: c, role: "member" });
+      });
+      const nameOf = (m: any) => (m && typeof m === "object" ? `${m.prenom || ""} ${m.nom || ""}`.trim() : "");
+      const enriched = await Promise.all(
+        rows.map(async ({ cls, role, creatorNom, moderateurNom }) => {
+          const ui = await enrichClassForDetails(cls, { loadAccessRequests: isManagerRole(role) }).catch(() =>
+            fallbackUIClass(cls)
+          );
+          const mod = ui.moderatorDetails || cls.moderator;
+          const modName = moderateurNom || nameOf(mod);
+          // "Par :" = the creator (not the moderator); legacy backend without creatorId → moderator.
+          const by =
+            role === "publication" || role === "moderator" ? creatorNom || (!cls.creatorId ? modName : "") : "";
+          // "Modérateur :" when the main moderator is someone else than the creator and me.
+          const modId = mod?.id || cls.moderatorId;
+          const showMod = role !== "member" && !!modName && !!modId && modId !== userId && modId !== cls.creatorId;
+          return { ...ui, classRole: role, grantedBy: by || undefined, moderatorName: showMod ? modName : undefined };
+        })
+      );
       setClasses(enriched);
       loadProgrammationCounts(enriched);
     } catch (e: any) {
-      setError(e?.message || "Impossible de charger les classes");
+      setError(e?.message || t("profClasses.list.loadError"));
       setClasses([]);
     } finally {
       setLoading(false);
     }
-  }, [userId, loadProgrammationCounts]);
+  }, [userId, loadProgrammationCounts, t]);
 
   useEffect(() => {
     loadClasses();
@@ -858,11 +949,12 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
         (cls.level || "").toLowerCase().includes(q) ||
         (cls.etablissementDetails?.nom || "").toLowerCase().includes(q);
       const status = cls.etat;
+      if (roleFilter !== "all" && cls.classRole !== roleFilter) return false;
       if (currentTab === "active") return matchesSearch && status === "ACTIF";
       if (currentTab === "pending") return matchesSearch && (status === "EN_ATTENTE_APPROBATION" || status === "EN_ATTENTE");
       return matchesSearch;
     });
-  }, [classes, searchTerm, currentTab]);
+  }, [classes, searchTerm, currentTab, roleFilter]);
 
   const handleManageClass = (cls: UIClass) => {
     setMenuClass(null);
@@ -881,7 +973,11 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
     let cancelled = false;
     (async () => {
       const known = classes.find((c) => String(c.id) === classId);
-      const cls = known ?? (await enrichClassForDetails({ id: classId } as ClassEntity).catch(() => null));
+      const cls =
+        known ??
+        (await enrichClassForDetails({ id: classId } as ClassEntity, { loadAccessRequests: tab === "access-requests" }).catch(
+          () => null
+        ));
       if (cancelled || !cls) return;
       setMenuClass(null);
       setSelectedClass(cls);
@@ -903,7 +999,16 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   const refreshSelectedClass = async () => {
     if (!selectedClass) return;
     try {
-      const updated = await enrichClassForDetails({ id: selectedClass.id, nom: selectedClass.name, niveau: selectedClass.level });
+      const fresh = await enrichClassForDetails(
+        { id: selectedClass.id, nom: selectedClass.name, niveau: selectedClass.level },
+        { loadAccessRequests: selectedClass.classRole === undefined || isManagerRole(selectedClass.classRole) }
+      );
+      const updated = {
+        ...fresh,
+        classRole: selectedClass.classRole,
+        grantedBy: selectedClass.grantedBy,
+        moderatorName: selectedClass.moderatorName,
+      };
       setSelectedClass(updated);
       setClasses((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     } catch (e) {
@@ -914,19 +1019,19 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   // Web handleTokenAccess(): GET /classes/by-code/{token} then open the request dialog.
   const handleTokenAccess = async () => {
     if (!accessToken.trim()) {
-      setError("Veuillez entrer un token valide");
+      setError(t("profClasses.list.invalidToken"));
       return;
     }
     setJoining(true);
     setError("");
     try {
       const cls = await classAdminService.getByCode(accessToken.trim());
-      if (!cls) throw new Error("Aucune classe trouvée avec ce code");
+      if (!cls) throw new Error(t("profClasses.list.notFound"));
       setFoundClass(cls);
       setRequestRole("eleve");
       setShowAccessModal(true);
     } catch (e: any) {
-      setError(e?.message || "Aucune classe trouvée avec ce code");
+      setError(e?.message || t("profClasses.list.notFound"));
     } finally {
       setJoining(false);
     }
@@ -946,11 +1051,11 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
       setShowAccessModal(false);
       setAccessToken("");
       setFoundClass(null);
-      Alert.alert("Succès", "Demande d'accès envoyée avec succès au modérateur de la classe");
+      Alert.alert(t("profClasses.list.successTitle"), t("profClasses.list.requestSent"));
       loadClasses();
     } catch (e: any) {
       setShowAccessModal(false);
-      setError(e?.message || "Échec de la demande d'accès.");
+      setError(e?.message || t("profClasses.list.requestFailed"));
     } finally {
       setSubmittingAccess(false);
     }
@@ -959,7 +1064,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   const handleShareCode = async (cls: UIClass) => {
     if (!cls.codeActivation) return;
     try {
-      await Share.share({ message: `Rejoignez la classe « ${cls.name} » sur ScholChat avec le code : ${cls.codeActivation}` });
+      await Share.share({ message: t("profClasses.list.shareMessage", { name: cls.name, code: cls.codeActivation }) });
     } catch {
       /* dismissed */
     }
@@ -996,20 +1101,20 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#2563EB" />}
       >
         {/* Header */}
-        <Text style={styles.pageTitle}>Classes</Text>
+        <Text style={styles.pageTitle}>{t("profClasses.list.title")}</Text>
 
         {/* Search */}
         <View style={styles.searchBox}>
           <FontAwesome5 name="search" size={18} color={p.muted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher des classes..."
+            placeholder={t("profClasses.list.searchPlaceholder")}
             value={searchTerm}
             onChangeText={setSearchTerm}
             placeholderTextColor={p.muted}
           />
           {searchTerm.length > 0 ? (
-            <TouchableOpacity onPress={() => setSearchTerm("")} accessibilityLabel="Effacer">
+            <TouchableOpacity onPress={() => setSearchTerm("")} accessibilityLabel={t("profClasses.list.clear")}>
               <FontAwesome5 name="times-circle" size={16} color={p.muted} />
             </TouchableOpacity>
           ) : null}
@@ -1019,7 +1124,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
           <View style={styles.errorBox}>
             <FontAwesome5 name="exclamation-circle" size={14} color="#EF4444" />
             <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity onPress={() => setError("")} accessibilityLabel="Fermer">
+            <TouchableOpacity onPress={() => setError("")} accessibilityLabel={t("profClasses.list.close")}>
               <FontAwesome5 name="times" size={12} color="#F87171" />
             </TouchableOpacity>
           </View>
@@ -1030,12 +1135,12 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
           <View style={styles.tokenWatermark} pointerEvents="none">
             <FontAwesome5 name="key" size={120} color="rgba(255,255,255,0.1)" />
           </View>
-          <Text style={styles.tokenTitle}>Accéder à une Classe</Text>
-          <Text style={styles.tokenSubtitle}>Entrez votre token d'accès</Text>
+          <Text style={styles.tokenTitle}>{t("profClasses.list.tokenTitle")}</Text>
+          <Text style={styles.tokenSubtitle}>{t("profClasses.list.tokenSubtitle")}</Text>
           <View style={styles.tokenRow}>
             <TextInput
               style={styles.tokenInput}
-              placeholder="Code du token..."
+              placeholder={t("profClasses.list.tokenPlaceholder")}
               placeholderTextColor="#BFDBFE"
               value={accessToken}
               onChangeText={setAccessToken}
@@ -1045,7 +1150,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
               returnKeyType="go"
             />
             <TouchableOpacity style={styles.joinBtn} onPress={handleTokenAccess} disabled={joining} activeOpacity={0.85}>
-              {joining ? <ActivityIndicator size="small" color="#2563EB" /> : <Text style={styles.joinText}>REJOINDRE</Text>}
+              {joining ? <ActivityIndicator size="small" color="#2563EB" /> : <Text style={styles.joinText}>{t("profClasses.list.join")}</Text>}
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -1061,15 +1166,34 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
                 onPress={() => setCurrentTab(tab.id)}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>{tab.label}</Text>
+                <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>{t(tab.label)}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
+        {/* Role filter (web: "Tous les rôles" select) — only roles present in the list */}
+        {classes.some((c) => c.classRole) ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.roleRow}>
+            {ROLE_FILTERS.filter((r) => r.id === "all" || classes.some((c) => c.classRole === r.id)).map((r) => {
+              const active = roleFilter === r.id;
+              return (
+                <TouchableOpacity
+                  key={r.id}
+                  style={[styles.rolePill, active && styles.rolePillActive]}
+                  onPress={() => setRoleFilter(r.id)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.rolePillText, active && styles.rolePillTextActive]}>{t(r.label)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        ) : null}
+
         {/* List */}
         {loading && classes.length === 0 ? (
-          <LoadingSpinner label="Chargement des classes..." />
+          <LoadingSpinner label={t("profClasses.list.loading")} />
         ) : (
           <View style={styles.cardsList}>
             {filteredClasses.map((cls) => (
@@ -1088,8 +1212,8 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
                 <View style={styles.emptyIcon}>
                   <FontAwesome5 name="graduation-cap" size={40} color={p.muted} />
                 </View>
-                <Text style={styles.emptyTitle}>Aucune classe ne correspond</Text>
-                <Text style={styles.emptyText}>Essayez d'ajuster vos filtres ou votre recherche</Text>
+                <Text style={styles.emptyTitle}>{t("profClasses.list.emptyTitle")}</Text>
+                <Text style={styles.emptyText}>{t("profClasses.list.emptyText")}</Text>
               </View>
             ) : null}
           </View>
@@ -1098,7 +1222,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
 
       {/* FAB → create class (web: setActiveTab("create-class")) */}
       <View style={styles.fabWrap} pointerEvents="box-none">
-        <TouchableOpacity onPress={() => setCurrentView("create")} activeOpacity={0.85} accessibilityLabel="Créer une classe">
+        <TouchableOpacity onPress={() => setCurrentView("create")} activeOpacity={0.85} accessibilityLabel={t("profClasses.list.createClass")}>
           <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.fab}>
             <FontAwesome5 name="plus" size={26} color="#FFFFFF" />
           </LinearGradient>
@@ -1110,33 +1234,33 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
         <BottomSheet visible={!!menuClass} onClose={() => setMenuClass(null)} title={menuClass.name}>
           <View style={{ gap: 10 }}>
             <View style={styles.menuInfoRow}>
-              <Text style={styles.menuInfoLabel}>Niveau</Text>
+              <Text style={styles.menuInfoLabel}>{t("profClasses.menu.level")}</Text>
               <Text style={styles.menuInfoValue}>{menuClass.level}</Text>
             </View>
             <View style={styles.menuInfoRow}>
-              <Text style={styles.menuInfoLabel}>Statut</Text>
+              <Text style={styles.menuInfoLabel}>{t("profClasses.menu.status")}</Text>
               <Text style={styles.menuInfoValue}>
                 {menuClass.etat === "ACTIF"
-                  ? "Active"
+                  ? t("profClasses.menu.statusActive")
                   : menuClass.etat === "EN_ATTENTE_APPROBATION" || menuClass.etat === "EN_ATTENTE"
-                    ? "En Attente"
-                    : "Inactive"}
+                    ? t("profClasses.menu.statusPending")
+                    : t("profClasses.menu.statusInactive")}
               </Text>
             </View>
             <View style={styles.menuInfoRow}>
-              <Text style={styles.menuInfoLabel}>Créée le</Text>
+              <Text style={styles.menuInfoLabel}>{t("profClasses.menu.createdOn")}</Text>
               <Text style={styles.menuInfoValue}>{formatDate(menuClass.creationDate)}</Text>
             </View>
             {menuClass.codeActivation ? (
               <TouchableOpacity style={styles.menuAction} onPress={() => handleShareCode(menuClass)}>
                 <FontAwesome5 name="key" size={14} color="#2563EB" />
-                <Text style={styles.menuActionText}>Code : {menuClass.codeActivation}</Text>
+                <Text style={styles.menuActionText}>{t("profClasses.menu.code", { code: menuClass.codeActivation })}</Text>
                 <FontAwesome5 name="share-alt" size={13} color={p.muted} />
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity style={styles.menuAction} onPress={() => handleManageClass(menuClass)}>
               <FontAwesome5 name="sign-in-alt" size={14} color="#2563EB" />
-              <Text style={styles.menuActionText}>Entrer dans la classe</Text>
+              <Text style={styles.menuActionText}>{t("profClasses.menu.enter")}</Text>
               <FontAwesome5 name="chevron-right" size={11} color={p.muted} />
             </TouchableOpacity>
           </View>
@@ -1242,6 +1366,18 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, p: ReturnType<t
       borderColor: p.border,
     },
     tabPillActive: { backgroundColor: "#2563EB", borderColor: "#2563EB" },
+    roleRow: { gap: 8, paddingBottom: 16 },
+    rolePill: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: p.card,
+    },
+    rolePillActive: { backgroundColor: p.isDark ? "rgba(79,70,229,0.25)" : "#EEF2FF", borderColor: "#4F46E5" },
+    rolePillText: { fontSize: 11, fontWeight: "700", color: p.sub },
+    rolePillTextActive: { color: p.isDark ? "#A5B4FC" : "#4F46E5" },
     tabPillText: { fontSize: 10, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.5, color: p.sub },
     tabPillTextActive: { color: "#FFFFFF" },
     cardsList: { gap: 16 },

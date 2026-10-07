@@ -1,6 +1,24 @@
 import { apiClient, extractErrorMessage } from './client';
 import { ApiSuccess, ClassEntity, ClassUser, PublicationRight } from '../../types';
 
+/** Entry of GET /droits-publication/utilisateurs/{id}/classes-avec-droits (ClasseAvecDroitDto). */
+export interface ClasseAvecDroit {
+  classe: ClassEntity;
+  peutPublier: boolean;
+  peutModerer: boolean;
+  estCreateur: boolean;
+  /**
+   * Strongest role of the caller on the class (deduplicated by the backend):
+   * CREATEUR (creatorId, even if someone else moderates now), MODERATEUR (main or co-moderator),
+   * PUBLICATION (granted right; peutModerer = delegated moderation). Absent on older backends.
+   */
+  role?: 'CREATEUR' | 'MODERATEUR' | 'PUBLICATION';
+  /** Display name of the class creator ("Par : …"). */
+  creatorNom?: string | null;
+  /** Display name of the main moderator. */
+  moderateurNom?: string | null;
+}
+
 export const publicationRightsService = {
   assign: async (
     userId: string,
@@ -62,6 +80,22 @@ export const publicationRightsService = {
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du chargement des membres.'));
+    }
+  },
+
+  /**
+   * Same source as web's "Mes classes" (ManageClassContent): classes the user created, moderates
+   * (main or co-moderator) or holds a publication right on, each with the caller's role and
+   * peutPublier / peutModerer / estCreateur flags plus the creator / moderator display names.
+   */
+  getClassesWithRightsDetail: async (userId: string): Promise<ClasseAvecDroit[]> => {
+    try {
+      const { data } = await apiClient.get<ClasseAvecDroit[]>(
+        `/droits-publication/utilisateurs/${userId}/classes-avec-droits`
+      );
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, 'Échec du chargement des classes.'));
     }
   },
 

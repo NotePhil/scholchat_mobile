@@ -2,7 +2,16 @@ import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useThemeStore } from "../../../../store/useThemeStore";
-import { UIClass } from "./DashboardClassesBody";
+import { useT } from "../../../../i18n";
+import { ClassRole, UIClass } from "./DashboardClassesBody";
+
+// Same role badges as web's ManageClassList ("Mes classes"); labels: profClasses.roles.<role>.
+const ROLE_BADGES: Record<ClassRole, { icon: string; color: string; bg: string; bgDark: string }> = {
+  created: { icon: "crown", color: "#4F46E5", bg: "#EEF2FF", bgDark: "rgba(79,70,229,0.2)" },
+  moderator: { icon: "user", color: "#0891B2", bg: "#ECFEFF", bgDark: "rgba(8,145,178,0.2)" },
+  publication: { icon: "pen", color: "#7C3AED", bg: "#F5F3FF", bgDark: "rgba(124,58,237,0.2)" },
+  member: { icon: "user-friends", color: "#64748B", bg: "#F8FAFC", bgDark: "rgba(100,116,139,0.2)" },
+};
 
 interface ClassCardProps {
   classItem: UIClass;
@@ -22,15 +31,17 @@ interface ClassCardProps {
  */
 const ClassCard = ({ classItem, pendingRequestsCount, programmationsCount, onManageClass, onMore }: ClassCardProps) => {
   const isDark = useThemeStore((s) => s.mode === "dark");
+  const { t } = useT();
   const styles = useMemo(() => createStyles(isDark), [isDark]);
   const subtitle = classItem.matiere || classItem.level;
   const hasEtablissement = !!classItem.etablissementDetails?.nom;
+  const roleBadge = classItem.classRole ? ROLE_BADGES[classItem.classRole] : null;
 
   return (
     <View style={styles.card}>
       {pendingRequestsCount > 0 ? (
         <View style={styles.newBadge}>
-          <Text style={styles.newBadgeText}>{pendingRequestsCount} NOUV.</Text>
+          <Text style={styles.newBadgeText}>{t("profClasses.card.newRequests", { count: pendingRequestsCount })}</Text>
         </View>
       ) : null}
 
@@ -50,11 +61,40 @@ const ClassCard = ({ classItem, pendingRequestsCount, programmationsCount, onMan
         </View>
       </View>
 
+      {roleBadge ? (
+        <View style={styles.badgesRow}>
+          <View style={[styles.badge, { backgroundColor: isDark ? roleBadge.bgDark : roleBadge.bg, borderColor: `${roleBadge.color}33` }]}>
+            <FontAwesome5 name={roleBadge.icon} size={9} color={roleBadge.color} solid />
+            <Text style={[styles.badgeText, { color: roleBadge.color }]}>{t(`profClasses.roles.${classItem.classRole as ClassRole}`)}</Text>
+          </View>
+          {classItem.accesMajeur ? (
+            <View style={[styles.badge, { backgroundColor: isDark ? "rgba(124,58,237,0.2)" : "#F5F3FF", borderColor: "#DDD6FE" }]}>
+              <FontAwesome5 name="certificate" size={9} color="#7C3AED" />
+              <Text style={[styles.badgeText, { color: "#7C3AED" }]}>{t("profClasses.card.majorClass")}</Text>
+            </View>
+          ) : (
+            <View style={[styles.badge, { backgroundColor: isDark ? "rgba(148,163,184,0.15)" : "#F1F5F9", borderColor: "#E2E8F0" }]}>
+              <Text style={[styles.badgeText, { color: "#94A3B8", fontWeight: "600" }]}>{t("profClasses.card.standardAccess")}</Text>
+            </View>
+          )}
+        </View>
+      ) : null}
+      {roleBadge && classItem.grantedBy ? (
+        <Text style={styles.grantedBy} numberOfLines={1}>
+          {t("profClasses.card.by", { name: classItem.grantedBy })}
+        </Text>
+      ) : null}
+      {roleBadge && classItem.moderatorName ? (
+        <Text style={styles.grantedBy} numberOfLines={1}>
+          {t("profClasses.card.moderator", { name: classItem.moderatorName })}
+        </Text>
+      ) : null}
+
       <View style={styles.statsGrid}>
         <View style={styles.statTile}>
           <FontAwesome5 name="users" size={14} color="#3B82F6" />
           <View style={styles.statTextWrap}>
-            <Text style={styles.statLabel}>Élèves</Text>
+            <Text style={styles.statLabel}>{t("profClasses.card.students")}</Text>
             <Text style={styles.statValue}>{classItem.studentsCount || 0}</Text>
           </View>
         </View>
@@ -62,7 +102,7 @@ const ClassCard = ({ classItem, pendingRequestsCount, programmationsCount, onMan
           <FontAwesome5 name="book-open" size={14} color="#3B82F6" />
           <View style={styles.statTextWrap}>
             <Text style={styles.statLabel} numberOfLines={1}>
-              Cours programmés
+              {t("profClasses.card.scheduledCourses")}
             </Text>
             <Text style={styles.statValue}>{programmationsCount || 0}</Text>
           </View>
@@ -81,13 +121,13 @@ const ClassCard = ({ classItem, pendingRequestsCount, programmationsCount, onMan
       <View style={styles.actionsRow}>
         <TouchableOpacity style={styles.enterBtn} onPress={() => onManageClass(classItem)} activeOpacity={0.85}>
           <FontAwesome5 name="sign-in-alt" size={16} color="#FFFFFF" />
-          <Text style={styles.enterText}>ENTRER DANS LA CLASSE</Text>
+          <Text style={styles.enterText}>{t("profClasses.card.enter")}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.moreBtn}
           onPress={() => onMore(classItem)}
           activeOpacity={0.85}
-          accessibilityLabel="Plus d'options"
+          accessibilityLabel={t("profClasses.card.moreOptions")}
         >
           <FontAwesome5 name="ellipsis-v" size={16} color={isDark ? "#D1D5DB" : "#4B5563"} />
         </TouchableOpacity>
@@ -146,6 +186,18 @@ const createStyles = (isDark: boolean) => {
       letterSpacing: 1.5,
       marginTop: 2,
     },
+    badgesRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: -8, marginBottom: 12 },
+    badge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 999,
+      borderWidth: 1,
+    },
+    badgeText: { fontSize: 11, fontWeight: "700" },
+    grantedBy: { fontSize: 11, color: muted, marginTop: -4, marginBottom: 12 },
     statsGrid: { flexDirection: "row", gap: 12, marginBottom: 24 },
     statTile: {
       flex: 1,
