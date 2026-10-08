@@ -4,7 +4,7 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { BottomSheet } from "../../../../components/ui";
 import { radius, spacing, typography, useThemeColors } from "../../../../styles/theme";
 import type { CoursResume } from "../../../../services/api";
-import { GENERAL_COURSE_ID, loadClassCourses } from "../../../../utils/classCourses";
+import { loadClassCourses } from "../../../../utils/classCourses";
 import { useT } from "../../../../i18n";
 import NoCourseNotice from "./NoCourseNotice";
 
@@ -16,14 +16,14 @@ export const toCoursParClasse = (value: CoursParClasseValue, classeIds: string[]
   const out: Record<string, string | null> = {};
   classeIds.filter(Boolean).forEach((id) => {
     const v = value[id];
-    out[id] = v && v !== GENERAL_COURSE_ID ? v : null;
+    out[id] = v || null;
   });
   return out;
 };
 
 /** Selected classes still without a course choice. */
 export const classesWithoutCourse = (value: CoursParClasseValue, classeIds: string[]): string[] =>
-  classeIds.filter((id) => !value[id] || value[id] === GENERAL_COURSE_ID);
+  classeIds.filter((id) => !value[id]);
 
 /** Number of programmations created by a programming POST response (several when courses differ per class). */
 export const countProgrammations = (res: unknown): number => {
@@ -122,7 +122,7 @@ const CoursePickerField = ({ classes, value, onChange, error, onNavigate }: Prop
           const missingHere = !!error && missing.includes(c.id);
           const empty = st?.status === "ready" && st.list.length === 0;
           const text =
-            v && v !== GENERAL_COURSE_ID
+            v
               ? (() => {
                   const found = st?.list.find((x) => x.coursId === v);
                   return found ? courseLabel(found, c.nom) : `${t("learning.course")} — ${c.nom}`;

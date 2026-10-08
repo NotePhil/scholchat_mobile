@@ -12,7 +12,7 @@ import { ClassEntity, CoursProgramme } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { TranslationKey, useT } from "../../i18n";
 import { formatDate, formatTime, serverDateMs } from "../../utils/dates";
-import { GENERAL_COURSE_ID, loadClassCourses, titlesFromAccessible } from "../../utils/classCourses";
+import { loadClassCourses, titlesFromAccessible } from "../../utils/classCourses";
 import { buildDevoirItem, DevoirItem, loadDevoirs, sortDevoirs } from "../../utils/devoirs";
 import { loadClassProgression } from "../../utils/progression";
 import DevoirCard, { useDevoirNavigation } from "../shared/DevoirCard";
@@ -20,7 +20,7 @@ import ProgressionContent from "../shared/ProgressionContent";
 
 /**
  * A learner's class page (student, or a parent viewing a child): the courses
- * programmed in the class with their counts + "Exercices généraux", and a
+ * programmed in the class with their counts, and a
  * Progression view. Entering a course shows its sessions (live join), a
  * link to its content (CourseViewer) and its exercises / homework with the
  * learner's status and note (Faire / Voir la copie).
@@ -223,19 +223,6 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId, learnerName, readOn
             </TouchableOpacity>
           ))
         )}
-
-        <TouchableOpacity style={[styles.card, styles.generalCard]} onPress={() => setSelected(GENERAL_COURSE_ID)} activeOpacity={0.8}>
-          <View style={styles.inline}>
-            <View style={[styles.courseIcon, { backgroundColor: colors.surfaceElevated }]}>
-              <FontAwesome5 name="layer-group" size={14} color={colors.textMuted} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.courseTitle}>{t("learning.generalExercises")}</Text>
-              <Text style={styles.muted}>{t("learning.classCourses.generalHint")}</Text>
-            </View>
-            <FontAwesome5 name="chevron-right" size={12} color={colors.textLight} />
-          </View>
-        </TouchableOpacity>
       </>
     );
   };
@@ -278,7 +265,7 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId, learnerName, readOn
         {selected ? (
           <LearnerCoursePage
             classe={classe}
-            coursId={selected === GENERAL_COURSE_ID ? null : selected}
+            coursId={selected}
             course={courses.find((c) => c.coursId === selected) ?? null}
             sessions={sessions.filter((s) => String(s.coursId) === selected)}
             userId={userId ?? null}
@@ -316,7 +303,7 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId, learnerName, readOn
                 courses={courses}
                 coursesReady={status === "ready"}
                 refreshKey={refreshKey}
-                onOpenCourse={(id) => setSelected(id || GENERAL_COURSE_ID)}
+                onOpenCourse={(id) => id && setSelected(id)}
               />
             )}
           </>
@@ -358,7 +345,7 @@ const LearnerCoursePage = ({
   onJoinLive,
 }: {
   classe: ClassEntity;
-  coursId: string | null;
+  coursId: string;
   course: CoursResume | null;
   sessions: CoursProgramme[];
   userId: string | null;
@@ -388,7 +375,7 @@ const LearnerCoursePage = ({
       try {
         let list: DevoirItem[];
         try {
-          // GET /classes/{id}/cours/{coursId|general}/exercices?eleveId= (status + note inline).
+          // GET /classes/{id}/cours/{coursId}/exercices?eleveId= (status + note inline).
           const eps = await learningService.getCourseExercises(classe.id, coursId, userId);
           list = eps.map((ep) => buildDevoirItem(ep, null, classe));
         } catch {
@@ -427,13 +414,12 @@ const LearnerCoursePage = ({
 
       <View style={styles.card}>
         <View style={styles.inline}>
-          <View style={[styles.courseIcon, !coursId && { backgroundColor: colors.surfaceElevated }]}>
-            <FontAwesome5 name={coursId ? "book-open" : "layer-group"} size={14} color={coursId ? "#4f46e5" : colors.textMuted} />
+          <View style={styles.courseIcon}>
+            <FontAwesome5 name="book-open" size={14} color="#4f46e5" />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.courseTitle}>{coursId ? course?.titre || t("studentClasses.untitledCourse") : t("learning.generalExercises")}</Text>
+            <Text style={styles.courseTitle}>{course?.titre || t("studentClasses.untitledCourse")}</Text>
             {course?.matiere ? <Text style={styles.muted}>{course.matiere}</Text> : null}
-            {!coursId ? <Text style={styles.muted}>{t("learning.classCourses.generalHint")}</Text> : null}
           </View>
         </View>
         {course ? (
@@ -442,15 +428,13 @@ const LearnerCoursePage = ({
             <Chip icon="calendar-alt" text={t("learning.counts.sessions", { count: course.nbSessions || sessions.length })} />
           </View>
         ) : null}
-        {coursId ? (
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => onOpenContent(coursId)} activeOpacity={0.85}>
-            <FontAwesome5 name="book-reader" size={13} color="#FFFFFF" />
-            <Text style={styles.primaryBtnText}>{t("learning.classCourses.readCourse")}</Text>
-          </TouchableOpacity>
-        ) : null}
+        <TouchableOpacity style={styles.primaryBtn} onPress={() => onOpenContent(coursId)} activeOpacity={0.85}>
+          <FontAwesome5 name="book-reader" size={13} color="#FFFFFF" />
+          <Text style={styles.primaryBtnText}>{t("learning.classCourses.readCourse")}</Text>
+        </TouchableOpacity>
       </View>
 
-      {coursId && sorted.length > 0 ? (
+      {sorted.length > 0 ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>{t("learning.classCourses.sessions")}</Text>
           {sorted.map((s) => {
@@ -595,7 +579,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     segBtnOn: { backgroundColor: colors.primary },
     segText: { ...typography.captionBold, color: colors.textMuted },
     card: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md, gap: spacing.sm },
-    generalCard: { borderStyle: "dashed" },
     liveCard: { borderColor: "#4ade80", borderWidth: 2 },
     liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#22c55e" },
     liveLabel: { ...typography.captionBold, color: "#15803d", textTransform: "uppercase", letterSpacing: 1 },

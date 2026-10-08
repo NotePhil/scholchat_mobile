@@ -122,7 +122,7 @@ const ClassStatsTab = ({ classId, onOpenCorrections, refreshKey = 0 }: Props) =>
             <View style={styles.card}>
               <Text style={styles.title}>{t("learning.stats.progressChart")}</Text>
               <KitBarChart
-                data={{ labels: data.cours.map((c) => short(c.titre || t("learning.generalExercises"))), datasets: [{ data: data.cours.map((c) => pct(c.progressionMoyenne)) }] }}
+                data={{ labels: data.cours.map((c) => short(c.titre || t("learning.course"))), datasets: [{ data: data.cours.map((c) => pct(c.progressionMoyenne)) }] }}
                 width={chartWidth}
                 height={190}
                 fromZero
@@ -147,21 +147,21 @@ const ClassStatsTab = ({ classId, onOpenCorrections, refreshKey = 0 }: Props) =>
             </View>
           ) : (
             data.cours.map((c) => {
-              const key = c.coursId ?? "general";
+              const key = c.coursId;
               const open = openCourse[key] ?? true;
               const p = pct(c.progressionMoyenne);
               return (
                 <View key={key} style={styles.card}>
                   <TouchableOpacity style={styles.rowHead} onPress={() => setOpenCourse((o) => ({ ...o, [key]: !open }))} activeOpacity={0.8}>
                     <FontAwesome5 name={open ? "chevron-down" : "chevron-right"} size={11} color={colors.textMuted} />
-                    <FontAwesome5 name={c.coursId ? "book" : "layer-group"} size={12} color={colors.primary} />
+                    <FontAwesome5 name="book" size={12} color={colors.primary} />
                     <Text style={[styles.title, { flex: 1 }]} numberOfLines={2}>
-                      {c.titre || (c.coursId ? t("learning.course") : t("learning.generalExercises"))}
+                      {c.titre || t("learning.course")}
                     </Text>
-                    {c.coursId ? <Text style={[styles.pctText, { color: scoreColor(p / 100, colors) }]}>{p}%</Text> : null}
+                    <Text style={[styles.pctText, { color: scoreColor(p / 100, colors) }]}>{p}%</Text>
                   </TouchableOpacity>
-                  {c.coursId ? <ProgressBar value={p} color={scoreColor(p / 100, colors)} /> : null}
-                  {c.coursId ? <Text style={styles.muted}>{t("learning.stats.courseProgress", { pct: p })}</Text> : null}
+                  <ProgressBar value={p} color={scoreColor(p / 100, colors)} />
+                  <Text style={styles.muted}>{t("learning.stats.courseProgress", { pct: p })}</Text>
                   {open ? (
                     c.exercices.length === 0 ? (
                       <Text style={styles.muted}>{t("learning.classCourses.noExercises")}</Text>

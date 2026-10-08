@@ -954,7 +954,8 @@ const ClassDetails = ({
       if (seq !== loadSeqRef.current) return;
       const exOrder: Record<string, number> = { ACTIF: 0, PUBLIE: 0, BROUILLON: 1, EN_ATTENTE_CORRECTION: 2, CORRIGE: 3, ANNULE: 4 };
       setExercises(
-        [...((e || []) as AnyUser[])].sort(
+        // Every programmed exercise belongs to a course: legacy rows without one are ignored.
+        ((e || []) as AnyUser[]).filter((x) => programmeCoursId(x)).sort(
           (a, b) => (exOrder[a.etat] ?? exOrder[a.etatExercise] ?? 99) - (exOrder[b.etat] ?? exOrder[b.etatExercise] ?? 99)
         )
       );
@@ -2354,9 +2355,9 @@ const ClassDetails = ({
                     </View>
                     <View style={styles.moduleMeta}>
                       <View style={styles.metaItem}>
-                        <FontAwesome5 name={programmeCoursId(it) ? "book" : "layer-group"} size={10} color={colors.textLight} />
+                        <FontAwesome5 name="book" size={10} color={colors.textLight} />
                         <Text style={styles.metaText} numberOfLines={1}>
-                          {programmeCoursTitre(it) || (programmeCoursId(it) ? tr("learning.course") : tr("learning.generalExercises"))}
+                          {programmeCoursTitre(it) || tr("learning.course")}
                         </Text>
                       </View>
                     </View>

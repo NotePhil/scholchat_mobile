@@ -577,7 +577,7 @@ export const ScheduleExerciseView = ({
       );
     }
   };
-  const courseLabel = (p: ExerciseProgramme) => programmeCoursTitre(p) || (programmeCoursId(p) ? t('learning.course') : t('learning.generalExercises'));
+  const courseLabel = (p: ExerciseProgramme) => programmeCoursTitre(p) || t('learning.course');
 
   useEffect(() => {
     if (initialClassId) setFilterClassId(initialClassId);
@@ -637,8 +637,9 @@ export const ScheduleExerciseView = ({
 
       // Merge by programmer record id — class items first so other professors' entries are included.
       const merged = new Map<string, ProgItem>();
+      // Every programmed exercise belongs to a course: legacy rows without one are ignored.
       [...classItems, ...ownItems].forEach((p) => {
-        if (p?.id) merged.set(String(p.id), { ...p, isOwn: String(p.programmeParId) === String(userId) });
+        if (p?.id && programmeCoursId(p)) merged.set(String(p.id), { ...p, isOwn: String(p.programmeParId) === String(userId) });
       });
 
       // Resolve professor names for non-own records.
@@ -1023,15 +1024,8 @@ export const ScheduleExerciseView = ({
 
         <View style={styles.classChips}>
           <FontAwesome5 name="book" size={10} color={muted} />
-          <View
-            style={[
-              styles.classChip,
-              programmeCoursId(prog)
-                ? { backgroundColor: tone('indigo').bg, borderColor: tone('indigo').border }
-                : { backgroundColor: tone('gray').bg, borderColor: tone('gray').border },
-            ]}
-          >
-            <Text style={[styles.classChipText, { color: programmeCoursId(prog) ? tone('indigo').fg : tone('gray').fg }]} numberOfLines={1}>
+          <View style={[styles.classChip, { backgroundColor: tone('indigo').bg, borderColor: tone('indigo').border }]}>
+            <Text style={[styles.classChipText, { color: tone('indigo').fg }]} numberOfLines={1}>
               {courseLabel(prog)}
             </Text>
           </View>
@@ -1555,11 +1549,7 @@ export const ScheduleExerciseView = ({
       <BottomSheet
         visible={!!courseEdit}
         onClose={() => !courseEdit?.saving && setCourseEdit(null)}
-        title={
-          courseEdit && !programmeCoursId(courseEdit.prog)
-            ? t('learning.classCourses.attachToCourse')
-            : t('learning.schedule.changeCourseTitle')
-        }
+        title={t('learning.schedule.changeCourseTitle')}
       >
         {courseEdit ? (
           <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>

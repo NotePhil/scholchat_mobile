@@ -415,7 +415,7 @@ export interface ExerciseProgramme {
   dateFinExoEffectif?: string;
   classeIds?: string[];
   coursIds?: string[];
-  /** Course the programmed exercise belongs to (null = "Exercices généraux"). */
+  /** Course the programmed exercise belongs to (required; null only on legacy rows, which clients ignore). */
   coursId?: string | null;
   coursTitre?: string | null;
   /** POST programming responses only: all programmations created (several when courses differ per class). */

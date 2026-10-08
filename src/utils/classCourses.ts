@@ -3,9 +3,6 @@ import type { CoursResume } from '../services/api';
 import { CoursProgramme, ExerciseProgramme } from '../types';
 import { serverDateMs } from './dates';
 
-/** Pseudo course id of the "Exercices généraux" group (programmed exercises without a course). */
-export const GENERAL_COURSE_ID = '__general__';
-
 export interface ClassCoursesResult {
   courses: CoursResume[];
   /** Programmed sessions of the class (CoursProgramme records), when they were fetched (fallback / learner page). */

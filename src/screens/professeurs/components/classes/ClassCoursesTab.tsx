@@ -1,19 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { CountPill, SectionState } from "../../../../components/common/LearningUI";
-import { BottomSheet } from "../../../../components/ui";
+import { SectionState } from "../../../../components/common/LearningUI";
 import { radius, spacing, typography, useThemeColors } from "../../../../styles/theme";
 import { learningService, programmeCoursId } from "../../../../services/api";
 import type { CoursResume, ExerciceStat } from "../../../../services/api";
 import { CoursProgramme, ExerciseProgramme } from "../../../../types";
-import { GENERAL_COURSE_ID, loadClassCourses } from "../../../../utils/classCourses";
+import { loadClassCourses } from "../../../../utils/classCourses";
 import { loadExerciseStats } from "../../../../utils/classStats";
 import { formatDateTime, serverDateMs } from "../../../../utils/dates";
 import { TranslationKey, useT } from "../../../../i18n";
 import ProgrammedExerciseRow from "../exercise/ProgrammedExerciseRow";
-import NoCourseNotice from "../exercise/NoCourseNotice";
 
 const fmt = (d?: string | null) => (d ? formatDateTime(d, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
 
@@ -45,8 +43,7 @@ interface Props {
 
 /**
  * Professor ClassDetails "Cours" tab: the courses programmed in the class
- * (with chapters / sessions / exercises / homework counts) + "Exercices
- * généraux"; entering one shows its sessions, a link to its content and the
+ * (with chapters / sessions / exercises / homework counts); entering one shows its sessions, a link to its content and the
  * exercises / homework linked to it with rendus/attendus, copies to correct,
  * average, and a link to the corrections.
  */
@@ -95,39 +92,24 @@ const ClassCoursesTab = ({
     load();
   }, [load, refreshKey]);
 
-  // Course changes made from the "Exercices généraux" page ("Associer à un cours"), applied
-  // locally until the class page reloads its programmes.
-  const [moved, setMoved] = useState<Record<string, string | null>>({});
-  useEffect(() => setMoved({}), [programmes]);
-  const progs = useMemo(
-    () => programmes.map((p) => (p.id in moved ? ({ ...p, coursId: moved[p.id] } as ExerciseProgramme) : p)),
-    [programmes, moved]
-  );
-
   // Exercise counts from the class programmes when the summary didn't give them.
-  const countsFor = (coursId: string | null) => {
-    const list = progs.filter((p) => (programmeCoursId(p) ?? null) === coursId);
+  const countsFor = (coursId: string) => {
+    const list = programmes.filter((p) => programmeCoursId(p) === coursId);
     return { ex: list.filter((p) => p.typeAssignation !== "DEVOIR").length, dev: list.filter((p) => p.typeAssignation === "DEVOIR").length };
   };
-  const generalCount = progs.filter((p) => !programmeCoursId(p)).length;
 
   if (selected) {
-    const course = selected === GENERAL_COURSE_ID ? null : courses.find((c) => c.coursId === selected) ?? null;
+    const course = courses.find((c) => c.coursId === selected) ?? null;
     return (
       <ProfessorCoursePage
         classId={classId}
-        coursId={selected === GENERAL_COURSE_ID ? null : selected}
+        coursId={selected}
         course={course}
         sessions={sessions.filter((s) => String(s.coursId) === selected)}
-        programmes={progs}
+        programmes={programmes}
         programmesReady={programmesReady}
         effectif={effectif}
         canPublish={canPublish}
-        courses={status === "ready" ? courses : []}
-        onCourseChanged={(id, coursId) => {
-          setMoved((prev) => ({ ...prev, [id]: coursId }));
-          load(); // refresh the per-course counts of the summary
-        }}
         onBack={() => setSelected(null)}
         onOpenContent={(id) => navigation.navigate("CourseViewer", { coursId: id, readOnlyProgress: true })}
         onScheduleExercise={onScheduleExercise}
@@ -197,20 +179,6 @@ const ClassCoursesTab = ({
               );
             })
           )}
-          {/* Legacy exercises without a course only: every new exercise / homework belongs to a course */}
-          {programmesReady && generalCount > 0 ? (
-          <TouchableOpacity style={[styles.courseRow, styles.generalRow]} onPress={() => setSelected(GENERAL_COURSE_ID)} activeOpacity={0.8}>
-            <View style={[styles.courseIcon, { backgroundColor: colors.surfaceElevated }]}>
-              <FontAwesome5 name="layer-group" size={14} color={colors.textMuted} />
-            </View>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.courseTitle}>{t("learning.generalExercises")}</Text>
-              <Text style={styles.sub}>{t("learning.classCourses.generalHint")}</Text>
-            </View>
-            <CountPill value={generalCount} color={colors.textMuted} />
-            <FontAwesome5 name="chevron-right" size={12} color={colors.textLight} />
-          </TouchableOpacity>
-          ) : null}
         </View>
       )}
     </View>
@@ -243,13 +211,9 @@ const ProfessorCoursePage = ({
   onScheduleExercise,
   onOpenCorrections,
   refreshKey,
-  courses,
-  onCourseChanged,
 }: {
-  courses: CoursResume[];
-  onCourseChanged: (exerciseProgrammerId: string, coursId: string | null) => void;
   classId: string;
-  coursId: string | null;
+  coursId: string;
   course: CoursResume | null;
   sessions: CoursProgramme[];
   programmes: ExerciseProgramme[];
@@ -270,32 +234,17 @@ const ProfessorCoursePage = ({
   const [list, setList] = useState<ExerciseProgramme[]>([]);
   const [stats, setStats] = useState<Record<string, ExerciceStat>>({});
   const [statsLoading, setStatsLoading] = useState(false);
-  /** "Associer à un cours" sheet (general exercises only). */
-  const [attach, setAttach] = useState<{ ep: ExerciseProgramme; saving: string | null; error: string } | null>(null);
   const seq = useRef(0);
-
-  const attachTo = async (target: string) => {
-    if (!attach || attach.saving) return;
-    setAttach({ ...attach, saving: target, error: "" });
-    try {
-      await learningService.setExerciseCourse(attach.ep.id, target);
-      setList((prev) => prev.filter((p) => p.id !== attach.ep.id)); // no longer a general exercise
-      onCourseChanged(attach.ep.id, target);
-      setAttach(null);
-    } catch (e) {
-      setAttach((prev) => (prev ? { ...prev, saving: null, error: e instanceof Error && e.message ? e.message : t("learning.errors.setCourse") } : prev));
-    }
-  };
 
   const load = useCallback(async () => {
     const s = ++seq.current;
     setStatus("loading");
     setError("");
     try {
-      // GET /classes/{id}/cours/{coursId|general}/exercices, else the class programmes of that course.
+      // GET /classes/{id}/cours/{coursId}/exercices, else the class programmes of that course.
       let items: ExerciseProgramme[] = await learningService.getCourseExercises(classId, coursId).catch((e) => {
         if (!programmesReady) throw e;
-        return programmes.filter((p) => (programmeCoursId(p) ?? null) === coursId);
+        return programmes.filter((p) => programmeCoursId(p) === coursId);
       });
       if (s !== seq.current) return;
       items = [...items].sort((a, b) => serverDateMs(a.dateFinExoEffectif, 0) - serverDateMs(b.dateFinExoEffectif, 0));
@@ -330,62 +279,55 @@ const ProfessorCoursePage = ({
 
       <View style={styles.card}>
         <View style={styles.header}>
-          <View style={[styles.courseIcon, !coursId && { backgroundColor: colors.surfaceElevated }]}>
-            <FontAwesome5 name={coursId ? "book-open" : "layer-group"} size={14} color={coursId ? "#4F46E5" : colors.textMuted} />
+          <View style={styles.courseIcon}>
+            <FontAwesome5 name="book-open" size={14} color="#4F46E5" />
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.title} numberOfLines={2}>
-              {coursId ? course?.titre || t("studentClasses.untitledCourse") : t("learning.generalExercises")}
+              {course?.titre || t("studentClasses.untitledCourse")}
             </Text>
             {course?.matiere ? <Text style={styles.sub}>{course.matiere}</Text> : null}
-            {!coursId ? (
-              <Text style={styles.sub}>{t(canPublish ? "learning.classCourses.generalProfHint" : "learning.classCourses.generalHint")}</Text>
-            ) : null}
           </View>
         </View>
         <View style={styles.chips}>
           {course && course.nbChapitres > 0 ? <Chip icon="list-ol" text={t("learning.counts.chapters", { count: course.nbChapitres })} /> : null}
-          {coursId ? <Chip icon="calendar-alt" text={t("learning.counts.sessions", { count: course?.nbSessions || sessions.length })} /> : null}
+          <Chip icon="calendar-alt" text={t("learning.counts.sessions", { count: course?.nbSessions || sessions.length })} />
           {status === "ready" ? <Chip icon="tasks" text={t("learning.groups.items", { count: list.length })} /> : null}
           {toCorrect > 0 ? <Chip icon="clipboard-check" text={t("learning.prof.toCorrectCount", { count: toCorrect })} /> : null}
         </View>
-        {coursId ? (
-          <TouchableOpacity style={styles.outlineBtn} onPress={() => onOpenContent(coursId)} activeOpacity={0.85}>
-            <FontAwesome5 name="eye" size={12} color={colors.primary} />
-            <Text style={styles.outlineText}>{t("studentClasses.viewContent")}</Text>
-          </TouchableOpacity>
-        ) : null}
+        <TouchableOpacity style={styles.outlineBtn} onPress={() => onOpenContent(coursId)} activeOpacity={0.85}>
+          <FontAwesome5 name="eye" size={12} color={colors.primary} />
+          <Text style={styles.outlineText}>{t("studentClasses.viewContent")}</Text>
+        </TouchableOpacity>
       </View>
 
-      {coursId ? (
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>{t("learning.classCourses.sessions")}</Text>
-          {sortedSessions.length === 0 ? (
-            <Text style={styles.sub}>{t("learning.classCourses.noSessions")}</Text>
-          ) : (
-            sortedSessions.map((s) => {
-              const st = SESSION_STATUS[s.etatCoursProgramme ?? ""] ?? SESSION_STATUS.PLANIFIE;
-              return (
-                <View key={s.id} style={styles.sessionRow}>
-                  <FontAwesome5 name="calendar-alt" size={11} color={colors.textMuted} />
-                  <Text style={[styles.sub, { flex: 1 }]}>{fmt(s.dateCoursPrevue)}</Text>
-                  {s.lieu ? (
-                    <Text style={styles.sub} numberOfLines={1}>
-                      {s.lieu}
-                    </Text>
-                  ) : null}
-                  <Text style={[styles.sessionStatus, { color: st.color }]}>{t(st.key)}</Text>
-                </View>
-              );
-            })
-          )}
-        </View>
-      ) : null}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>{t("learning.classCourses.sessions")}</Text>
+        {sortedSessions.length === 0 ? (
+          <Text style={styles.sub}>{t("learning.classCourses.noSessions")}</Text>
+        ) : (
+          sortedSessions.map((s) => {
+            const st = SESSION_STATUS[s.etatCoursProgramme ?? ""] ?? SESSION_STATUS.PLANIFIE;
+            return (
+              <View key={s.id} style={styles.sessionRow}>
+                <FontAwesome5 name="calendar-alt" size={11} color={colors.textMuted} />
+                <Text style={[styles.sub, { flex: 1 }]}>{fmt(s.dateCoursPrevue)}</Text>
+                {s.lieu ? (
+                  <Text style={styles.sub} numberOfLines={1}>
+                    {s.lieu}
+                  </Text>
+                ) : null}
+                <Text style={[styles.sessionStatus, { color: st.color }]}>{t(st.key)}</Text>
+              </View>
+            );
+          })
+        )}
+      </View>
 
       <View style={styles.card}>
         <View style={styles.header}>
           <Text style={[styles.sectionTitle, { flex: 1 }]}>{t("learning.classCourses.exercisesTitle")}</Text>
-          {coursId && canPublish && onScheduleExercise ? (
+          {canPublish && onScheduleExercise ? (
             <TouchableOpacity style={[styles.solidBtn, { backgroundColor: "#9333EA" }]} onPress={onScheduleExercise}>
               <FontAwesome5 name="plus" size={10} color="#FFFFFF" />
               <Text style={styles.solidBtnText}>{t("learning.classCourses.schedule")}</Text>
@@ -413,54 +355,10 @@ const ProfessorCoursePage = ({
               stat={stats[ep.id]}
               statLoading={statsLoading}
               onCorrect={onOpenCorrections ? () => onOpenCorrections(ep.id) : undefined}
-              extraAction={
-                !coursId && canPublish
-                  ? { label: t("learning.classCourses.attachToCourse"), icon: "link", onPress: () => setAttach({ ep, saving: null, error: "" }) }
-                  : undefined
-              }
             />
           ))
         )}
       </View>
-
-      <BottomSheet
-        visible={!!attach}
-        onClose={() => !attach?.saving && setAttach(null)}
-        title={t("learning.classCourses.attachToCourse")}
-      >
-        {attach ? (
-          <View style={{ gap: spacing.sm }}>
-            <Text style={styles.courseTitle} numberOfLines={2}>
-              {attach.ep.nom || t("devoirs.fallbackTitle")}
-            </Text>
-            {attach.error ? <Text style={[styles.sub, { color: colors.danger }]}>{attach.error}</Text> : null}
-            {courses.length === 0 ? (
-              <NoCourseNotice classeId={classId} onNavigate={() => setAttach(null)} />
-            ) : (
-              courses.map((c) => (
-                <TouchableOpacity
-                  key={c.coursId}
-                  style={styles.courseRow}
-                  onPress={() => attachTo(c.coursId)}
-                  disabled={!!attach.saving}
-                  activeOpacity={0.8}
-                >
-                  <View style={styles.courseIcon}>
-                    <FontAwesome5 name="book-open" size={13} color="#4F46E5" />
-                  </View>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.courseTitle} numberOfLines={2}>
-                      {c.titre || t("studentClasses.untitledCourse")}
-                    </Text>
-                    {c.matiere ? <Text style={styles.sub}>{c.matiere}</Text> : null}
-                  </View>
-                  {attach.saving === c.coursId ? <ActivityIndicator size="small" color={colors.primary} /> : null}
-                </TouchableOpacity>
-              ))
-            )}
-          </View>
-        ) : null}
-      </BottomSheet>
     </View>
   );
 };
@@ -493,7 +391,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       borderColor: colors.border,
       backgroundColor: colors.surface,
     },
-    generalRow: { borderStyle: "dashed" },
     courseIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(79,70,229,0.12)" },
     courseTitle: { ...typography.bodyBold, color: colors.text },
     chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },

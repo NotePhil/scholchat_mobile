@@ -9,7 +9,6 @@ import { radius, spacing, typography, useThemeColors } from "../../styles/theme"
 import { ClassEntity } from "../../types";
 import { useT } from "../../i18n";
 import { DevoirItem, loadDevoirs } from "../../utils/devoirs";
-import { GENERAL_COURSE_ID } from "../../utils/classCourses";
 import DevoirCard, { useDevoirNavigation } from "./DevoirCard";
 
 type FilterId = "all" | "todo" | "soumis" | "corriges" | "retard";
@@ -43,7 +42,7 @@ interface DevoirsBodyProps {
 
 interface CourseGroup {
   key: string;
-  coursId: string | null;
+  coursId: string;
   titre: string;
   items: DevoirItem[];
 }
@@ -57,8 +56,8 @@ interface ClassGroup {
 /**
  * Homework tracker (web: StudentDevoirsContent.jsx): summary counts,
  * Tous / À faire / Rendus / Corrigés / En retard filters, and the homework
- * grouped by class then by course (collapsible; "Devoirs généraux (sans cours)"
- * for homework without a course). DEVOIR only: EXERCICE-type programmations
+ * grouped by class then by course (collapsible; legacy homework without a
+ * course is ignored). DEVOIR only: EXERCICE-type programmations
  * are shown inside the courses (class → course → exercises), each card with deadline, status and note.
  * The attempt opens as a full page (ExerciseAttempt); a submitted devoir
  * opens the read-only copy (ExerciseResult).
@@ -139,16 +138,17 @@ const DevoirsBody = ({
     const filtered = devoirs.filter((d) => matches(d, filter));
     const byClass = new Map<string, ClassGroup>();
     filtered.forEach((d) => {
+      const kk = d.coursId;
+      if (!kk) return; // legacy homework without a course: ignored
       const ck = d.classeId ?? "?";
       let g = byClass.get(ck);
       if (!g) {
         g = { key: ck, nom: d.classeNom || t("parentClasses.classFallback"), courses: [], total: 0 };
         byClass.set(ck, g);
       }
-      const kk = d.coursId ?? GENERAL_COURSE_ID;
       let cg = g.courses.find((x) => x.key === kk);
       if (!cg) {
-        cg = { key: kk, coursId: d.coursId, titre: d.coursTitre || (d.coursId ? t("learning.course") : t("learning.generalDevoirs")), items: [] };
+        cg = { key: kk, coursId: kk, titre: d.coursTitre || t("learning.course"), items: [] };
         g.courses.push(cg);
       }
       cg.items.push(d);
@@ -156,7 +156,7 @@ const DevoirsBody = ({
     });
     const out = Array.from(byClass.values());
     out.forEach((g) =>
-      g.courses.sort((a, b) => (a.coursId ? 0 : 1) - (b.coursId ? 0 : 1) || a.titre.localeCompare(b.titre))
+      g.courses.sort((a, b) => a.titre.localeCompare(b.titre))
     );
     // Keep the order of the classes prop.
     const order = new Map(classes.map((c, i) => [String(c.id), i]));
@@ -233,7 +233,7 @@ const DevoirsBody = ({
                     <CollapsibleHeader
                       level={2}
                       title={cg.titre}
-                      icon={cg.coursId ? "book" : "layer-group"}
+                      icon="book"
                       open={open}
                       onToggle={() => toggle(courseKey)}
                       subtitle={subtitleOf(cg.items)}

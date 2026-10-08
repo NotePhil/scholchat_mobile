@@ -6,7 +6,7 @@ import { spacing, typography, useThemeColors } from "../../../../styles/theme";
 import { exerciseProgrammerService, programmeCoursId, programmeCoursTitre } from "../../../../services/api";
 import type { ExerciceStat } from "../../../../services/api";
 import { ClassEntity, ExerciseProgramme } from "../../../../types";
-import { GENERAL_COURSE_ID, loadClassCourses } from "../../../../utils/classCourses";
+import { loadClassCourses } from "../../../../utils/classCourses";
 import { loadExerciseStats } from "../../../../utils/classStats";
 import { serverDateMs } from "../../../../utils/dates";
 import { useT } from "../../../../i18n";
@@ -39,8 +39,8 @@ const className = (c: ClassEntity) => c.nom || (c as any).name || `Classe ${c.id
 
 /**
  * Professor "Programmés" view: every programmed exercise of the professor's
- * classes grouped by class then by course (collapsible, "Exercices généraux"
- * last), with status filters (En cours / À corriger / Corrigés / En retard),
+ * classes grouped by class then by course (collapsible; legacy rows without a
+ * course are ignored), with status filters (En cours / À corriger / Corrigés / En retard),
  * deadlines, rendus/attendus, copies to correct and average note.
  */
 const ProgrammedExercisesOverview = ({ classes, classesLoading, onOpenCorrections, onSchedule, refreshKey = 0 }: Props) => {
@@ -68,7 +68,7 @@ const ProgrammedExercisesOverview = ({ classes, classesLoading, onOpenCorrection
       (courses?.courses ?? []).forEach((x) => {
         titles[x.coursId] = x.titre;
       });
-      const list = (programmes || []).filter((p) => p?.id);
+      const list = (programmes || []).filter((p) => p?.id && programmeCoursId(p));
       setData((prev) => ({ ...prev, [id]: { status: "ready", programmes: list, titles, stats: prev[id]?.stats ?? {}, statsLoading: true } }));
       const res = await loadExerciseStats(id, list).catch(() => null);
       if (seq !== seqRef.current) return;
@@ -159,22 +159,16 @@ const ProgrammedExercisesOverview = ({ classes, classesLoading, onOpenCorrection
         const visible = (d?.programmes ?? []).filter((ep) => matches(ep, d?.stats[ep.id]));
         const toCorrect = (d?.programmes ?? []).reduce((n, ep) => n + (d?.stats[ep.id]?.enAttenteCorrection ?? 0), 0);
         // Group by course.
-        const groups = new Map<string, { coursId: string | null; titre: string; items: ExerciseProgramme[] }>();
+        const groups = new Map<string, { coursId: string; titre: string; items: ExerciseProgramme[] }>();
         visible.forEach((ep) => {
           const cid = programmeCoursId(ep);
-          const k = cid ?? GENERAL_COURSE_ID;
-          if (!groups.has(k)) {
-            groups.set(k, {
-              coursId: cid,
-              titre: (cid && (d?.titles[cid] || programmeCoursTitre(ep))) || (cid ? t("learning.course") : t("learning.generalExercises")),
-              items: [],
-            });
+          if (!cid) return;
+          if (!groups.has(cid)) {
+            groups.set(cid, { coursId: cid, titre: d?.titles[cid] || programmeCoursTitre(ep) || t("learning.course"), items: [] });
           }
-          groups.get(k)!.items.push(ep);
+          groups.get(cid)!.items.push(ep);
         });
-        const sorted = Array.from(groups.entries()).sort(
-          ([, a], [, b]) => (a.coursId ? 0 : 1) - (b.coursId ? 0 : 1) || a.titre.localeCompare(b.titre)
-        );
+        const sorted = Array.from(groups.entries()).sort(([, a], [, b]) => a.titre.localeCompare(b.titre));
         if (d?.status === "ready" && filter !== "all" && visible.length === 0) return null;
         return (
           <View key={id} style={{ gap: spacing.sm }}>
@@ -220,7 +214,7 @@ const ProgrammedExercisesOverview = ({ classes, classesLoading, onOpenCorrection
                       <CollapsibleHeader
                         level={2}
                         title={g.titre}
-                        icon={g.coursId ? "book" : "layer-group"}
+                        icon="book"
                         open={gOpen}
                         onToggle={() => toggle(gk)}
                         right={<CountPill value={g.items.length} color={colors.purple} />}

@@ -15,7 +15,7 @@ export interface DevoirItem {
   /** Class the exercise was found in (first one when diffused to several). */
   classeId?: string;
   classeNom?: string;
-  /** Course the programmed exercise belongs to; null = "Exercices généraux". */
+  /** Course the programmed exercise belongs to (every one has a course; legacy rows without one are ignored). */
   coursId: string | null;
   coursTitre: string | null;
 }
@@ -111,7 +111,8 @@ export const sortDevoirs = (items: DevoirItem[]) =>
  * class's programmed exercises, keep only `typeAssignation === "DEVOIR"`
  * ones (deduplicated, with an exerciseId), and attach the user's own
  * participation (keyed by exerciseProgrammerId) to compute status, overdue
- * flag and grade. Each item keeps its class and course (for grouping).
+ * flag and grade. Each item keeps its class and course (for grouping);
+ * legacy rows without a course are ignored.
  * `includeExercises` also keeps the auto-corrected EXERCICE ones.
  * Throws when every class request failed (so the screen can offer a retry).
  */
@@ -140,6 +141,8 @@ export const loadDevoirs = async (
     (list ?? []).forEach((ep) => {
       if (!ep || seen.has(ep.id)) return;
       if (!options.includeExercises && ep.typeAssignation !== 'DEVOIR') return;
+      // Every programmed exercise belongs to a course: legacy rows without one are ignored.
+      if (!programmeCoursId(ep)) return;
       seen.add(ep.id);
       // Web skips records without exerciseId (questions can't be resolved).
       if (!ep.exerciseId) return;

@@ -104,7 +104,7 @@ export interface ExerciceStat {
 }
 
 export interface CoursStat {
-  coursId: string | null;
+  coursId: string;
   titre: string;
   progressionMoyenne: number;
   exercices: ExerciceStat[];
@@ -169,8 +169,9 @@ const toProgression = (d: any): EleveProgression => ({
     moyenne: numOrNull(d?.global?.moyenne),
     dernierActivite: str(d?.global?.dernierActivite) ?? str(d?.global?.derniereActivite) ?? null,
   },
-  cours: arr(d?.cours).map((c: any) => ({
-    coursId: String(c?.coursId ?? ''),
+  // Every row is a course (legacy course-less rows are ignored).
+  cours: arr(d?.cours).filter((c: any) => c?.coursId != null).map((c: any) => ({
+    coursId: String(c.coursId),
     titre: str(c?.titre) ?? '',
     chapitresLus: num(c?.chapitresLus),
     chapitresTotal: num(c?.chapitresTotal),
@@ -185,8 +186,8 @@ const toProgression = (d: any): EleveProgression => ({
 
 const toStats = (d: any): ClasseStatistiques => ({
   effectif: num(d?.effectif),
-  cours: arr(d?.cours).map((c: any) => ({
-    coursId: c?.coursId != null ? String(c.coursId) : null,
+  cours: arr(d?.cours).filter((c: any) => c?.coursId != null).map((c: any) => ({
+    coursId: String(c.coursId),
     titre: str(c?.titre) ?? '',
     progressionMoyenne: num(c?.progressionMoyenne),
     exercices: arr(c?.exercices).map((e: any) => ({
@@ -226,12 +227,11 @@ export const learningService = {
   },
 
   /**
-   * GET /classes/{classeId}/cours/{coursId}/exercices?eleveId= — programmed exercises of a course
-   * (coursId null → "general": exercises without a course).
+   * GET /classes/{classeId}/cours/{coursId}/exercices?eleveId= — programmed exercises of a course.
    */
-  getCourseExercises: async (classeId: string, coursId: string | null, eleveId?: string): Promise<CoursExercice[]> => {
+  getCourseExercises: async (classeId: string, coursId: string, eleveId?: string): Promise<CoursExercice[]> => {
     try {
-      const { data } = await apiClient.get(`/classes/${classeId}/cours/${coursId ?? 'general'}/exercices`, {
+      const { data } = await apiClient.get(`/classes/${classeId}/cours/${coursId}/exercices`, {
         params: eleveId ? { eleveId } : undefined,
       });
       // Items are keyed by exerciseProgrammerId / titre: map them onto the ExerciseProgramme shape.
@@ -283,7 +283,7 @@ export const learningService = {
   },
 
   /**
-   * PATCH /exercises-programmer/{id}/cours — move the programmed exercise (or a legacy one without course) to a
+   * PATCH /exercises-programmer/{id}/cours — move the programmed exercise to another
    * course programmed in its class(es). The course is required: there is no "clear" (400 COURS_REQUIS).
    */
   setExerciseCourse: async (exerciseProgrammerId: string, coursId: string): Promise<ExerciseProgramme> => {
@@ -303,7 +303,7 @@ export const learningService = {
 export const programmeCoursId = (ep: Partial<ExerciseProgramme> | null | undefined): string | null => {
   if (!ep) return null;
   if (ep.coursId) return String(ep.coursId);
-  // The backend now always sends coursId (null = general exercise). The legacy links are exercise-level
+  // The backend now always sends coursId (null only on legacy rows, ignored by the UI). The legacy links are exercise-level
   // (shared by every programmation of the exercise), so they are only a fallback for older backends.
   if ('coursId' in ep) return null;
   if (Array.isArray(ep.coursIds) && ep.coursIds[0]) return String(ep.coursIds[0]);
@@ -311,7 +311,7 @@ export const programmeCoursId = (ep: Partial<ExerciseProgramme> | null | undefin
   return null;
 };
 
-/** Course title of a programmed exercise, or null for a general exercise. */
+/** Course title of a programmed exercise, or null when unknown. */
 export const programmeCoursTitre = (ep: Partial<ExerciseProgramme> | null | undefined): string | null => {
   if (!ep) return null;
   if (ep.coursTitre) return String(ep.coursTitre);
