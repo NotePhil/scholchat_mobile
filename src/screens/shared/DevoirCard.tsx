@@ -107,7 +107,7 @@ const DevoirCard = ({ item: d, readOnly = false, learnerName, onAttempt, onResul
       <Text style={styles.cardTitle}>{ep.nom || t("devoirs.fallbackTitle")}</Text>
       {showContext && (d.classeNom || d.coursTitre || d.coursId === null) ? (
         <Text style={styles.context} numberOfLines={1}>
-          {[d.classeNom, d.coursTitre || (d.coursId ? null : t("learning.generalExercises"))].filter(Boolean).join(" · ")}
+          {[d.classeNom, d.coursTitre || (d.coursId ? null : t(d.programme.typeAssignation === "DEVOIR" ? "learning.generalDevoirs" : "learning.generalExercises"))].filter(Boolean).join(" · ")}
         </Text>
       ) : null}
       {ep.description ? (

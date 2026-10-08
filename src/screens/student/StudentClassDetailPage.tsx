@@ -433,6 +433,7 @@ const LearnerCoursePage = ({
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.courseTitle}>{coursId ? course?.titre || t("studentClasses.untitledCourse") : t("learning.generalExercises")}</Text>
             {course?.matiere ? <Text style={styles.muted}>{course.matiere}</Text> : null}
+            {!coursId ? <Text style={styles.muted}>{t("learning.classCourses.generalHint")}</Text> : null}
           </View>
         </View>
         {course ? (
@@ -492,8 +493,25 @@ const LearnerCoursePage = ({
         ) : items.length === 0 ? (
           <Text style={styles.muted}>{t("learning.classCourses.noExercises")}</Text>
         ) : (
-          items.map((d) => (
-            <DevoirCard key={d.programme.id} item={d} readOnly={readOnly} learnerName={learnerName} onAttempt={openAttempt} onResult={openResult} />
+          // Exercises (EXERCICE) and homework (DEVOIR) of the course, in two separate sections
+          ([
+            { key: "ex", title: t("learning.classCourses.exercisesSection"), empty: t("learning.classCourses.noExercisesOnly"), list: items.filter((d) => d.programme.typeAssignation !== "DEVOIR") },
+            { key: "dv", title: t("learning.classCourses.devoirsSection"), empty: t("learning.classCourses.noDevoirs"), list: items.filter((d) => d.programme.typeAssignation === "DEVOIR") },
+          ] as const).map((sec) => (
+            <View key={sec.key} style={{ gap: spacing.sm }}>
+              <View style={styles.inline}>
+                <FontAwesome5 name={sec.key === "ex" ? "book-open" : "file-alt"} size={12} color={colors.textMuted} />
+                <Text style={[styles.courseTitle, { flex: 1 }]}>{sec.title}</Text>
+                <CountPill value={String(sec.list.length)} color={colors.textMuted} />
+              </View>
+              {sec.list.length === 0 ? (
+                <Text style={styles.muted}>{sec.empty}</Text>
+              ) : (
+                sec.list.map((d) => (
+                  <DevoirCard key={d.programme.id} item={d} readOnly={readOnly} learnerName={learnerName} onAttempt={openAttempt} onResult={openResult} />
+                ))
+              )}
+            </View>
           ))
         )}
       </View>

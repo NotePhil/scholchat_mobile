@@ -29,7 +29,8 @@ interface Props {
   classesLoading: boolean;
   /** Open the corrections page focused on a programmed exercise. */
   onOpenCorrections: (exerciseProgrammerId: string) => void;
-  onSchedule: () => void;
+  /** Open the scheduling form with this class preselected. */
+  onSchedule: (classId: string) => void;
   /** Bumped by the parent's pull-to-refresh. */
   refreshKey?: number;
 }
@@ -206,7 +207,7 @@ const ProgrammedExercisesOverview = ({ classes, classesLoading, onOpenCorrection
               ) : visible.length === 0 ? (
                 <View style={styles.empty}>
                   <Text style={styles.emptyText}>{t("learning.prof.noneInClass")}</Text>
-                  <TouchableOpacity onPress={onSchedule}>
+                  <TouchableOpacity onPress={() => onSchedule(String(c.id))}>
                     <Text style={styles.link}>{t("learning.prof.schedule")}</Text>
                   </TouchableOpacity>
                 </View>

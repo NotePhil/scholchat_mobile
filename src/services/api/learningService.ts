@@ -1,6 +1,6 @@
 import { apiClient, extractErrorMessage, getErrorCode } from './client';
 import { ExerciseProgramme } from '../../types';
-import { translate } from '../../i18n';
+import { localizedServerMessage, translate } from '../../i18n';
 
 /**
  * Class → courses → exercises summaries, learner progression and class statistics.
@@ -22,7 +22,7 @@ const numOrNull = (v: unknown): number | null => {
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : typeof v === 'number' ? String(v) : undefined);
 const arr = <T = any>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
 
-/** Error carrying the backend `code` (e.g. COURS_NON_PROGRAMME_DANS_CLASSE). */
+/** Error carrying the backend `code` (e.g. COURS_REQUIS, COURS_NON_PROGRAMME_DANS_CLASSE). */
 export class ApiCodeError extends Error {
   code?: string;
   status?: number;
@@ -37,7 +37,11 @@ const fail = (error: unknown, fallback: string): never => {
   const code = getErrorCode(error);
   const status = (error as { response?: { status?: number } })?.response?.status;
   const message =
-    code === 'COURS_NON_PROGRAMME_DANS_CLASSE' ? translate('learning.errors.coursNotProgrammed') : extractErrorMessage(error, fallback);
+    code === 'COURS_NON_PROGRAMME_DANS_CLASSE'
+      ? translate('learning.errors.coursNotProgrammed')
+      : code === 'COURS_REQUIS'
+        ? localizedServerMessage(extractErrorMessage(error, translate('learning.errors.courseRequired')), 'learning.errors.courseRequired')
+        : extractErrorMessage(error, fallback);
   throw new ApiCodeError(message, code, status);
 };
 
@@ -278,8 +282,11 @@ export const learningService = {
     }
   },
 
-  /** PATCH /exercises-programmer/{id}/cours — set (coursId) or clear (null = general exercise) the course. */
-  setExerciseCourse: async (exerciseProgrammerId: string, coursId: string | null): Promise<ExerciseProgramme> => {
+  /**
+   * PATCH /exercises-programmer/{id}/cours — move the programmed exercise (or a legacy one without course) to a
+   * course programmed in its class(es). The course is required: there is no "clear" (400 COURS_REQUIS).
+   */
+  setExerciseCourse: async (exerciseProgrammerId: string, coursId: string): Promise<ExerciseProgramme> => {
     try {
       const { data } = await apiClient.patch<ExerciseProgramme>(
         `/exercises-programmer/${exerciseProgrammerId}/cours`,

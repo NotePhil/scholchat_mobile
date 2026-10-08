@@ -269,7 +269,7 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
     dateDebutExoEffectif: "",
     dateFinExoEffectif: "",
     classeIds: [] as string[],
-    /** Course chosen per selected class: course id | GENERAL_COURSE_ID (required for every class). */
+    /** Course chosen per selected class: course id (required for every class: no exercise without a course). */
     coursParClasse: {} as CoursParClasseValue,
     diffuseImmediately: true,
   });
@@ -908,6 +908,7 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
               setProg((p) => ({ ...p, coursParClasse: { ...p.coursParClasse, [classeId]: v } }))
             }
             error={progErrors.coursId}
+            onNavigate={() => setShowProgram(false)}
           />
 
           <View style={styles.diffuseBox}>

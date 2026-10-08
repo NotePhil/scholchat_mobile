@@ -48,6 +48,8 @@ export interface CoursProgrammerScreenProps {
   initialView?: 'list' | 'form';
   /** Pre-select this course in the create form (web: location.state.course). */
   initialCoursId?: string | null;
+  /** Pre-select this class in the create form (shortcut from a class without programmed course). */
+  initialClasseId?: string | null;
 }
 
 type Etat = 'PLANIFIE' | 'EN_COURS' | 'TERMINE' | 'ANNULE';
@@ -576,6 +578,7 @@ export const CoursProgrammerScreen = ({
   coursList,
   initialView = 'list',
   initialCoursId = null,
+  initialClasseId = null,
 }: CoursProgrammerScreenProps) => {
   const { styles, tone, muted } = useProgStyles();
   const { user } = useUser();
@@ -720,7 +723,7 @@ export const CoursProgrammerScreen = ({
     if (didAutoOpen.current) return;
     if (initialView === 'form' || initialCoursId) {
       didAutoOpen.current = true;
-      openCreate(initialCoursId ?? '');
+      openCreate(initialCoursId ?? '', initialClasseId ?? '');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -818,11 +821,11 @@ export const CoursProgrammerScreen = ({
   };
 
   // ── form open helpers (web: handleScheduleCourse / handleEditSchedule) ──
-  const openCreate = (coursId = '') => {
+  const openCreate = (coursId = '', classeId = '') => {
     setModalMode('create');
     setSelected(null);
     setReprogrammeOfId(null);
-    setForm({ ...EMPTY_FORM, coursId });
+    setForm({ ...EMPTY_FORM, coursId, classeId });
     setParticipantsIds([]);
     setClassParticipants([]);
     setErrors({});

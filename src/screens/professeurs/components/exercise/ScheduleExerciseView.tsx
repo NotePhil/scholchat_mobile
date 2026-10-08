@@ -28,7 +28,8 @@ import {
   userService,
 } from '../../../../services/api';
 import type { CoursResume } from '../../../../services/api';
-import { GENERAL_COURSE_ID, loadClassCourses } from '../../../../utils/classCourses';
+import { loadClassCourses } from '../../../../utils/classCourses';
+import NoCourseNotice from './NoCourseNotice';
 import CoursePickerField, {
   CoursParClasseValue,
   classesWithoutCourse,
@@ -71,7 +72,10 @@ export interface ScheduleExerciseViewProps {
   exercises?: ScheduleExerciseOption[];
   /** Open straight on the create form instead of the list. */
   initialView?: 'list' | 'form';
-  /** Pre-filter the list on a class (web: ?classId= query param). */
+  /**
+   * Pre-filter the list on a class (web: ?classId= query param). With initialView="form",
+   * the class is also preselected in the form (its course picker loads right away).
+   */
   initialClassId?: string | null;
 }
 
@@ -86,7 +90,7 @@ interface FormState {
   exerciseId: string;
   typeAssignation: TypeAssignation;
   classeIds: string[];
-  /** Course chosen per selected class: classeId → course id | GENERAL_COURSE_ID (required for every class). */
+  /** Course chosen per selected class: classeId → course id (required for every class: no exercise without a course). */
   coursParClasse: CoursParClasseValue;
   dateExoPrevue: string;
   dateDebutExoEffectif: string;
@@ -487,7 +491,11 @@ export const ScheduleExerciseView = ({
   const [error, setError] = useState('');
 
   // ── form ──
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [form, setForm] = useState<FormState>(() =>
+    initialView === 'form' && initialClassId ? { ...EMPTY_FORM, classeIds: [String(initialClassId)] } : EMPTY_FORM
+  );
+  /** Opened straight on the form (e.g. "Programmer un exercice" of a class): "Retour" leaves the page. */
+  const directFormRef = useRef(initialView === 'form');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState('');
   const [exoSheetOpen, setExoSheetOpen] = useState(false);
@@ -533,17 +541,18 @@ export const ScheduleExerciseView = ({
       setCourseEdit((prev) => (prev && prev.prog.id === prog.id ? { ...prev, status: 'error' } : prev));
     }
   };
-  const applyCourseEdit = async (coursId: string | null) => {
-    if (!courseEdit || courseEdit.saving) return;
+  /** Moves the programmation to another course (a course is required: no "without course" choice). */
+  const applyCourseEdit = async (coursId: string) => {
+    if (!courseEdit || courseEdit.saving || !coursId) return;
     const { prog } = courseEdit;
     if ((programmeCoursId(prog) ?? null) === coursId) {
       setCourseEdit(null);
       return;
     }
-    setCourseEdit({ ...courseEdit, saving: coursId ?? GENERAL_COURSE_ID, error: '' });
+    setCourseEdit({ ...courseEdit, saving: coursId, error: '' });
     try {
       const updated = await learningService.setExerciseCourse(prog.id, coursId);
-      const titre = coursId ? courseEdit.list.find((c) => c.coursId === coursId)?.titre ?? null : null;
+      const titre = courseEdit.list.find((c) => c.coursId === coursId)?.titre ?? null;
       setProgrammations((prev) =>
         prev.map((p) =>
           p.id === prog.id
@@ -554,7 +563,7 @@ export const ScheduleExerciseView = ({
                 programmeParNom: p.programmeParNom,
                 coursId,
                 coursTitre: (updated as any)?.coursTitre ?? titre,
-                coursIds: coursId ? [coursId] : [],
+                coursIds: [coursId],
                 coursLies: undefined,
               }
             : p
@@ -699,12 +708,17 @@ export const ScheduleExerciseView = ({
 
   // ── form helpers ──
   const openForm = () => {
+    directFormRef.current = false;
     setForm(EMPTY_FORM);
     setErrors({});
     setSubmitError('');
     setView('form');
   };
   const closeForm = () => {
+    if (directFormRef.current) {
+      onBack();
+      return;
+    }
     setView('list');
     setForm(EMPTY_FORM);
     setErrors({});
@@ -1140,7 +1154,9 @@ export const ScheduleExerciseView = ({
     value: string,
     onSelect: (id: string) => void,
     onRetry: () => void,
-    savingId?: string | null
+    savingId?: string | null,
+    emptyClasseId?: string | null,
+    onNavigate?: () => void
   ) => {
     if (status === 'loading' && list.length === 0) {
       return (
@@ -1150,12 +1166,10 @@ export const ScheduleExerciseView = ({
         </View>
       );
     }
-    const options = [
-      ...(status === 'error'
+    const options =
+      status === 'error'
         ? []
-        : list.map((c) => ({ id: c.coursId, label: c.titre || t('learning.course'), sub: c.matiere, icon: 'book' }))),
-      { id: GENERAL_COURSE_ID, label: t('learning.schedule.generalOption'), sub: t('learning.schedule.generalHint'), icon: 'layer-group' },
-    ];
+        : list.map((c) => ({ id: c.coursId, label: c.titre || t('learning.course'), sub: c.matiere, icon: 'book' }));
     return (
       <>
         {status === 'error' ? (
@@ -1165,7 +1179,9 @@ export const ScheduleExerciseView = ({
             <Text style={styles.linkText}>{t('classDetails.retry')}</Text>
           </TouchableOpacity>
         ) : list.length === 0 ? (
-          <Text style={styles.sheetEmpty}>{t('learning.schedule.noCourses')}</Text>
+          <View style={{ paddingVertical: 8 }}>
+            <NoCourseNotice classeId={emptyClasseId} onNavigate={onNavigate} />
+          </View>
         ) : null}
         {options.map((o) => {
           const on = o.id === value;
@@ -1312,7 +1328,7 @@ export const ScheduleExerciseView = ({
               <FieldError message={errors.classeIds} />
             </View>
 
-            {/* Cours: one per selected class (a course programmed in that class, or a general exercise) */}
+            {/* Cours: one per selected class (a course programmed in that class — required) */}
             <CoursePickerField
               classes={selectedClasses.map((c) => ({ id: String(c.id), nom: className(c) }))}
               value={form.coursParClasse}
@@ -1539,7 +1555,11 @@ export const ScheduleExerciseView = ({
       <BottomSheet
         visible={!!courseEdit}
         onClose={() => !courseEdit?.saving && setCourseEdit(null)}
-        title={t('learning.schedule.changeCourseTitle')}
+        title={
+          courseEdit && !programmeCoursId(courseEdit.prog)
+            ? t('learning.classCourses.attachToCourse')
+            : t('learning.schedule.changeCourseTitle')
+        }
       >
         {courseEdit ? (
           <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
@@ -1555,10 +1575,15 @@ export const ScheduleExerciseView = ({
             {renderCourseOptions(
               courseEdit.status,
               courseEdit.list,
-              programmeCoursId(courseEdit.prog) ?? GENERAL_COURSE_ID,
-              (id) => applyCourseEdit(id === GENERAL_COURSE_ID ? null : id),
+              programmeCoursId(courseEdit.prog) ?? '',
+              (id) => applyCourseEdit(id),
               () => openCourseEdit(courseEdit.prog),
-              courseEdit.saving
+              courseEdit.saving,
+              (() => {
+                const ids = (courseEdit.prog.classesDiffusees ?? []).map((c) => String(c.id)).filter(Boolean);
+                return ids.length === 1 ? ids[0] : null;
+              })(),
+              () => setCourseEdit(null)
             )}
             <View style={{ height: 12 }} />
           </ScrollView>

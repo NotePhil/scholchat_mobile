@@ -57,8 +57,9 @@ interface ClassGroup {
 /**
  * Homework tracker (web: StudentDevoirsContent.jsx): summary counts,
  * Tous / À faire / Rendus / Corrigés / En retard filters, and the homework
- * grouped by class then by course (collapsible; "Exercices généraux" for
- * exercises without a course), each card with deadline, status and note.
+ * grouped by class then by course (collapsible; "Devoirs généraux (sans cours)"
+ * for homework without a course). DEVOIR only: EXERCICE-type programmations
+ * are shown inside the courses (class → course → exercises), each card with deadline, status and note.
  * The attempt opens as a full page (ExerciseAttempt); a submitted devoir
  * opens the read-only copy (ExerciseResult).
  */
@@ -147,7 +148,7 @@ const DevoirsBody = ({
       const kk = d.coursId ?? GENERAL_COURSE_ID;
       let cg = g.courses.find((x) => x.key === kk);
       if (!cg) {
-        cg = { key: kk, coursId: d.coursId, titre: d.coursTitre || (d.coursId ? t("learning.course") : t("learning.generalExercises")), items: [] };
+        cg = { key: kk, coursId: d.coursId, titre: d.coursTitre || (d.coursId ? t("learning.course") : t("learning.generalDevoirs")), items: [] };
         g.courses.push(cg);
       }
       cg.items.push(d);

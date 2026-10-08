@@ -20,10 +20,12 @@ interface Props {
   onCorrect?: () => void;
   /** Extra line (class / course) for flat lists. */
   context?: string;
+  /** Optional secondary action (e.g. "Associer à un cours" for a general exercise). */
+  extraAction?: { label: string; icon: string; onPress: () => void; busy?: boolean };
 }
 
 /** Professor view of one programmed exercise: deadline, rendus/attendus, à corriger, moyenne (min–max), link to corrections. */
-const ProgrammedExerciseRow = ({ programme: ep, stat, statLoading, onCorrect, context }: Props) => {
+const ProgrammedExerciseRow = ({ programme: ep, stat, statLoading, onCorrect, context, extraAction }: Props) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useT();
@@ -93,6 +95,17 @@ const ProgrammedExerciseRow = ({ programme: ep, stat, statLoading, onCorrect, co
           </Text>
         </TouchableOpacity>
       ) : null}
+
+      {extraAction ? (
+        <TouchableOpacity style={styles.extraBtn} onPress={extraAction.onPress} disabled={extraAction.busy} activeOpacity={0.85}>
+          {extraAction.busy ? (
+            <ActivityIndicator size="small" color={colors.primary} />
+          ) : (
+            <FontAwesome5 name={extraAction.icon} size={12} color={colors.primary} />
+          )}
+          <Text style={styles.extraText}>{extraAction.label}</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 };
@@ -131,6 +144,18 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     },
     correctText: { ...typography.captionBold, color: colors.purple },
     correctTextOn: { color: "#FFFFFF" },
+    extraBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      paddingVertical: 8,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderStyle: "dashed",
+      borderColor: colors.primary,
+    },
+    extraText: { ...typography.captionBold, color: colors.primary },
   });
 
 export default ProgrammedExerciseRow;

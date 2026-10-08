@@ -208,6 +208,8 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
   const [layout, setLayout] = useState<"grid" | "table">("grid");
   type CoursViewMode = "list" | "detail" | "schedule";
   const [viewMode, setViewMode] = useState<CoursViewMode>("list");
+  // Class pre-selected when the programming form is opened from the "Programmer un cours" shortcut
+  const [scheduleClasseId, setScheduleClasseId] = useState<string | null>(null);
   const [selectedCours, setSelectedCours] = useState<Cours | null>(null);
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [isFabMenuMounted, setIsFabMenuMounted] = useState(false);
@@ -299,6 +301,18 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
       // ignore
     }
   };
+
+  // "Programmer un cours" shortcut (useUiStore.requestScheduleCourse), e.g. from an exercise form
+  // whose class has no programmed course: open the programming form with that class selected.
+  const pendingScheduleCourse = useUiStore((s) => s.pendingScheduleCourse);
+  useEffect(() => {
+    if (pendingScheduleCourse === null) return;
+    const classeId = pendingScheduleCourse;
+    useUiStore.getState().clearPendingScheduleCourse();
+    setSelectedCours(null);
+    setScheduleClasseId(classeId || "");
+    setViewMode("schedule");
+  }, [pendingScheduleCourse]);
 
   // Opened from a notification tap (useUiStore.requestCourse): the professor's own course opens
   // in its detail; somebody else's (co-taught class) in the course reader.
@@ -408,12 +422,16 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
   if (viewMode === "schedule") {
     return (
       <CoursProgrammerScreen
+        key={scheduleClasseId === null ? "schedule" : `schedule-${scheduleClasseId}`}
         coursList={cours}
         // Set when opened from a specific course (card or detail view), so
         // the form opens with that course already selected.
         initialCoursId={selectedCours?.id ?? null}
+        initialView={scheduleClasseId !== null ? "form" : "list"}
+        initialClasseId={scheduleClasseId || null}
         onClose={() => {
           setSelectedCours(null);
+          setScheduleClasseId(null);
           setViewMode("list");
         }}
         onScheduled={() => loadCours()}

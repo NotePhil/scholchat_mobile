@@ -3,11 +3,18 @@ import { localizedServerMessage, translate } from '../../i18n';
 import { ApiSuccess, Exercise, ExerciseProgramme, Participation, Question, Reponse } from '../../types';
 import { withServerDateTimes } from '../../utils/dates';
 
-/** Backend 400 when the chosen course isn't programmed in (one of) the class(es). */
-const programmerError = (error: unknown, fallback: string) =>
-  getErrorCode(error) === 'COURS_NON_PROGRAMME_DANS_CLASSE'
-    ? localizedServerMessage(extractErrorMessage(error, translate('learning.errors.coursNotProgrammed')), 'learning.errors.coursNotProgrammed')
-    : extractErrorMessage(error, fallback);
+/**
+ * Backend 400s of the course check: COURS_REQUIS (no course chosen for a class — there is no exercise / homework
+ * without a course) and COURS_NON_PROGRAMME_DANS_CLASSE (the course isn't programmed in (one of) the class(es)).
+ */
+const programmerError = (error: unknown, fallback: string) => {
+  const code = getErrorCode(error);
+  if (code === 'COURS_REQUIS')
+    return localizedServerMessage(extractErrorMessage(error, translate('learning.errors.courseRequired')), 'learning.errors.courseRequired');
+  if (code === 'COURS_NON_PROGRAMME_DANS_CLASSE')
+    return localizedServerMessage(extractErrorMessage(error, translate('learning.errors.coursNotProgrammed')), 'learning.errors.coursNotProgrammed');
+  return extractErrorMessage(error, fallback);
+};
 
 const EXO_PROG_DATES = ['dateExoPrevue', 'dateDebutExoEffectif', 'dateFinExoEffectif'] as const;
 const PARTICIPATION_DATES = ['dateDebut', 'dateFin'] as const;
@@ -155,10 +162,10 @@ export const exerciseProgrammerService = {
     etat?: string;
     classeIds: string[];
     coursIds?: string[];
-    /** Course programmed in the class(es); null = general exercise. */
+    /** Course programmed in the class(es) — required for every class without an entry in coursParClasse (400 COURS_REQUIS). */
     coursId?: string | null;
     /**
-     * One course per class {classeId: coursId | null}. Classes mapped to different courses get one programmation
+     * One course per class {classeId: coursId} (required). Classes mapped to different courses get one programmation
      * each: the response is the first one, with `programmations` (all) and `nombreProgrammations`.
      */
     coursParClasse?: Record<string, string | null>;
@@ -184,10 +191,10 @@ export const exerciseProgrammerService = {
     etat?: string;
     classeIds: string[];
     coursIds?: string[];
-    /** Course programmed in the class(es); null = general exercise. */
+    /** Course programmed in the class(es) — required for every class without an entry in coursParClasse (400 COURS_REQUIS). */
     coursId?: string | null;
     /**
-     * One course per class {classeId: coursId | null}. Classes mapped to different courses get one programmation
+     * One course per class {classeId: coursId} (required). Classes mapped to different courses get one programmation
      * each: the response is the first one, with `programmations` (all) and `nombreProgrammations`.
      */
     coursParClasse?: Record<string, string | null>;

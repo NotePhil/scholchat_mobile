@@ -56,6 +56,14 @@ interface UiState {
   pendingActivity: string | null;
   requestActivity: (eventId: string) => void;
   clearPendingActivity: () => void;
+  /**
+   * "Programmer un cours" shortcut (e.g. from an exercise form whose class has no programmed course):
+   * DashboardCoursBody opens the course programming form, with this class pre-selected ("" = none).
+   * Set alongside requestTab("cours").
+   */
+  pendingScheduleCourse: string | null;
+  requestScheduleCourse: (classeId?: string) => void;
+  clearPendingScheduleCourse: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -69,6 +77,7 @@ export const useUiStore = create<UiState>((set) => ({
   pendingCorrection: null,
   pendingConversation: null,
   pendingActivity: null,
+  pendingScheduleCourse: null,
   setTheme: (theme) => set({ theme }),
   setLanguage: (language) => set({ language }),
   setActiveSection: (activeSection) => set({ activeSection }),
@@ -86,4 +95,6 @@ export const useUiStore = create<UiState>((set) => ({
   clearPendingConversation: () => set({ pendingConversation: null }),
   requestActivity: (pendingActivity) => set({ pendingActivity }),
   clearPendingActivity: () => set({ pendingActivity: null }),
+  requestScheduleCourse: (classeId) => set({ pendingScheduleCourse: classeId ?? '' }),
+  clearPendingScheduleCourse: () => set({ pendingScheduleCourse: null }),
 }));

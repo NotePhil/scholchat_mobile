@@ -6,11 +6,12 @@ import { radius, spacing, typography, useThemeColors } from "../../../../styles/
 import type { CoursResume } from "../../../../services/api";
 import { GENERAL_COURSE_ID, loadClassCourses } from "../../../../utils/classCourses";
 import { useT } from "../../../../i18n";
+import NoCourseNotice from "./NoCourseNotice";
 
-/** Per-class choice: classeId → course id, GENERAL_COURSE_ID, or "" / missing (not chosen). */
+/** Per-class choice: classeId → course id, or "" / missing (not chosen). */
 export type CoursParClasseValue = Record<string, string>;
 
-/** Payload field `coursParClasse` ({classeId: coursId | null}) for the selected classes only. */
+/** Payload field `coursParClasse` ({classeId: coursId}) for the selected classes only (a missing course → null, refused by the backend with 400 COURS_REQUIS). */
 export const toCoursParClasse = (value: CoursParClasseValue, classeIds: string[]): Record<string, string | null> => {
   const out: Record<string, string | null> = {};
   classeIds.filter(Boolean).forEach((id) => {
@@ -22,7 +23,7 @@ export const toCoursParClasse = (value: CoursParClasseValue, classeIds: string[]
 
 /** Selected classes still without a course choice. */
 export const classesWithoutCourse = (value: CoursParClasseValue, classeIds: string[]): string[] =>
-  classeIds.filter((id) => !value[id]);
+  classeIds.filter((id) => !value[id] || value[id] === GENERAL_COURSE_ID);
 
 /** Number of programmations created by a programming POST response (several when courses differ per class). */
 export const countProgrammations = (res: unknown): number => {
@@ -42,17 +43,20 @@ interface Props {
   onChange: (classeId: string, value: string) => void;
   /** Shown under the rows of the classes still without a choice (after a submit attempt). */
   error?: string;
+  /** Called before the "Programmer un cours" shortcut navigates (e.g. to close the hosting sheet). */
+  onNavigate?: () => void;
 }
 
 type Status = "loading" | "ready" | "error";
 
 /**
  * Required "Cours" part of the exercise programming forms: one picker per
- * selected class, listing the courses programmed in that class ("Cours — Classe")
- * + "Exercice général (sans cours)". Classes mapped to different courses get one
- * programmation each on the backend.
+ * selected class, listing the courses programmed in that class ("Cours — Classe").
+ * There is no exercise / homework without a course: a class with no programmed
+ * course shows a notice with a "Programmer un cours" shortcut. Classes mapped to
+ * different courses get one programmation each on the backend.
  */
-const CoursePickerField = ({ classes, value, onChange, error }: Props) => {
+const CoursePickerField = ({ classes, value, onChange, error, onNavigate }: Props) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const { t } = useT();
@@ -75,7 +79,7 @@ const CoursePickerField = ({ classes, value, onChange, error }: Props) => {
         if (!mounted.current) return;
         setByClass((prev) => ({ ...prev, [classeId]: { status: "ready", list: courses } }));
         const current = value[classeId];
-        if (current && current !== GENERAL_COURSE_ID && !courses.some((c) => c.coursId === current)) onChange(classeId, "");
+        if (current && !courses.some((c) => c.coursId === current)) onChange(classeId, "");
       })
       .catch(() => mounted.current && setByClass((prev) => ({ ...prev, [classeId]: { status: "error", list: [] } })));
   };
@@ -116,15 +120,14 @@ const CoursePickerField = ({ classes, value, onChange, error }: Props) => {
           const v = value[c.id] || "";
           const st = byClass[c.id];
           const missingHere = !!error && missing.includes(c.id);
+          const empty = st?.status === "ready" && st.list.length === 0;
           const text =
-            v === GENERAL_COURSE_ID
-              ? `${t("learning.schedule.generalOption")} — ${c.nom}`
-              : v
-                ? (() => {
-                    const found = st?.list.find((x) => x.coursId === v);
-                    return found ? courseLabel(found, c.nom) : `${t("learning.course")} — ${c.nom}`;
-                  })()
-                : t("learning.schedule.pickCourseFor", { classe: c.nom });
+            v && v !== GENERAL_COURSE_ID
+              ? (() => {
+                  const found = st?.list.find((x) => x.coursId === v);
+                  return found ? courseLabel(found, c.nom) : `${t("learning.course")} — ${c.nom}`;
+                })()
+              : t("learning.schedule.pickCourseFor", { classe: c.nom });
           return (
             <View key={c.id} style={{ marginBottom: 8 }}>
               {classes.length > 1 ? <Text style={styles.classLabel}>{c.nom}</Text> : null}
@@ -133,17 +136,15 @@ const CoursePickerField = ({ classes, value, onChange, error }: Props) => {
                 onPress={() => setOpenId(c.id)}
                 activeOpacity={0.8}
               >
-                <FontAwesome5 name={v === GENERAL_COURSE_ID ? "layer-group" : "book"} size={13} color={colors.textMuted} />
+                <FontAwesome5 name="book" size={13} color={colors.textMuted} />
                 <Text style={[styles.inputText, !v && { color: colors.textLight }]} numberOfLines={1}>
                   {text}
                 </Text>
                 {st?.status === "loading" ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
                 <FontAwesome5 name="chevron-down" size={12} color={colors.textMuted} />
               </TouchableOpacity>
-              {st?.status === "ready" && st.list.length === 0 ? (
-                <Text style={styles.hint}>{t("learning.schedule.noCoursesIn", { classe: c.nom })}</Text>
-              ) : null}
-              {missingHere ? (
+              {empty ? <NoCourseNotice classeId={c.id} classeNom={classes.length > 1 ? c.nom : null} onNavigate={onNavigate} /> : null}
+              {missingHere && !empty ? (
                 <Text style={styles.error}>{t("learning.schedule.courseRequiredFor", { classe: c.nom })}</Text>
               ) : null}
             </View>
@@ -173,21 +174,20 @@ const CoursePickerField = ({ classes, value, onChange, error }: Props) => {
                   <Text style={styles.link}>{t("classDetails.retry")}</Text>
                 </TouchableOpacity>
               ) : (openState?.list.length ?? 0) === 0 ? (
-                <Text style={[styles.hint, { paddingVertical: 10 }]}>
-                  {t("learning.schedule.noCoursesIn", { classe: open.nom })}
-                </Text>
+                <View style={{ paddingVertical: 10 }}>
+                  <NoCourseNotice
+                    classeId={open.id}
+                    onNavigate={() => {
+                      setOpenId(null);
+                      onNavigate?.();
+                    }}
+                  />
+                </View>
               ) : null}
-              {[
-                ...(openState?.status === "ready"
-                  ? openState.list.map((c) => ({ id: c.coursId, label: courseLabel(c, open.nom), sub: c.matiere, icon: "book" }))
-                  : []),
-                {
-                  id: GENERAL_COURSE_ID,
-                  label: `${t("learning.schedule.generalOption")} — ${open.nom}`,
-                  sub: t("learning.schedule.generalHint"),
-                  icon: "layer-group",
-                },
-              ].map((o) => {
+              {(openState?.status === "ready"
+                ? openState.list.map((c) => ({ id: c.coursId, label: courseLabel(c, open.nom), sub: c.matiere, icon: "book" }))
+                : []
+              ).map((o) => {
                 const on = o.id === value[open.id];
                 return (
                   <TouchableOpacity

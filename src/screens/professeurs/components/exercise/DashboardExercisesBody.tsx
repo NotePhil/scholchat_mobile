@@ -301,8 +301,16 @@ const DashboardExercisesBody = () => {
     setEditingExercise(null);
     setViewMode("create");
   };
+  /** Scheduling page; with a class (from "Programmés"), opens the form with that class preselected. */
+  const [scheduleClassId, setScheduleClassId] = useState<string | null>(null);
   const openSchedule = () => {
     closeFab();
+    setScheduleClassId(null);
+    setViewMode("schedule");
+  };
+  const openScheduleForClass = (classId: string) => {
+    closeFab();
+    setScheduleClassId(classId);
     setViewMode("schedule");
   };
   const openCorrections = () => {
@@ -358,7 +366,10 @@ const DashboardExercisesBody = () => {
   if (viewMode === "schedule") {
     return (
       <ScheduleExerciseView
+        key={scheduleClassId ? `schedule-${scheduleClassId}` : "schedule"}
         exercises={allExercises}
+        initialView={scheduleClassId ? "form" : "list"}
+        initialClassId={scheduleClassId}
         onBack={() => setViewMode("list")}
         onScheduled={() => {
           setViewMode("list");
@@ -502,7 +513,7 @@ const DashboardExercisesBody = () => {
             classes={professorClasses}
             classesLoading={loading && professorClasses.length === 0}
             onOpenCorrections={openCorrectionsFor}
-            onSchedule={openSchedule}
+            onSchedule={openScheduleForClass}
             refreshKey={programmedRefresh}
           />
         ) : null}

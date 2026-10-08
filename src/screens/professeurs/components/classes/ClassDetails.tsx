@@ -149,6 +149,8 @@ const fmtDate = (d?: string | null) => (d ? formatDate(d) : "N/A");
 const fmtDateTime = (d?: string | null) => (d ? formatDateTime(d) : "—");
 const userDate = (u: AnyUser) => fmtDate(u.creationDate || u.dateCreation || u.dateInscription || u.dateAjout);
 const isActiveEtat = (e?: string) => e === "ACTIVE" || e === "ACTIF";
+/** Account state known AND inactive — an unknown state (field not returned) is never shown as "Inactif". */
+const isInactiveEtat = (e?: string) => !!e && !isActiveEtat(e);
 
 // ─── Tones (light/dark) ──────────────────────────────────────────────────────
 
@@ -1981,7 +1983,7 @@ const ClassDetails = ({
               {u.email || "—"}
             </Text>
           </View>
-          {type !== "access-requests" ? (
+          {type !== "access-requests" && u.etat ? (
             <Tag tone={isActiveEtat(u.etat) ? "green" : "red"} label={isActiveEtat(u.etat) ? "Actif" : "Inactif"} />
           ) : null}
         </View>
@@ -2011,11 +2013,13 @@ const ClassDetails = ({
             <>
               <InfoRow label="Adresse">{u.adresse || "—"}</InfoRow>
               <InfoRow label="Type">
-                <Tag tone="purple" label={u.type === "utilisateur" ? "Utilisateur" : u.type || "—"} />
+                <Tag tone="purple" label={reqType.text} />
               </InfoRow>
-              <InfoRow label="Admin">
-                <Tag tone={u.admin ? "gold" : "gray"} label={u.admin ? "Oui" : "Non"} />
-              </InfoRow>
+              {typeof u.admin === "boolean" ? (
+                <InfoRow label="Admin">
+                  <Tag tone={u.admin ? "gold" : "gray"} label={u.admin ? "Oui" : "Non"} />
+                </InfoRow>
+              ) : null}
               <InfoRow label="Date de création">{userDate(u)}</InfoRow>
             </>
           ) : null}
@@ -2109,7 +2113,7 @@ const ClassDetails = ({
     const filtered = source.filter((u) => {
       if (type === "access-requests") return typeFilter === "all" || u.typeUtilisateur === typeFilter;
       if (statusFilter === "all") return true;
-      return statusFilter === "ACTIVE" ? isActiveEtat(u.etat) : !isActiveEtat(u.etat);
+      return statusFilter === "ACTIVE" ? isActiveEtat(u.etat) : isInactiveEtat(u.etat);
     });
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
     const safePage = Math.min(page, totalPages);
