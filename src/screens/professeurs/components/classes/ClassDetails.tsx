@@ -34,7 +34,10 @@ import { useThemeStore } from "../../../../store/useThemeStore";
 import { useAuthStore } from "../../../../store/useAuthStore";
 import { useUiStore } from "../../../../store/useUiStore";
 import OffreInfoPanel from "../../../../components/common/OffreInfoPanel";
-import { RejectionMotif } from "../../../../types";
+import { CoursProgramme, ExerciseProgramme, RejectionMotif } from "../../../../types";
+import { programmeCoursId, programmeCoursTitre } from "../../../../services/api";
+import ClassCoursesTab from "./ClassCoursesTab";
+import ClassStatsTab from "./ClassStatsTab";
 import { formatDate, formatDateTime } from "../../../../utils/dates";
 import { TranslationKey, useT } from "../../../../i18n";
 import { getClassActionTexts } from "../../../../hooks/useClassActionConfirm";
@@ -95,7 +98,7 @@ interface ClassDetailsProps {
 type AnyUser = { id: string; [key: string]: any };
 type UserCategory = "professeurs" | "eleves" | "parents" | "utilisateurs";
 type ListType = UserCategory | "access-requests";
-type TabKey = "overview" | ListType | "courses" | "exercises" | "events";
+type TabKey = "overview" | ListType | "courses" | "exercises" | "statistics" | "events";
 
 interface UsersState {
   professeurs: AnyUser[];
@@ -234,9 +237,9 @@ const LIST_LOADING = {
 } as const satisfies Record<ListType, TranslationKey>;
 
 const normalizeTab = (tab: string, adminMode: boolean): TabKey => {
-  const known: TabKey[] = ["overview", "professeurs", "eleves", "parents", "utilisateurs", "access-requests", "courses", "exercises", "events"];
+  const known: TabKey[] = ["overview", "professeurs", "eleves", "parents", "utilisateurs", "access-requests", "courses", "exercises", "statistics", "events"];
   if (!known.includes(tab as TabKey)) return "overview"; // "info"/"history" (legacy keys) → Aperçu
-  if (adminMode && (tab === "courses" || tab === "exercises")) return "overview";
+  if (adminMode && (tab === "courses" || tab === "exercises" || tab === "statistics")) return "overview";
   return tab as TabKey;
 };
 
@@ -660,6 +663,8 @@ const ClassDetails = ({
   };
   /** Incremented on every loadAll: responses of an older load are ignored. */
   const loadSeqRef = useRef(0);
+  /** Bumped on pull-to-refresh: the Cours / Statistiques tabs reload their own data. */
+  const [tabsRefreshKey, setTabsRefreshKey] = useState(0);
 
   // ── Feedback ──
   const [success, setSuccess] = useState("");
@@ -680,9 +685,18 @@ const ClassDetails = ({
     danger?: boolean;
     /** Emphasised red line under the message (e.g. irreversible warning). */
     warning?: string;
-    onOk: () => Promise<void> | void;
+    /**
+     * Action run on "OK". When `keepOpenOnError` is set, a throw keeps the dialog open with the
+     * error shown inside it; a returned string is the success message, shown once the dialog has
+     * closed (so it is never hidden behind it).
+     */
+    onOk: () => Promise<string | void> | string | void;
+    keepOpenOnError?: boolean;
+    /** Run in background after a successful action, once the dialog is closed (e.g. list reload). */
+    after?: () => Promise<unknown> | void;
   } | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
   const confirmBusyRef = useRef(false);
   const { t: tr } = useT();
 
@@ -980,7 +994,10 @@ const ClassDetails = ({
       if (mode === "initial") {
         setLoading(true);
         markSections(SECTION_KEYS, "loading");
-      } else setRefreshing(true);
+      } else {
+        setRefreshing(true);
+        setTabsRefreshKey((n) => n + 1);
+      }
       try {
         let details: AnyUser;
         try {
@@ -1093,6 +1110,14 @@ const ClassDetails = ({
   const navExercises = onNavigateToExerciseManagement ?? (canDashNav ? () => requestTab("exercises") : undefined);
   const navEvents = onNavigateToEvents ?? (canDashNav ? () => requestTab("activities") : undefined);
   const showQuickActions = !isAdmin && !!(navCoursManagement || navCourseCreation || navExercises);
+  /** Corrections of one programmed exercise (professor dashboard's exercises tab). */
+  const openCorrections = canDashNav
+    ? (exerciseProgrammerId: string) => {
+        useUiStore.getState().requestCorrection(exerciseProgrammerId);
+        requestTab("exercises");
+      }
+    : undefined;
+  const distinctCourseCount = new Set(courses.map((c) => c.coursId).filter(Boolean)).size;
 
   // ── Actions ──
 
@@ -1107,15 +1132,41 @@ const ClassDetails = ({
 
   const runConfirm = async () => {
     if (!confirm || confirmBusyRef.current) return;
+    const current = confirm;
     confirmBusyRef.current = true;
     setConfirmBusy(true);
+    setConfirmError("");
+    if (!current.keepOpenOnError) {
+      try {
+        await current.onOk();
+      } finally {
+        confirmBusyRef.current = false;
+        setConfirmBusy(false);
+        setConfirm(null);
+      }
+      return;
+    }
+    let message: string | void;
     try {
-      await confirm.onOk();
-    } finally {
+      message = await current.onOk();
+    } catch (e) {
+      // Keep the dialog open, with the error inside it.
       confirmBusyRef.current = false;
       setConfirmBusy(false);
-      setConfirm(null);
+      setConfirmError(errMsg(e, tr("common.unknownError")));
+      return;
     }
+    confirmBusyRef.current = false;
+    setConfirmBusy(false);
+    setConfirm(null);
+    if (message) showSuccess(message);
+    if (current.after) Promise.resolve(current.after()).catch(() => undefined);
+  };
+
+  const closeConfirm = () => {
+    if (confirmBusyRef.current) return;
+    setConfirm(null);
+    setConfirmError("");
   };
 
   // Shared class-moderation wording (identical to web, see hooks/useClassActionConfirm).
@@ -1454,52 +1505,66 @@ const ClassDetails = ({
   };
 
   // Approving a request (as rejecting it) is confirmed first.
-  const askApproveRequest = (r: AnyUser) =>
+  // The dialog stays open (spinner) until the API answers; on success it closes and only then
+  // shows a single success banner; on error it stays open with the message inside.
+  const askApproveRequest = (r: AnyUser) => {
+    setConfirmError("");
     setConfirm({
       title: tr("classDetails.requests.approveTitle"),
       message: tr("classDetails.requests.approveMessage", { who: requestLabel(r) || "—" }),
       okLabel: tr("classDetails.requests.approve"),
+      keepOpenOnError: true,
       onOk: () => approveRequest(r),
+      after: reloadAfterMutation,
     });
+  };
 
-  const approveRequest = async (r: AnyUser) => {
+  const approveRequest = async (r: AnyUser): Promise<string> => {
     setActionLoading(`approve-${r.id}`);
     try {
       await accederService.approveRequest(r.id);
-      const child = requestChildName(r);
-      const name = child || fullName(r);
-      showSuccess(name ? `Demande approuvée. ${name} a été ajouté(e).` : "Demande approuvée avec succès");
-      await reloadAfterMutation();
-    } catch {
-      showError("Erreur lors de l'approbation de la demande");
+    } catch (e) {
+      throw new Error(errMsg(e, tr("classDetails.requests.approveError")));
     } finally {
       setActionLoading(null);
     }
+    const name = requestChildName(r) || fullName(r);
+    return name ? tr("classDetails.requests.approvedNamed", { name }) : tr("classDetails.requests.approved");
+  };
+
+  const rejectReqBusyRef = useRef(false);
+  const closeRejectRequest = () => {
+    if (rejectReqBusyRef.current) return;
+    setRejectReqUser(null);
+    setRejectReqReason("");
+    setRejectReqError("");
   };
 
   const confirmRejectRequest = async () => {
+    if (rejectReqBusyRef.current) return;
     if (!rejectReqReason.trim()) {
-      setRejectReqError("Veuillez saisir un motif de rejet");
+      setRejectReqError(tr("classDetails.requests.reasonRequired"));
       return;
     }
     if (!rejectReqUser) return;
+    rejectReqBusyRef.current = true;
+    setRejectReqError("");
     setActionLoading("reject-request");
     try {
       await accederService.rejectRequest(rejectReqUser.id, rejectReqReason.trim());
-      setRejectReqUser(null);
-      setRejectReqReason("");
-      showSuccess("Demande rejetée avec succès");
-      await loadAccessRequests();
-      try {
-        await onRefresh?.();
-      } catch {
-        // ignore
-      }
-    } catch {
-      setRejectReqError("Erreur lors du rejet de la demande");
+    } catch (e) {
+      // Stay open with the error inside the dialog.
+      setRejectReqError(errMsg(e, tr("classDetails.requests.rejectError")));
+      return;
     } finally {
+      rejectReqBusyRef.current = false;
       setActionLoading(null);
     }
+    setRejectReqUser(null);
+    setRejectReqReason("");
+    showSuccess(tr("classDetails.requests.rejected"));
+    loadAccessRequests().catch(() => undefined);
+    Promise.resolve(onRefresh?.()).catch(() => undefined);
   };
 
   // Classe Majeure: add student by email
@@ -1763,8 +1828,9 @@ const ClassDetails = ({
       : []),
     ...(!isAdmin
       ? ([
-          { key: "courses", label: tabLabel("Cours", "courses", courses.length), icon: "book" },
+          { key: "courses", label: tabLabel("Cours", "courses", distinctCourseCount), icon: "book" },
           { key: "exercises", label: tabLabel("Exercices", "exercises", exercises.length), icon: "file-alt" },
+          { key: "statistics", label: tr("learning.stats.tab"), icon: "chart-bar" },
         ] as { key: TabKey; label: string; icon: string }[])
       : []),
     { key: "events", label: tabLabel("Événements", "events", events.length), icon: "calendar-alt" },
@@ -2284,6 +2350,14 @@ const ClassDetails = ({
                     </View>
                     <View style={styles.moduleMeta}>
                       <View style={styles.metaItem}>
+                        <FontAwesome5 name={programmeCoursId(it) ? "book" : "layer-group"} size={10} color={colors.textLight} />
+                        <Text style={styles.metaText} numberOfLines={1}>
+                          {programmeCoursTitre(it) || (programmeCoursId(it) ? tr("learning.course") : tr("learning.generalExercises"))}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.moduleMeta}>
+                      <View style={styles.metaItem}>
                         <FontAwesome5 name="clock" size={10} color={colors.textLight} />
                         <Text style={styles.metaText}>{fmtDateTime(it.dateExoPrevue)}</Text>
                       </View>
@@ -2344,6 +2418,22 @@ const ClassDetails = ({
           </>
         );
       case "courses":
+        return (
+          <ClassCoursesTab
+            classId={classId}
+            sessions={courses as CoursProgramme[]}
+            programmes={exercises as ExerciseProgramme[]}
+            programmesReady={sections.exercises === "ready"}
+            effectif={sections.members === "ready" ? users.eleves.length : null}
+            canPublish={canPublish}
+            onScheduleCourse={navCourseCreation ? () => navCourseCreation(classId) : undefined}
+            onScheduleExercise={navExercises ? () => navExercises(classId) : undefined}
+            onOpenCorrections={openCorrections}
+            refreshKey={tabsRefreshKey}
+          />
+        );
+      case "statistics":
+        return <ClassStatsTab classId={classId} onOpenCorrections={openCorrections} refreshKey={tabsRefreshKey} />;
       case "exercises":
       case "events":
         return renderModuleList(activeTab);
@@ -2576,18 +2666,15 @@ const ClassDetails = ({
   const renderRejectRequestDialog = () => (
     <Dialog
       visible={!!rejectReqUser}
-      onClose={() => {
-        setRejectReqUser(null);
-        setRejectReqReason("");
-      }}
-      title="Rejeter la demande d'accès"
+      onClose={closeRejectRequest}
+      title={tr("classDetails.requests.rejectTitle")}
       icon="times"
       footer={
         <>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setRejectReqUser(null)}>
-            <Text style={styles.cancelText}>Annuler</Text>
+          <TouchableOpacity style={styles.cancelBtn} onPress={closeRejectRequest} disabled={actionLoading === "reject-request"}>
+            <Text style={styles.cancelText}>{tr("classConfirm.cancel")}</Text>
           </TouchableOpacity>
-          <PrimaryBtn label="Rejeter" icon="times" onPress={confirmRejectRequest} loading={actionLoading === "reject-request"} gradient={["#EF4444", "#DC2626"]} />
+          <PrimaryBtn label={tr("classDetails.requests.reject")} icon="times" onPress={confirmRejectRequest} loading={actionLoading === "reject-request"} gradient={["#EF4444", "#DC2626"]} />
         </>
       }
     >
@@ -2602,7 +2689,8 @@ const ClassDetails = ({
           setRejectReqReason(v);
           if (rejectReqError) setRejectReqError("");
         }}
-        placeholder="Motif du rejet..."
+        editable={actionLoading !== "reject-request"}
+        placeholder={tr("classDetails.requests.reasonPlaceholder")}
         placeholderTextColor={colors.textLight}
       />
       {rejectReqError ? <Text style={styles.inlineError}>{rejectReqError}</Text> : null}
@@ -2701,13 +2789,13 @@ const ClassDetails = ({
   const renderConfirmDialog = () => (
     <Dialog
       visible={!!confirm}
-      onClose={() => !confirmBusy && setConfirm(null)}
+      onClose={closeConfirm}
       title={confirm?.title || ""}
       icon="exclamation-circle"
       iconTone={confirm?.danger ? "red" : "indigo"}
       footer={
         <>
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfirm(null)} disabled={confirmBusy}>
+          <TouchableOpacity style={styles.cancelBtn} onPress={closeConfirm} disabled={confirmBusy}>
             <Text style={styles.cancelText}>{tr("classConfirm.cancel")}</Text>
           </TouchableOpacity>
           <PrimaryBtn
@@ -2722,6 +2810,7 @@ const ClassDetails = ({
     >
       <Text style={styles.confirmText}>{confirm?.message}</Text>
       {confirm?.warning ? <Text style={[styles.confirmText, { color: "#DC2626", fontWeight: "700" }]}>{confirm.warning}</Text> : null}
+      {confirmError ? <Text style={styles.inlineError}>{confirmError}</Text> : null}
     </Dialog>
   );
 

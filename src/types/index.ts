@@ -415,6 +415,12 @@ export interface ExerciseProgramme {
   dateFinExoEffectif?: string;
   classeIds?: string[];
   coursIds?: string[];
+  /** Course the programmed exercise belongs to (null = "Exercices généraux"). */
+  coursId?: string | null;
+  coursTitre?: string | null;
+  /** POST programming responses only: all programmations created (several when courses differ per class). */
+  programmations?: ExerciseProgramme[];
+  nombreProgrammations?: number;
   coursLies?: Cours[];
   matieres?: Matiere[];
   questions?: Question[];

@@ -1,6 +1,13 @@
-import { apiClient, extractErrorMessage } from './client';
+import { apiClient, extractErrorMessage, getErrorCode } from './client';
+import { localizedServerMessage, translate } from '../../i18n';
 import { ApiSuccess, Exercise, ExerciseProgramme, Participation, Question, Reponse } from '../../types';
 import { withServerDateTimes } from '../../utils/dates';
+
+/** Backend 400 when the chosen course isn't programmed in (one of) the class(es). */
+const programmerError = (error: unknown, fallback: string) =>
+  getErrorCode(error) === 'COURS_NON_PROGRAMME_DANS_CLASSE'
+    ? localizedServerMessage(extractErrorMessage(error, translate('learning.errors.coursNotProgrammed')), 'learning.errors.coursNotProgrammed')
+    : extractErrorMessage(error, fallback);
 
 const EXO_PROG_DATES = ['dateExoPrevue', 'dateDebutExoEffectif', 'dateFinExoEffectif'] as const;
 const PARTICIPATION_DATES = ['dateDebut', 'dateFin'] as const;
@@ -148,6 +155,13 @@ export const exerciseProgrammerService = {
     etat?: string;
     classeIds: string[];
     coursIds?: string[];
+    /** Course programmed in the class(es); null = general exercise. */
+    coursId?: string | null;
+    /**
+     * One course per class {classeId: coursId | null}. Classes mapped to different courses get one programmation
+     * each: the response is the first one, with `programmations` (all) and `nombreProgrammations`.
+     */
+    coursParClasse?: Record<string, string | null>;
   }): Promise<ExerciseProgramme> => {
     try {
       const { data } = await apiClient.post<ExerciseProgramme>(
@@ -156,7 +170,7 @@ export const exerciseProgrammerService = {
       );
       return data;
     } catch (error) {
-      throw new Error(extractErrorMessage(error, "Échec de la programmation de l'exercice."));
+      throw new Error(programmerError(error, "Échec de la programmation de l'exercice."));
     }
   },
 
@@ -170,6 +184,13 @@ export const exerciseProgrammerService = {
     etat?: string;
     classeIds: string[];
     coursIds?: string[];
+    /** Course programmed in the class(es); null = general exercise. */
+    coursId?: string | null;
+    /**
+     * One course per class {classeId: coursId | null}. Classes mapped to different courses get one programmation
+     * each: the response is the first one, with `programmations` (all) and `nombreProgrammations`.
+     */
+    coursParClasse?: Record<string, string | null>;
   }): Promise<ExerciseProgramme> => {
     try {
       const { data } = await apiClient.post<ExerciseProgramme>(
@@ -178,7 +199,7 @@ export const exerciseProgrammerService = {
       );
       return data;
     } catch (error) {
-      throw new Error(extractErrorMessage(error, 'Échec de la programmation et diffusion.'));
+      throw new Error(programmerError(error, 'Échec de la programmation et diffusion.'));
     }
   },
 

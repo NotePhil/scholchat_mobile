@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -22,8 +22,20 @@ import {
   accederService,
   exerciseProgrammerService,
   exerciseService,
+  learningService,
+  programmeCoursId,
+  programmeCoursTitre,
   userService,
 } from '../../../../services/api';
+import type { CoursResume } from '../../../../services/api';
+import { GENERAL_COURSE_ID, loadClassCourses } from '../../../../utils/classCourses';
+import CoursePickerField, {
+  CoursParClasseValue,
+  classesWithoutCourse,
+  countProgrammations,
+  toCoursParClasse,
+} from './CoursePickerField';
+import { translate, useT } from '../../../../i18n';
 import { useUser } from '../../../../context/UserContext';
 import { ClassEntity, ExerciseProgramme } from '../../../../types';
 import { formatDateTime, formatTime, parseServerDate, serverDateMs, toServerDateTime } from '../../../../utils/dates';
@@ -74,6 +86,8 @@ interface FormState {
   exerciseId: string;
   typeAssignation: TypeAssignation;
   classeIds: string[];
+  /** Course chosen per selected class: classeId → course id | GENERAL_COURSE_ID (required for every class). */
+  coursParClasse: CoursParClasseValue;
   dateExoPrevue: string;
   dateDebutExoEffectif: string;
   dateFinExoEffectif: string;
@@ -83,6 +97,7 @@ const EMPTY_FORM: FormState = {
   exerciseId: '',
   typeAssignation: 'EXERCICE',
   classeIds: [],
+  coursParClasse: {},
   dateExoPrevue: '',
   dateDebutExoEffectif: '',
   dateFinExoEffectif: '',
@@ -165,6 +180,8 @@ const validateForm = (f: FormState): Record<string, string> => {
   if (!f.exerciseId) errors.exerciseId = 'Sélectionnez un exercice';
   if (!f.typeAssignation) errors.typeAssignation = 'Requis';
   if (f.classeIds.length === 0) errors.classeIds = 'Sélectionnez au moins une classe';
+  else if (classesWithoutCourse(f.coursParClasse, f.classeIds).length > 0)
+    errors.coursId = translate('learning.schedule.courseRequired');
   if (!f.dateExoPrevue) errors.dateExoPrevue = 'Requis';
   if (!f.dateDebutExoEffectif) errors.dateDebutExoEffectif = 'Requis';
   if (!f.dateFinExoEffectif) errors.dateFinExoEffectif = 'Requis';
@@ -477,6 +494,81 @@ export const ScheduleExerciseView = ({
   const [exoSearch, setExoSearch] = useState('');
   const [typeSheetOpen, setTypeSheetOpen] = useState(false);
   const [classSheetOpen, setClassSheetOpen] = useState(false);
+  const { t } = useT();
+
+  // ── course of the programmed exercise ──
+  // Courses programmed in a class (GET /classes/{id}/cours-programmes/resume, fallback by-classe), cached per class.
+  const courseCache = useRef<Record<string, CoursResume[]>>({});
+  /** Courses programmed in EVERY given class (the backend checks the course against each class). */
+  const loadCommonCourses = useCallback(async (classIds: string[]): Promise<CoursResume[]> => {
+    const lists = await Promise.all(
+      classIds.map(async (id) => {
+        if (courseCache.current[id]) return courseCache.current[id];
+        const { courses } = await loadClassCourses(id);
+        courseCache.current[id] = courses;
+        return courses;
+      })
+    );
+    if (lists.length === 0) return [];
+    const [first, ...rest] = lists;
+    return first.filter((c) => rest.every((l) => l.some((x) => x.coursId === c.coursId)));
+  }, []);
+
+  // Changing the course of an existing programmation (PATCH).
+  const [courseEdit, setCourseEdit] = useState<{
+    prog: ProgItem;
+    status: 'loading' | 'ready' | 'error';
+    list: CoursResume[];
+    saving: string | null;
+    error: string;
+  } | null>(null);
+  const openCourseEdit = async (prog: ProgItem) => {
+    const ids = (prog.classesDiffusees ?? []).map((c) => String(c.id)).filter(Boolean);
+    const classIds = ids.length ? ids : (prog.classeIds ?? []).map(String);
+    setCourseEdit({ prog, status: 'loading', list: [], saving: null, error: '' });
+    try {
+      const list = await loadCommonCourses(classIds);
+      setCourseEdit((prev) => (prev && prev.prog.id === prog.id ? { ...prev, status: 'ready', list } : prev));
+    } catch {
+      setCourseEdit((prev) => (prev && prev.prog.id === prog.id ? { ...prev, status: 'error' } : prev));
+    }
+  };
+  const applyCourseEdit = async (coursId: string | null) => {
+    if (!courseEdit || courseEdit.saving) return;
+    const { prog } = courseEdit;
+    if ((programmeCoursId(prog) ?? null) === coursId) {
+      setCourseEdit(null);
+      return;
+    }
+    setCourseEdit({ ...courseEdit, saving: coursId ?? GENERAL_COURSE_ID, error: '' });
+    try {
+      const updated = await learningService.setExerciseCourse(prog.id, coursId);
+      const titre = coursId ? courseEdit.list.find((c) => c.coursId === coursId)?.titre ?? null : null;
+      setProgrammations((prev) =>
+        prev.map((p) =>
+          p.id === prog.id
+            ? {
+                ...p,
+                ...(updated && typeof updated === 'object' ? updated : {}),
+                isOwn: p.isOwn,
+                programmeParNom: p.programmeParNom,
+                coursId,
+                coursTitre: (updated as any)?.coursTitre ?? titre,
+                coursIds: coursId ? [coursId] : [],
+                coursLies: undefined,
+              }
+            : p
+        )
+      );
+      setCourseEdit(null);
+      setSuccess(t('learning.schedule.courseChanged'));
+    } catch (e) {
+      setCourseEdit((prev) =>
+        prev ? { ...prev, saving: null, error: e instanceof Error && e.message ? e.message : t('learning.errors.setCourse') } : prev
+      );
+    }
+  };
+  const courseLabel = (p: ExerciseProgramme) => programmeCoursTitre(p) || (programmeCoursId(p) ? t('learning.course') : t('learning.generalExercises'));
 
   useEffect(() => {
     if (initialClassId) setFilterClassId(initialClassId);
@@ -635,7 +727,7 @@ export const ScheduleExerciseView = ({
     }
     setSubmitting(true);
     try {
-      await exerciseProgrammerService.programmerEtDiffuser({
+      const created = await exerciseProgrammerService.programmerEtDiffuser({
         exerciseId: form.exerciseId,
         programmeParId: userId,
         typeAssignation: form.typeAssignation,
@@ -643,9 +735,15 @@ export const ScheduleExerciseView = ({
         dateDebutExoEffectif: toServerDateTime(form.dateDebutExoEffectif) ?? undefined,
         dateFinExoEffectif: toServerDateTime(form.dateFinExoEffectif) ?? undefined,
         classeIds: form.classeIds,
+        coursParClasse: toCoursParClasse(form.coursParClasse, form.classeIds),
         etat: 'ACTIF',
       });
-      setSuccess('Exercice programmé et diffusé avec succès !');
+      const n = countProgrammations(created);
+      setSuccess(
+        n > 1
+          ? `Exercice programmé et diffusé : ${t('learning.schedule.createdMany', { count: n })}`
+          : 'Exercice programmé et diffusé avec succès !'
+      );
       setForm(EMPTY_FORM);
       await loadProgs();
       setView('list');
@@ -909,6 +1007,27 @@ export const ScheduleExerciseView = ({
           <Text style={styles.metaText}>{fmtDateTime(prog.dateFinExoEffectif)}</Text>
         </View>
 
+        <View style={styles.classChips}>
+          <FontAwesome5 name="book" size={10} color={muted} />
+          <View
+            style={[
+              styles.classChip,
+              programmeCoursId(prog)
+                ? { backgroundColor: tone('indigo').bg, borderColor: tone('indigo').border }
+                : { backgroundColor: tone('gray').bg, borderColor: tone('gray').border },
+            ]}
+          >
+            <Text style={[styles.classChipText, { color: programmeCoursId(prog) ? tone('indigo').fg : tone('gray').fg }]} numberOfLines={1}>
+              {courseLabel(prog)}
+            </Text>
+          </View>
+          {prog.isOwn ? (
+            <TouchableOpacity onPress={() => openCourseEdit(prog)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel={t('learning.schedule.changeCourse')}>
+              <Text style={styles.linkText}>{t('learning.schedule.changeCourse')}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
         {prog.classesDiffusees && prog.classesDiffusees.length > 0 ? (
           <View style={styles.classChips}>
             <FontAwesome5 name="users" size={10} color={muted} />
@@ -1011,6 +1130,63 @@ export const ScheduleExerciseView = ({
         )}
         {renderPagination()}
       </View>
+    );
+  };
+
+  /** Course options (shared by the form picker and the "change course" sheet). */
+  const renderCourseOptions = (
+    status: 'idle' | 'loading' | 'ready' | 'error',
+    list: CoursResume[],
+    value: string,
+    onSelect: (id: string) => void,
+    onRetry: () => void,
+    savingId?: string | null
+  ) => {
+    if (status === 'loading' && list.length === 0) {
+      return (
+        <View style={{ paddingVertical: 24, alignItems: 'center', gap: 8 }}>
+          <ActivityIndicator size="small" color="#4F46E5" />
+          <Text style={styles.metaText}>{t('learning.schedule.loadingCourses')}</Text>
+        </View>
+      );
+    }
+    const options = [
+      ...(status === 'error'
+        ? []
+        : list.map((c) => ({ id: c.coursId, label: c.titre || t('learning.course'), sub: c.matiere, icon: 'book' }))),
+      { id: GENERAL_COURSE_ID, label: t('learning.schedule.generalOption'), sub: t('learning.schedule.generalHint'), icon: 'layer-group' },
+    ];
+    return (
+      <>
+        {status === 'error' ? (
+          <TouchableOpacity style={[styles.sheetOption, { gap: 8 }]} onPress={onRetry}>
+            <FontAwesome5 name="exclamation-triangle" size={13} color="#EF4444" />
+            <Text style={[styles.metaText, { flex: 1 }]}>{t('learning.errors.courses')}</Text>
+            <Text style={styles.linkText}>{t('classDetails.retry')}</Text>
+          </TouchableOpacity>
+        ) : list.length === 0 ? (
+          <Text style={styles.sheetEmpty}>{t('learning.schedule.noCourses')}</Text>
+        ) : null}
+        {options.map((o) => {
+          const on = o.id === value;
+          return (
+            <TouchableOpacity key={o.id} style={[styles.sheetOption, { gap: 10 }]} onPress={() => onSelect(o.id)} disabled={!!savingId}>
+              <FontAwesome5 name={o.icon as any} size={13} color={on ? '#4F46E5' : muted} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.sheetOptionText, on && styles.sheetOptionTextActive]} numberOfLines={2}>
+                  {o.label}
+                </Text>
+                {o.sub ? <Text style={styles.metaText} numberOfLines={1}>{o.sub}</Text> : null}
+              </View>
+              {savingId === o.id ? (
+                <ActivityIndicator size="small" color="#4F46E5" />
+              ) : on ? (
+                <FontAwesome5 name="check" size={13} color="#4F46E5" />
+              ) : null}
+            </TouchableOpacity>
+          );
+        })}
+      </>
     );
   };
 
@@ -1135,6 +1311,17 @@ export const ScheduleExerciseView = ({
               ) : null}
               <FieldError message={errors.classeIds} />
             </View>
+
+            {/* Cours: one per selected class (a course programmed in that class, or a general exercise) */}
+            <CoursePickerField
+              classes={selectedClasses.map((c) => ({ id: String(c.id), nom: className(c) }))}
+              value={form.coursParClasse}
+              onChange={(classeId, v) => {
+                setForm((prev) => ({ ...prev, coursParClasse: { ...prev.coursParClasse, [classeId]: v } }));
+                if (errors.coursId) setErrors((prev) => ({ ...prev, coursId: '' }));
+              }}
+              error={errors.coursId}
+            />
 
             {/* Dates (web: grid-cols-1 below sm) */}
             <DateTimeInput
@@ -1295,6 +1482,7 @@ export const ScheduleExerciseView = ({
       ['Date prévue', fmtDateTime(d.dateExoPrevue)],
       ['Début effectif', fmtDateTime(d.dateDebutExoEffectif)],
       ['Fin effective', fmtDateTime(d.dateFinExoEffectif)],
+      [t('learning.course'), courseLabel(d)],
       ['Classes', d.classesDiffusees && d.classesDiffusees.length > 0 ? d.classesDiffusees.map((c) => c.nom).join(', ') : 'Aucune'],
     ];
     return (
@@ -1346,6 +1534,35 @@ export const ScheduleExerciseView = ({
 
       <BottomSheet visible={!!detailProg} onClose={() => setDetailProg(null)} title="Détail de la programmation">
         {renderDetail()}
+      </BottomSheet>
+
+      <BottomSheet
+        visible={!!courseEdit}
+        onClose={() => !courseEdit?.saving && setCourseEdit(null)}
+        title={t('learning.schedule.changeCourseTitle')}
+      >
+        {courseEdit ? (
+          <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+            <Text style={[styles.metaText, { marginBottom: 6 }]} numberOfLines={2}>
+              {courseEdit.prog.nom || 'Exercice'}
+            </Text>
+            {courseEdit.error ? (
+              <View style={[styles.banner, styles.bannerError]}>
+                <FontAwesome5 name="exclamation-circle" size={14} color="#EF4444" />
+                <Text style={[styles.bannerText, { color: isDark ? '#FCA5A5' : '#B91C1C' }]}>{courseEdit.error}</Text>
+              </View>
+            ) : null}
+            {renderCourseOptions(
+              courseEdit.status,
+              courseEdit.list,
+              programmeCoursId(courseEdit.prog) ?? GENERAL_COURSE_ID,
+              (id) => applyCourseEdit(id === GENERAL_COURSE_ID ? null : id),
+              () => openCourseEdit(courseEdit.prog),
+              courseEdit.saving
+            )}
+            <View style={{ height: 12 }} />
+          </ScrollView>
+        ) : null}
       </BottomSheet>
 
       <ConfirmDialog
@@ -1556,6 +1773,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean
     classChips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, paddingLeft: 50 },
     classChip: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, borderWidth: 1 },
     classChipText: { fontSize: 11 },
+    linkText: { fontSize: 12, fontWeight: '700', color: '#4F46E5' },
     empty: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 16, gap: 6 },
     emptyTitle: { fontSize: 14, fontWeight: '600', color: body, textAlign: 'center', marginTop: 4 },
     emptyText: { fontSize: 12, color: sub, textAlign: 'center' },

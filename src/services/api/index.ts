@@ -17,6 +17,18 @@ export {
 } from './exerciseService';
 export { forgotPasswordService } from './forgotPasswordService';
 export { gestionnaireService } from './gestionnaireService';
+export { learningService, ApiCodeError, programmeCoursId, programmeCoursTitre, fmtNote, pct } from './learningService';
+export type {
+  CoursResume,
+  ClasseResume,
+  CoursProgressionRow,
+  EleveProgression,
+  ExerciceStat,
+  CoursStat,
+  EleveStat,
+  ClasseStatistiques,
+  CoursExercice,
+} from './learningService';
 export { liveSessionService } from './liveSessionService';
 export { matiereService } from './matiereService';
 export { mediaService } from './mediaService';

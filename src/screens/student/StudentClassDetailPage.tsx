@@ -4,52 +4,50 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { EmptyState, LoadingSpinner } from "../../components/ui";
+import { CountPill, SectionState } from "../../components/common/LearningUI";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { coursProgrammerService, coursService, liveSessionService } from "../../services/api";
+import { learningService, liveSessionService } from "../../services/api";
+import type { CoursResume, EleveProgression } from "../../services/api";
 import { ClassEntity, CoursProgramme } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { TranslationKey, useT } from "../../i18n";
 import { formatDate, formatTime, serverDateMs } from "../../utils/dates";
+import { GENERAL_COURSE_ID, loadClassCourses, titlesFromAccessible } from "../../utils/classCourses";
+import { buildDevoirItem, DevoirItem, loadDevoirs, sortDevoirs } from "../../utils/devoirs";
+import { loadClassProgression } from "../../utils/progression";
+import DevoirCard, { useDevoirNavigation } from "../shared/DevoirCard";
+import ProgressionContent from "../shared/ProgressionContent";
 
 /**
- * What web shows when a student enters an approved class: StudentClassList
- * renders CoursProgrammeManagement with `selectedClass` — the class's
- * scheduled courses (GET /cours-programmes/by-classe/{id}) joined locally with
- * GET /cours/accessibles/{userId} for titles/descriptions, a search box, a
- * status filter, paginated course cards with the live / finished / cancelled /
- * waiting actions, and a statistics strip. Rendered as a full page (back
- * button) inside the Classes tab.
+ * A learner's class page (student, or a parent viewing a child): the courses
+ * programmed in the class with their counts + "Exercices généraux", and a
+ * Progression view. Entering a course shows its sessions (live join), a
+ * link to its content (CourseViewer) and its exercises / homework with the
+ * learner's status and note (Faire / Voir la copie).
  */
 
 interface Props {
   classe: ClassEntity;
   onBack: () => void;
-  /** Parent view (web: StudentClassList isParentView → same page, fed with selectedChildId): the child's id. */
+  /** Parent view: the child's id. */
   learnerId?: string;
+  /** Parent view: the child's first name (a minor's work is handed in by the parent). */
+  learnerName?: string;
+  /** Parent of an adult child: copies only. */
+  readOnly?: boolean;
 }
 
-type Enriched = CoursProgramme & { cours: { id?: string; titre: string; description: string } };
-type StatusFilter = "TOUS" | "PLANIFIE" | "EN_COURS" | "TERMINE" | "ANNULE";
-
-const PAGE_SIZE = 6;
-
-const STATUS_STYLE: Record<string, { color: string; bg: string; border: string; icon: string; label: TranslationKey }> = {
-  PLANIFIE: { color: "#1e40af", bg: "rgba(59,130,246,0.14)", border: "rgba(59,130,246,0.35)", icon: "clock", label: "studentClasses.statusPlanned" },
-  EN_COURS: { color: "#15803d", bg: "rgba(34,197,94,0.14)", border: "rgba(34,197,94,0.35)", icon: "play-circle", label: "studentClasses.statusLive" },
-  TERMINE: { color: "#6b7280", bg: "rgba(107,114,128,0.14)", border: "rgba(107,114,128,0.35)", icon: "check-circle", label: "studentClasses.statusDone" },
-  ANNULE: { color: "#b91c1c", bg: "rgba(239,68,68,0.14)", border: "rgba(239,68,68,0.35)", icon: "exclamation-circle", label: "studentClasses.statusCancelled" },
+const STATUS_STYLE: Record<string, { color: string; bg: string; icon: string; label: TranslationKey }> = {
+  PLANIFIE: { color: "#1e40af", bg: "rgba(59,130,246,0.14)", icon: "clock", label: "studentClasses.statusPlanned" },
+  EN_COURS: { color: "#15803d", bg: "rgba(34,197,94,0.14)", icon: "play-circle", label: "studentClasses.statusLive" },
+  TERMINE: { color: "#6b7280", bg: "rgba(107,114,128,0.14)", icon: "check-circle", label: "studentClasses.statusDone" },
+  ANNULE: { color: "#b91c1c", bg: "rgba(239,68,68,0.14)", icon: "exclamation-circle", label: "studentClasses.statusCancelled" },
 };
 
-const ORDER: Record<string, number> = { EN_COURS: 0, PLANIFIE: 1, ANNULE: 2 };
-const sortByCourseStatus = (arr: Enriched[]) =>
-  [...arr].sort((a, b) => {
-    const oa = ORDER[a.etatCoursProgramme ?? ""] ?? 3;
-    const ob = ORDER[b.etatCoursProgramme ?? ""] ?? 3;
-    return oa !== ob ? oa - ob : serverDateMs(b.dateCoursPrevue) - serverDateMs(a.dateCoursPrevue);
-  });
+const fmtWhen = (d?: string | null, fallback = "") =>
+  d ? `${formatDate(d, { weekday: "short", day: "numeric", month: "short" }, fallback)} ${formatTime(d) ?? ""}`.trim() : fallback;
 
-const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
+const StudentClassDetailPage = ({ classe, onBack, learnerId, learnerName, readOnly = false }: Props) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
@@ -58,86 +56,58 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
   const { user } = useUser();
   const userId = learnerId ?? user?.userId;
 
-  const [courses, setCourses] = useState<Enriched[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  /** True once the courses were fetched successfully at least once. */
-  const [loaded, setLoaded] = useState(false);
+  const [mode, setMode] = useState<"courses" | "progress">("courses");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("TOUS");
-  const [page, setPage] = useState(1);
-  // A course opens as a full page (CourseViewer), same as from the Courses tab.
-  const openCourse = (course: CoursProgramme) => {
-    if (!course.coursId) return;
-    // A parent reads the chapters with the child's progress, read-only.
-    navigation.navigate(
-      "CourseViewer",
-      learnerId
-        ? { coursId: course.coursId, coursProgrammeId: course.id, learnerId, readOnlyProgress: true }
-        : { coursId: course.coursId, coursProgrammeId: course.id }
-    );
-  };
+  const [refreshing, setRefreshing] = useState(false);
+  const [courses, setCourses] = useState<CoursResume[]>([]);
+  const [sessions, setSessions] = useState<CoursProgramme[]>([]);
+  const [search, setSearch] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
+  const seq = useRef(0);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  // Courses request status: "loading" until the first answer (never the empty state while pending),
-  // "error" → message + Réessayer, pull-to-refresh keeps the list on screen.
-  const loadSeq = useRef(0);
   const load = useCallback(
-    async (mode: "initial" | "refresh") => {
-      if (!userId) return; // user context not ready yet → keep the loader
-      const seq = ++loadSeq.current;
-      if (mode === "initial") {
-        setLoading(true);
-        setPage(1);
-      } else setRefreshing(true);
+    async (kind: "initial" | "refresh") => {
+      if (!userId) return;
+      const s = ++seq.current;
+      if (kind === "refresh") {
+        setRefreshing(true);
+        setRefreshKey((n) => n + 1);
+      } else setStatus("loading");
       setError("");
       try {
-        const [scheduled, details] = await Promise.all([
-          coursProgrammerService.getByClasse(classe.id),
-          coursService.getAccessible(userId).catch(() => []),
-        ]);
-        if (seq !== loadSeq.current) return;
-        const detailsMap = new Map((details || []).map((c) => [c.id, c]));
-        const enriched: Enriched[] = (scheduled || []).map((sc) => {
-          const detail = (sc.coursId && detailsMap.get(sc.coursId)) || undefined;
-          return {
-            ...sc,
-            cours: {
-              id: sc.coursId,
-              titre: detail?.titre || sc.description || t("studentClasses.untitledCourse"),
-              description: detail?.description || "",
-            },
-          };
-        });
-        setCourses(sortByCourseStatus(enriched));
-        setLoaded(true);
-      } catch (err) {
-        if (seq === loadSeq.current)
-          setError(t("studentClasses.coursesLoadError", { message: err instanceof Error ? err.message : "" }));
+        const res = await loadClassCourses(classe.id, { withSessions: true, titles: titlesFromAccessible(userId) });
+        if (s !== seq.current) return;
+        setCourses(res.courses);
+        setSessions(res.sessions);
+        setStatus("ready");
+      } catch (e) {
+        if (s !== seq.current) return;
+        setError(e instanceof Error ? e.message : "");
+        setStatus((p) => (p === "ready" ? "ready" : "error"));
       } finally {
-        if (seq === loadSeq.current) {
-          setLoading(false);
-          setRefreshing(false);
-        }
+        if (s === seq.current) setRefreshing(false);
       }
     },
-    [classe.id, userId, t]
+    [classe.id, userId]
   );
 
   useEffect(() => {
     load("initial");
     return () => {
-      loadSeq.current++; // ignore answers after unmount / class change
+      seq.current++;
     };
   }, [load]);
 
-  useEffect(() => setPage(1), [searchTerm, statusFilter]);
-  useEffect(() => () => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    []
+  );
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -145,318 +115,474 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   };
 
-  // Same as web: check for an active session only when the student taps "Rejoindre".
-  const handleJoinLive = async (course: Enriched) => {
-    const cId = course.cours?.id || course.coursId;
-    if (!cId) return;
+  const titleOf = (coursId?: string | null) => courses.find((c) => c.coursId === coursId)?.titre || t("studentClasses.untitledCourse");
+
+  const openContent = (coursId: string) => {
+    const session =
+      sessions.find((s) => String(s.coursId) === coursId && s.etatCoursProgramme === "EN_COURS") ??
+      sessions.find((s) => String(s.coursId) === coursId);
+    navigation.navigate(
+      "CourseViewer",
+      learnerId
+        ? { coursId, coursProgrammeId: session?.id, learnerId, readOnlyProgress: true }
+        : { coursId, coursProgrammeId: session?.id }
+    );
+  };
+
+  // Same as web: check for an active session only when the learner taps "Rejoindre".
+  const joinLive = async (coursId?: string | null) => {
+    if (!coursId) return;
     try {
-      const session = await liveSessionService.getActiveSession(cId);
-      if (session) navigation.navigate("LiveSession", { coursId: cId, isHost: false });
+      const session = await liveSessionService.getActiveSession(coursId);
+      if (session) navigation.navigate("LiveSession", { coursId, isHost: false });
       else showToast(t("studentClasses.noActiveSession"));
     } catch {
       showToast(t("studentClasses.sessionCheckError"));
     }
   };
 
-  const q = searchTerm.toLowerCase();
-  const filtered = courses.filter((c) => {
-    const matchSearch =
-      !searchTerm || c.cours.titre.toLowerCase().includes(q) || c.cours.description.toLowerCase().includes(q);
-    const matchStatus = statusFilter === "TOUS" || c.etatCoursProgramme === statusFilter;
-    return matchSearch && matchStatus;
-  });
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const stats = {
-    planifie: courses.filter((c) => c.etatCoursProgramme === "PLANIFIE").length,
-    enCours: courses.filter((c) => c.etatCoursProgramme === "EN_COURS").length,
-    termine: courses.filter((c) => c.etatCoursProgramme === "TERMINE").length,
-    total: courses.length,
-  };
+  const liveSessions = sessions.filter((s) => s.etatCoursProgramme === "EN_COURS" && s.coursId);
+  const q = search.trim().toLowerCase();
+  const visibleCourses = courses.filter((c) => !q || c.titre.toLowerCase().includes(q) || (c.matiere ?? "").toLowerCase().includes(q));
 
-  const goPage = (p: number) => {
-    setPage(p);
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
-  };
+  const renderCourseList = () => {
+    if (status !== "ready") {
+      return (
+        <View style={styles.card}>
+          <SectionState
+            status={status}
+            loadingLabel={t("studentClasses.loadingCourses")}
+            errorLabel={t("classDetails.error.courses")}
+            message={error}
+            onRetry={() => load("initial")}
+          />
+        </View>
+      );
+    }
+    return (
+      <>
+        {liveSessions.map((s) => (
+          <View key={s.id} style={[styles.card, styles.liveCard]}>
+            <View style={styles.inline}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveLabel}>{t("studentClasses.liveBanner")}</Text>
+            </View>
+            <Text style={styles.courseTitle}>{titleOf(String(s.coursId))}</Text>
+            <TouchableOpacity style={styles.liveBtn} onPress={() => joinLive(String(s.coursId))} activeOpacity={0.85}>
+              <FontAwesome5 name="dot-circle" size={14} color="#FFFFFF" />
+              <Text style={styles.liveBtnText}>{t("studentClasses.joinLive")}</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
 
-  const filters: { id: StatusFilter; label: TranslationKey }[] = [
-    { id: "TOUS", label: "studentClasses.allStatuses" },
-    { id: "PLANIFIE", label: "studentClasses.filterPlanned" },
-    { id: "EN_COURS", label: "studentClasses.filterLive" },
-    { id: "TERMINE", label: "studentClasses.filterDone" },
-    { id: "ANNULE", label: "studentClasses.filterCancelled" },
-  ];
+        <View style={styles.searchBox}>
+          <FontAwesome5 name="search" size={12} color={colors.textLight} />
+          <TextInput
+            style={styles.searchInput}
+            value={search}
+            onChangeText={setSearch}
+            placeholder={t("studentClasses.searchCourse")}
+            placeholderTextColor={colors.textLight}
+          />
+        </View>
+
+        {courses.length === 0 ? (
+          <View style={[styles.card, { alignItems: "center" }]}>
+            <FontAwesome5 name="book-open" size={36} color={colors.textLight} />
+            <Text style={styles.emptyTitle}>{t("studentClasses.noCourses")}</Text>
+            <Text style={styles.muted}>{learnerId ? t("studentClasses.noCoursesHintChild") : t("studentClasses.noCoursesHint")}</Text>
+          </View>
+        ) : visibleCourses.length === 0 ? (
+          <View style={[styles.card, { alignItems: "center" }]}>
+            <Text style={styles.emptyTitle}>{t("studentClasses.noCoursesFound")}</Text>
+          </View>
+        ) : (
+          visibleCourses.map((c) => (
+            <TouchableOpacity key={c.coursId} style={styles.card} onPress={() => setSelected(c.coursId)} activeOpacity={0.8}>
+              <View style={styles.inline}>
+                <View style={styles.courseIcon}>
+                  <FontAwesome5 name="book-open" size={14} color="#4f46e5" />
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.courseTitle} numberOfLines={2}>
+                    {c.titre || t("studentClasses.untitledCourse")}
+                  </Text>
+                  {c.matiere ? <Text style={styles.muted}>{c.matiere}</Text> : null}
+                </View>
+                <FontAwesome5 name="chevron-right" size={12} color={colors.textLight} />
+              </View>
+              <View style={styles.chips}>
+                {c.nbChapitres > 0 ? <Chip icon="list-ol" text={t("learning.counts.chapters", { count: c.nbChapitres })} /> : null}
+                <Chip icon="calendar-alt" text={t("learning.counts.sessions", { count: c.nbSessions })} />
+                {c.nbExercices > 0 ? <Chip icon="book-open" text={t("learning.counts.exercises", { count: c.nbExercices })} /> : null}
+                {c.nbDevoirs > 0 ? <Chip icon="file-alt" text={t("learning.counts.devoirs", { count: c.nbDevoirs })} /> : null}
+              </View>
+              {c.prochaineSession ? (
+                <Text style={styles.next}>{t("learning.classCourses.nextSession", { date: fmtWhen(c.prochaineSession) })}</Text>
+              ) : null}
+            </TouchableOpacity>
+          ))
+        )}
+
+        <TouchableOpacity style={[styles.card, styles.generalCard]} onPress={() => setSelected(GENERAL_COURSE_ID)} activeOpacity={0.8}>
+          <View style={styles.inline}>
+            <View style={[styles.courseIcon, { backgroundColor: colors.surfaceElevated }]}>
+              <FontAwesome5 name="layer-group" size={14} color={colors.textMuted} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.courseTitle}>{t("learning.generalExercises")}</Text>
+              <Text style={styles.muted}>{t("learning.classCourses.generalHint")}</Text>
+            </View>
+            <FontAwesome5 name="chevron-right" size={12} color={colors.textLight} />
+          </View>
+        </TouchableOpacity>
+      </>
+    );
+  };
 
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
-        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 150 }]}
         keyboardShouldPersistTaps="handled"
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => load("refresh")}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
-          />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load("refresh")} colors={[colors.primary]} tintColor={colors.primary} />}
       >
-        {/* Header */}
-        <View style={styles.headerCard}>
-          <LinearGradient colors={["#2563eb", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.hero}>
-            <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7} accessibilityLabel={t("common.back")}>
-              <FontAwesome5 name="arrow-left" size={14} color="#FFFFFF" />
-            </TouchableOpacity>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={styles.inline}>
-                <FontAwesome5 name="graduation-cap" size={13} color="#FFFFFF" />
-                <Text style={styles.heroTitle} numberOfLines={1}>{classe.nom}</Text>
-              </View>
-              <Text style={styles.heroSub} numberOfLines={1}>
-                {`${classe.niveau ?? ""} · ${classe.description || t("studentClasses.classSpace")}`}
+        <LinearGradient colors={["#2563eb", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.hero}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={selected ? () => setSelected(null) : onBack}
+            activeOpacity={0.7}
+            accessibilityLabel={t("common.back")}
+          >
+            <FontAwesome5 name="arrow-left" size={14} color="#FFFFFF" />
+          </TouchableOpacity>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.inline}>
+              <FontAwesome5 name="graduation-cap" size={13} color="#FFFFFF" />
+              <Text style={styles.heroTitle} numberOfLines={1}>
+                {classe.nom}
               </Text>
             </View>
-            {loaded ? (
-              <Text style={styles.heroCount}>{t("studentClasses.coursesCount", { count: courses.length })}</Text>
-            ) : loading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : null}
-          </LinearGradient>
-
-          <View style={styles.toolbar}>
-            <View style={styles.searchBox}>
-              <FontAwesome5 name="search" size={12} color={colors.textLight} />
-              <TextInput
-                style={styles.searchInput}
-                value={searchTerm}
-                onChangeText={setSearchTerm}
-                placeholder={t("studentClasses.searchCourse")}
-                placeholderTextColor={colors.textLight}
-              />
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-              <FontAwesome5 name="filter" size={11} color={colors.textMuted} style={{ alignSelf: "center" }} />
-              {filters.map((f) => {
-                const active = statusFilter === f.id;
-                return (
-                  <TouchableOpacity
-                    key={f.id}
-                    style={[styles.chip, active ? styles.chipActive : null]}
-                    onPress={() => setStatusFilter(f.id)}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{t(f.label)}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </View>
-
-        {/* A failed refresh keeps the loaded list: the error is shown as a banner above it. */}
-        {error && loaded ? (
-          <View style={styles.errorBox}>
-            <FontAwesome5 name="exclamation-circle" size={15} color="#dc2626" />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : null}
-
-        {loading || (!loaded && !error) ? (
-          <LoadingSpinner label={t("studentClasses.loadingCourses")} />
-        ) : !loaded ? (
-          <View style={styles.emptyCard}>
-            <EmptyState
-              icon="exclamation-triangle"
-              title={t("classDetails.error.courses")}
-              message={error}
-              actionLabel={t("classDetails.retry")}
-              onAction={() => load("initial")}
-            />
-          </View>
-        ) : filtered.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <FontAwesome5 name="book-open" size={42} color={colors.textLight} />
-            <Text style={styles.emptyTitle}>
-              {courses.length === 0 ? t("studentClasses.noCourses") : t("studentClasses.noCoursesFound")}
-            </Text>
-            <Text style={styles.emptyText}>
-              {courses.length > 0
-                ? t("studentClasses.noCoursesFoundHint")
-                : learnerId
-                  ? t("studentClasses.noCoursesHintChild")
-                  : t("studentClasses.noCoursesHint")}
+            <Text style={styles.heroSub} numberOfLines={1}>
+              {`${classe.niveau ?? ""} · ${classe.description || t("studentClasses.classSpace")}`}
             </Text>
           </View>
+          {status === "ready" ? (
+            <Text style={styles.heroCount}>{t("studentClasses.coursesCount", { count: courses.length })}</Text>
+          ) : status === "loading" ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : null}
+        </LinearGradient>
+
+        {selected ? (
+          <LearnerCoursePage
+            classe={classe}
+            coursId={selected === GENERAL_COURSE_ID ? null : selected}
+            course={courses.find((c) => c.coursId === selected) ?? null}
+            sessions={sessions.filter((s) => String(s.coursId) === selected)}
+            userId={userId ?? null}
+            learnerName={learnerName}
+            readOnly={readOnly}
+            refreshKey={refreshKey}
+            onBack={() => setSelected(null)}
+            onOpenContent={openContent}
+            onJoinLive={joinLive}
+          />
         ) : (
           <>
-            {paged.map((course) => {
-              const s = STATUS_STYLE[course.etatCoursProgramme ?? ""] || STATUS_STYLE.PLANIFIE;
-              const isLive = course.etatCoursProgramme === "EN_COURS";
-              const time = formatTime(course.dateCoursPrevue);
-              return (
-                <View key={course.id} style={[styles.courseCard, isLive && styles.courseCardLive]}>
-                  {isLive ? (
-                    <View style={styles.liveBanner}>
-                      <View style={styles.liveDot} />
-                      <Text style={styles.liveBannerText}>{t("studentClasses.liveBanner")}</Text>
-                    </View>
-                  ) : null}
-                  <TouchableOpacity style={styles.courseBody} onPress={() => openCourse(course)} activeOpacity={0.75}>
-                    <View style={styles.courseTop}>
-                      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                        <View style={styles.titleWrap}>
-                          <Text style={styles.courseTitle}>{course.cours.titre}</Text>
-                          <View style={[styles.statusPill, { backgroundColor: s.bg, borderColor: s.border }]}>
-                            <FontAwesome5 name={s.icon} size={10} color={s.color} />
-                            <Text style={[styles.statusText, { color: s.color }]}>{t(s.label)}</Text>
-                          </View>
-                        </View>
-                        {course.cours.description ? (
-                          <Text style={styles.courseDesc} numberOfLines={2}>{course.cours.description}</Text>
-                        ) : null}
-                        <View style={styles.inline}>
-                          <FontAwesome5 name="graduation-cap" size={10} color="#4f46e5" />
-                          <Text style={styles.className} numberOfLines={1}>{classe.nom}</Text>
-                        </View>
-                      </View>
-                      <FontAwesome5 name="chevron-right" size={13} color={colors.textLight} style={{ marginTop: 4 }} />
-                    </View>
-                    <View style={styles.metaRow}>
-                      <View style={styles.inline}>
-                        <FontAwesome5 name="calendar-alt" size={11} color={colors.textMuted} />
-                        <Text style={styles.metaText}>
-                          {formatDate(
-                            course.dateCoursPrevue,
-                            { weekday: "long", year: "numeric", month: "long", day: "numeric" },
-                            t("studentClasses.dateUndefined")
-                          )}
-                        </Text>
-                      </View>
-                      {time ? (
-                        <View style={styles.inline}>
-                          <FontAwesome5 name="clock" size={11} color={colors.textMuted} />
-                          <Text style={styles.metaText}>{time}</Text>
-                        </View>
-                      ) : null}
-                      {course.lieu ? (
-                        <View style={styles.inline}>
-                          <FontAwesome5 name="map-marker-alt" size={11} color={colors.textMuted} />
-                          <Text style={styles.metaText}>{course.lieu}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-
-                  <View style={styles.courseAction}>
-                    {isLive ? (
-                      <TouchableOpacity style={styles.liveBtn} onPress={() => handleJoinLive(course)} activeOpacity={0.85}>
-                        <FontAwesome5 name="dot-circle" size={14} color="#FFFFFF" />
-                        <Text style={styles.liveBtnText}>{t("studentClasses.joinLive")}</Text>
-                      </TouchableOpacity>
-                    ) : course.etatCoursProgramme === "TERMINE" ? (
-                      <TouchableOpacity style={styles.viewBtn} onPress={() => openCourse(course)} activeOpacity={0.8}>
-                        <FontAwesome5 name="eye" size={13} color={colors.textMuted} />
-                        <Text style={styles.viewBtnText}>{t("studentClasses.viewContent")}</Text>
-                      </TouchableOpacity>
-                    ) : course.etatCoursProgramme === "ANNULE" ? (
-                      <View style={[styles.note, { backgroundColor: "rgba(239,68,68,0.10)" }]}>
-                        <FontAwesome5 name="exclamation-circle" size={13} color="#f87171" />
-                        <Text style={[styles.noteText, { color: "#ef4444" }]}>{t("studentClasses.cancelledMsg")}</Text>
-                      </View>
-                    ) : (
-                      <View style={[styles.note, { backgroundColor: "rgba(59,130,246,0.10)" }]}>
-                        <FontAwesome5 name="clock" size={13} color="#60a5fa" />
-                        <Text style={[styles.noteText, { color: "#2563eb" }]}>{t("studentClasses.waitingMsg")}</Text>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
-
-            {totalPages > 1 ? (
-              <View style={styles.pagination}>
+            <View style={styles.segment}>
+              {(["courses", "progress"] as const).map((k) => (
                 <TouchableOpacity
-                  style={[styles.pageBtn, safePage <= 1 && { opacity: 0.4 }]}
-                  disabled={safePage <= 1}
-                  onPress={() => goPage(safePage - 1)}
-                  accessibilityLabel={t("common.previous")}
+                  key={k}
+                  style={[styles.segBtn, mode === k && styles.segBtnOn]}
+                  onPress={() => setMode(k)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: mode === k }}
                 >
-                  <FontAwesome5 name="chevron-left" size={12} color={colors.text} />
+                  <FontAwesome5 name={k === "courses" ? "book" : "chart-line"} size={11} color={mode === k ? "#FFFFFF" : colors.textMuted} />
+                  <Text style={[styles.segText, mode === k && { color: "#FFFFFF" }]}>
+                    {t(k === "courses" ? "learning.classCourses.tabCourses" : "learning.classCourses.tabProgress")}
+                  </Text>
                 </TouchableOpacity>
-                <Text style={styles.pageText}>{t("studentClasses.pageOf", { page: safePage, total: totalPages })}</Text>
-                <TouchableOpacity
-                  style={[styles.pageBtn, safePage >= totalPages && { opacity: 0.4 }]}
-                  disabled={safePage >= totalPages}
-                  onPress={() => goPage(safePage + 1)}
-                  accessibilityLabel={t("common.next")}
-                >
-                  <FontAwesome5 name="chevron-right" size={12} color={colors.text} />
-                </TouchableOpacity>
-              </View>
-            ) : null}
-
-            <View style={styles.statsCard}>
-              <View style={styles.inline}>
-                <FontAwesome5 name="book-open" size={13} color="#4f46e5" />
-                <Text style={styles.statsTitle}>{t("studentClasses.statsTitle")}</Text>
-              </View>
-              <View style={styles.statsGrid}>
-                {[
-                  { label: t("studentClasses.filterPlanned"), value: stats.planifie, color: "#2563eb", bg: "rgba(59,130,246,0.10)" },
-                  { label: t("studentClasses.filterLive"), value: stats.enCours, color: "#16a34a", bg: "rgba(34,197,94,0.10)" },
-                  { label: t("studentClasses.filterDone"), value: stats.termine, color: "#4b5563", bg: "rgba(107,114,128,0.12)" },
-                  { label: t("studentClasses.statTotalCap"), value: stats.total, color: "#9333ea", bg: "rgba(147,51,234,0.10)" },
-                ].map((st) => (
-                  <View key={st.label} style={[styles.statBox, { backgroundColor: st.bg }]}>
-                    <Text style={[styles.statValue, { color: st.color }]}>{st.value}</Text>
-                    <Text style={styles.statLabel}>{st.label}</Text>
-                  </View>
-                ))}
-              </View>
+              ))}
             </View>
+            {mode === "courses" ? (
+              renderCourseList()
+            ) : (
+              <ClassProgressionView
+                classe={classe}
+                userId={userId ?? null}
+                courses={courses}
+                coursesReady={status === "ready"}
+                refreshKey={refreshKey}
+                onOpenCourse={(id) => setSelected(id || GENERAL_COURSE_ID)}
+              />
+            )}
           </>
         )}
       </ScrollView>
 
       {toast ? (
         <View style={[styles.toast, { bottom: insets.bottom + 110 }]} pointerEvents="none">
-          <View style={styles.toastDot} />
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       ) : null}
-
     </View>
   );
+};
+
+const Chip = ({ icon, text }: { icon: string; text: string }) => {
+  const colors = useThemeColors();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full, backgroundColor: colors.surfaceElevated }}>
+      <FontAwesome5 name={icon} size={9} color={colors.textMuted} />
+      <Text style={{ ...typography.tiny, color: colors.textMuted }}>{text}</Text>
+    </View>
+  );
+};
+
+// ─── Course page (learner) ───────────────────────────────────────────────────
+
+const LearnerCoursePage = ({
+  classe,
+  coursId,
+  course,
+  sessions,
+  userId,
+  learnerName,
+  readOnly,
+  refreshKey,
+  onBack,
+  onOpenContent,
+  onJoinLive,
+}: {
+  classe: ClassEntity;
+  coursId: string | null;
+  course: CoursResume | null;
+  sessions: CoursProgramme[];
+  userId: string | null;
+  learnerName?: string;
+  readOnly: boolean;
+  refreshKey: number;
+  onBack: () => void;
+  onOpenContent: (coursId: string) => void;
+  onJoinLive: (coursId: string) => void;
+}) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useT();
+  const navigation = useNavigation<any>();
+  const { openAttempt, openResult } = useDevoirNavigation(userId, learnerName);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [error, setError] = useState("");
+  const [items, setItems] = useState<DevoirItem[]>([]);
+  const seq = useRef(0);
+
+  const load = useCallback(
+    async (silent = false) => {
+      if (!userId) return;
+      const s = ++seq.current;
+      if (!silent) setStatus("loading");
+      setError("");
+      try {
+        let list: DevoirItem[];
+        try {
+          // GET /classes/{id}/cours/{coursId|general}/exercices?eleveId= (status + note inline).
+          const eps = await learningService.getCourseExercises(classe.id, coursId, userId);
+          list = eps.map((ep) => buildDevoirItem(ep, null, classe));
+        } catch {
+          // Older backend: the class's programmed exercises + the learner's participations.
+          const all = await loadDevoirs(userId, [classe], { includeExercises: true });
+          list = all.filter((d) => d.coursId === coursId);
+        }
+        if (s !== seq.current) return;
+        setItems(sortDevoirs(list));
+        setStatus("ready");
+      } catch (e) {
+        if (s !== seq.current) return;
+        setError(e instanceof Error ? e.message : "");
+        if (!silent) setStatus("error");
+      }
+    },
+    [classe, coursId, userId]
+  );
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
+  // Back from the attempt / copy page: refresh statuses silently.
+  useEffect(() => navigation.addListener("focus", () => load(true)), [navigation, load]);
+
+  const sorted = [...sessions].sort((a, b) => serverDateMs(a.dateCoursPrevue, 0) - serverDateMs(b.dateCoursPrevue, 0));
+  const todo = items.filter((d) => !d.isSubmitted).length;
+
+  return (
+    <View style={{ gap: spacing.md }}>
+      <TouchableOpacity style={styles.backLink} onPress={onBack} activeOpacity={0.8}>
+        <FontAwesome5 name="arrow-left" size={12} color={colors.primary} />
+        <Text style={styles.backLinkText}>{t("learning.classCourses.allCourses")}</Text>
+      </TouchableOpacity>
+
+      <View style={styles.card}>
+        <View style={styles.inline}>
+          <View style={[styles.courseIcon, !coursId && { backgroundColor: colors.surfaceElevated }]}>
+            <FontAwesome5 name={coursId ? "book-open" : "layer-group"} size={14} color={coursId ? "#4f46e5" : colors.textMuted} />
+          </View>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.courseTitle}>{coursId ? course?.titre || t("studentClasses.untitledCourse") : t("learning.generalExercises")}</Text>
+            {course?.matiere ? <Text style={styles.muted}>{course.matiere}</Text> : null}
+          </View>
+        </View>
+        {course ? (
+          <View style={styles.chips}>
+            {course.nbChapitres > 0 ? <Chip icon="list-ol" text={t("learning.counts.chapters", { count: course.nbChapitres })} /> : null}
+            <Chip icon="calendar-alt" text={t("learning.counts.sessions", { count: course.nbSessions || sessions.length })} />
+          </View>
+        ) : null}
+        {coursId ? (
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => onOpenContent(coursId)} activeOpacity={0.85}>
+            <FontAwesome5 name="book-reader" size={13} color="#FFFFFF" />
+            <Text style={styles.primaryBtnText}>{t("learning.classCourses.readCourse")}</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {coursId && sorted.length > 0 ? (
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>{t("learning.classCourses.sessions")}</Text>
+          {sorted.map((s) => {
+            const st = STATUS_STYLE[s.etatCoursProgramme ?? ""] ?? STATUS_STYLE.PLANIFIE;
+            const live = s.etatCoursProgramme === "EN_COURS";
+            return (
+              <View key={s.id} style={styles.sessionRow}>
+                <View style={[styles.statusPill, { backgroundColor: st.bg }]}>
+                  <FontAwesome5 name={st.icon} size={9} color={st.color} />
+                  <Text style={[styles.statusText, { color: st.color }]}>{t(st.label)}</Text>
+                </View>
+                <Text style={[styles.muted, { flex: 1 }]} numberOfLines={1}>
+                  {fmtWhen(s.dateCoursPrevue, t("studentClasses.dateUndefined"))}
+                  {s.lieu ? ` · ${s.lieu}` : ""}
+                </Text>
+                {live ? (
+                  <TouchableOpacity style={styles.liveMini} onPress={() => onJoinLive(coursId)}>
+                    <Text style={styles.liveMiniText}>{t("learning.join")}</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      ) : null}
+
+      <View style={styles.card}>
+        <View style={styles.inline}>
+          <Text style={[styles.sectionTitle, { flex: 1 }]}>{t("learning.classCourses.exercisesTitle")}</Text>
+          {status === "ready" && todo > 0 ? <CountPill value={t("learning.groups.todo", { count: todo })} color={colors.warning} /> : null}
+        </View>
+        {status !== "ready" ? (
+          <SectionState
+            status={status}
+            loadingLabel={t("classDetails.loading.exercises")}
+            errorLabel={t("classDetails.error.exercises")}
+            message={error}
+            onRetry={() => load()}
+          />
+        ) : items.length === 0 ? (
+          <Text style={styles.muted}>{t("learning.classCourses.noExercises")}</Text>
+        ) : (
+          items.map((d) => (
+            <DevoirCard key={d.programme.id} item={d} readOnly={readOnly} learnerName={learnerName} onAttempt={openAttempt} onResult={openResult} />
+          ))
+        )}
+      </View>
+    </View>
+  );
+};
+
+// ─── Progression (one class) ─────────────────────────────────────────────────
+
+const ClassProgressionView = ({
+  classe,
+  userId,
+  courses,
+  coursesReady,
+  refreshKey,
+  onOpenCourse,
+}: {
+  classe: ClassEntity;
+  userId: string | null;
+  courses: CoursResume[];
+  coursesReady: boolean;
+  refreshKey: number;
+  onOpenCourse: (coursId: string) => void;
+}) => {
+  const colors = useThemeColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useT();
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [error, setError] = useState("");
+  const [data, setData] = useState<EleveProgression | null>(null);
+  const seq = useRef(0);
+
+  const load = useCallback(async () => {
+    if (!userId || !coursesReady) return;
+    const s = ++seq.current;
+    setStatus((p) => (p === "ready" ? "ready" : "loading"));
+    setError("");
+    try {
+      const d = await loadClassProgression(userId, classe, courses);
+      if (s !== seq.current) return;
+      setData(d);
+      setStatus("ready");
+    } catch (e) {
+      if (s !== seq.current) return;
+      setError(e instanceof Error ? e.message : "");
+      setStatus("error");
+    }
+  }, [userId, classe, courses, coursesReady]);
+
+  useEffect(() => {
+    load();
+  }, [load, refreshKey]);
+
+  if (status !== "ready" || !data) {
+    return (
+      <View style={styles.card}>
+        <SectionState
+          status={status === "error" ? "error" : "loading"}
+          loadingLabel={t("learning.progress.loading")}
+          errorLabel={t("learning.errors.progression")}
+          message={error}
+          onRetry={load}
+        />
+      </View>
+    );
+  }
+  return <ProgressionContent data={data} onOpenCourse={onOpenCourse} />;
 };
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
   StyleSheet.create({
     content: { paddingHorizontal: 16, paddingTop: spacing.sm, gap: spacing.md },
-    inline: { flexDirection: "row", alignItems: "center", gap: 6 },
-    headerCard: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: "hidden",
-    },
-    hero: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-    backBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: radius.sm,
-      backgroundColor: "rgba(255,255,255,0.18)",
-      alignItems: "center",
-      justifyContent: "center",
-    },
+    inline: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    hero: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.md },
+    backBtn: { width: 32, height: 32, borderRadius: radius.sm, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
     heroTitle: { ...typography.h4, color: "#FFFFFF", fontWeight: "800", flexShrink: 1 },
     heroSub: { ...typography.caption, color: "#dbeafe", marginTop: 2 },
     heroCount: { ...typography.caption, color: "#dbeafe" },
-    toolbar: { padding: spacing.md, gap: spacing.sm, backgroundColor: colors.surfaceElevated },
+    segment: { flexDirection: "row", gap: 6, padding: 4, borderRadius: radius.md, backgroundColor: colors.surfaceElevated },
+    segBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: radius.sm },
+    segBtnOn: { backgroundColor: colors.primary },
+    segText: { ...typography.captionBold, color: colors.textMuted },
+    card: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: spacing.md, gap: spacing.sm },
+    generalCard: { borderStyle: "dashed" },
+    liveCard: { borderColor: "#4ade80", borderWidth: 2 },
+    liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#22c55e" },
+    liveLabel: { ...typography.captionBold, color: "#15803d", textTransform: "uppercase", letterSpacing: 1 },
+    liveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, backgroundColor: "#16a34a", borderRadius: radius.md, paddingVertical: 11 },
+    liveBtnText: { ...typography.bodyBold, color: "#FFFFFF" },
     searchBox: {
       flexDirection: "row",
       alignItems: "center",
@@ -468,138 +594,24 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
       paddingHorizontal: spacing.md,
     },
     searchInput: { flex: 1, fontSize: 14, color: colors.text, paddingVertical: 8 },
-    chips: { gap: spacing.sm, paddingRight: spacing.sm },
-    chip: {
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: radius.full,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    chipText: { ...typography.captionBold, color: colors.textMuted },
-    chipTextActive: { color: "#FFFFFF" },
-    errorBox: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      backgroundColor: "rgba(239,68,68,0.10)",
-      borderWidth: 1,
-      borderColor: "rgba(239,68,68,0.35)",
-      borderRadius: radius.md,
-      padding: spacing.md,
-    },
-    errorText: { ...typography.caption, color: "#dc2626", flex: 1 },
-    emptyCard: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: spacing.xl,
-      alignItems: "center",
-      gap: spacing.sm,
-    },
+    courseIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(79,70,229,0.12)" },
+    courseTitle: { ...typography.bodyBold, color: colors.text },
+    sectionTitle: { ...typography.bodyBold, color: colors.text },
+    muted: { ...typography.caption, color: colors.textMuted },
+    next: { ...typography.caption, color: colors.primary },
     emptyTitle: { ...typography.h4, color: colors.text, textAlign: "center" },
-    emptyText: { ...typography.caption, color: colors.textMuted, textAlign: "center" },
-    courseCard: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
-      borderWidth: 2,
-      borderColor: colors.border,
-      overflow: "hidden",
-    },
-    courseCardLive: { borderColor: "#4ade80" },
-    liveBanner: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      backgroundColor: "#22c55e",
-      paddingHorizontal: spacing.lg,
-      paddingVertical: 6,
-    },
-    liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#FFFFFF" },
-    liveBannerText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800", letterSpacing: 1.5, textTransform: "uppercase" },
-    courseBody: { padding: spacing.md, gap: spacing.sm },
-    courseTop: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
-    titleWrap: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.sm },
-    courseTitle: { ...typography.h4, fontWeight: "700", color: colors.text, flexShrink: 1 },
-    statusPill: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      paddingHorizontal: 8,
-      paddingVertical: 2,
-      borderRadius: radius.full,
-      borderWidth: 1,
-    },
+    chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+    backLink: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", paddingVertical: 4 },
+    backLinkText: { ...typography.captionBold, color: colors.primary },
+    primaryBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.primary, borderRadius: radius.sm, paddingVertical: 10 },
+    primaryBtnText: { ...typography.bodyBold, color: "#FFFFFF" },
+    sessionRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, borderTopWidth: 1, borderTopColor: colors.border },
+    statusPill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full },
     statusText: { fontSize: 11, fontWeight: "600" },
-    courseDesc: { ...typography.caption, color: colors.textMuted },
-    className: { ...typography.captionBold, color: "#4f46e5", flexShrink: 1 },
-    metaRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-    metaText: { ...typography.caption, color: colors.textMuted },
-    courseAction: { paddingHorizontal: spacing.md, paddingBottom: spacing.md },
-    liveBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: spacing.sm,
-      backgroundColor: "#16a34a",
-      borderRadius: radius.md,
-      paddingVertical: 11,
-    },
-    liveBtnText: { ...typography.bodyBold, color: "#FFFFFF" },
-    viewBtn: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: spacing.sm,
-      backgroundColor: colors.surfaceElevated,
-      borderRadius: radius.md,
-      paddingVertical: 9,
-    },
-    viewBtnText: { ...typography.body, color: colors.textMuted },
-    note: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 9 },
-    noteText: { ...typography.captionBold, flex: 1, fontWeight: "600" },
-    pagination: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.lg },
-    pageBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: radius.sm,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    pageText: { ...typography.captionBold, color: colors.textMuted },
-    statsCard: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      padding: spacing.lg,
-      gap: spacing.md,
-    },
-    statsTitle: { ...typography.bodyBold, color: colors.text },
-    statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-    statBox: { flexGrow: 1, flexBasis: "45%", alignItems: "center", padding: spacing.md, borderRadius: radius.sm },
-    statValue: { fontSize: 20, fontWeight: "800" },
-    statLabel: { ...typography.caption, color: colors.textMuted },
-    toast: {
-      position: "absolute",
-      left: 16,
-      right: 16,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.md,
-      backgroundColor: "#2563eb",
-      borderRadius: radius.md,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-    },
-    toastDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#FFFFFF" },
-    toastText: { ...typography.bodyBold, color: "#FFFFFF", flex: 1 },
+    liveMini: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: "#16a34a" },
+    liveMiniText: { ...typography.captionBold, color: "#FFFFFF" },
+    toast: { position: "absolute", left: 16, right: 16, backgroundColor: "#2563eb", borderRadius: radius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+    toastText: { ...typography.bodyBold, color: "#FFFFFF" },
   });
 
 export default StudentClassDetailPage;

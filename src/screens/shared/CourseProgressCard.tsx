@@ -3,7 +3,9 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "rea
 import { FontAwesome5 } from "@expo/vector-icons";
 import { Card } from "../../components/ui";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { coursProgrammerService, coursService, participationService } from "../../services/api";
+import { coursProgrammerService, coursService, learningService, participationService } from "../../services/api";
+import type { EleveProgression } from "../../services/api";
+import ProgressionContent from "./ProgressionContent";
 import { Participation } from "../../types";
 import { useT } from "../../i18n";
 
@@ -54,12 +56,20 @@ const CourseProgressCard = ({ learnerId, learnerName, onOpenCourses, onOpenDevoi
   const [homework, setHomework] = useState<Homework | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  /** GET /eleves/{id}/progression (all classes); null → older endpoints below. */
+  const [progression, setProgression] = useState<EleveProgression | null>(null);
 
   const load = useCallback(async () => {
     if (!learnerId) return;
     setLoading(true);
     setError(false);
     try {
+      const fresh = await learningService.getProgression(learnerId).catch(() => null);
+      if (fresh) {
+        setProgression(fresh);
+        return;
+      }
+      setProgression(null);
       const [scheduled, details, parts] = await Promise.all([
         coursProgrammerService.getAccessible(learnerId).catch(() => []),
         coursService.getAccessible(learnerId).catch(() => []),
@@ -112,6 +122,33 @@ const CourseProgressCard = ({ learnerId, learnerName, onOpenCourses, onOpenDevoi
   const barColor = (pct: number) => (pct >= 100 ? colors.success : pct >= 50 ? colors.primary : pct > 0 ? colors.warning : colors.border);
   const avg = rows.length ? Math.round(rows.reduce((s, r) => s + r.pct, 0) / rows.length) : 0;
 
+  if (progression && !loading) {
+    return (
+      <Card style={styles.card}>
+        <View style={styles.head}>
+          <FontAwesome5 name="chart-line" size={14} color={colors.primary} />
+          <Text style={styles.title}>
+            {learnerName ? t("dashboardProgress.childTitle", { name: learnerName }) : t("dashboardProgress.title")}
+          </Text>
+          <TouchableOpacity onPress={load} hitSlop={8} accessibilityLabel={t("devoirs.refresh")}>
+            <FontAwesome5 name="sync-alt" size={12} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+        <ProgressionContent data={progression} onOpenDevoirs={onOpenDevoirs} />
+        {progression.cours.length === 0 && onOpenCourses ? (
+          <TouchableOpacity onPress={onOpenCourses}>
+            <Text style={styles.link}>{t("dashboardProgress.viewCourses")}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {onOpenDevoirs && progression.devoirsEnRetard.length === 0 ? (
+          <TouchableOpacity style={styles.button} onPress={onOpenDevoirs}>
+            <Text style={styles.buttonText}>{t("dashboardProgress.viewDevoirs")}</Text>
+          </TouchableOpacity>
+        ) : null}
+      </Card>
+    );
+  }
+
   return (
     <>
       <Card style={styles.card}>
@@ -128,11 +165,13 @@ const CourseProgressCard = ({ learnerId, learnerName, onOpenCourses, onOpenDevoi
             <Text style={styles.muted}>{t("dashboardProgress.loading")}</Text>
           </View>
         ) : error ? (
-          <TouchableOpacity onPress={load}>
-            <Text style={styles.error}>
-              {t("dashboardProgress.loadFailed")} {t("common.tapToRetry")}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.center}>
+            <FontAwesome5 name="exclamation-triangle" size={20} color={colors.danger} />
+            <Text style={styles.error}>{t("dashboardProgress.loadFailed")}</Text>
+            <TouchableOpacity style={styles.button} onPress={load}>
+              <Text style={styles.buttonText}>{t("classDetails.retry")}</Text>
+            </TouchableOpacity>
+          </View>
         ) : rows.length === 0 ? (
           <View style={styles.center}>
             <FontAwesome5 name="book-open" size={26} color={colors.textLight} />

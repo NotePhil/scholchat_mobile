@@ -24,6 +24,7 @@ const ParentExercisesBody = () => {
   const { children, selectedChildId, loadChildren } = useSelectedChildStore();
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
+  const [classesError, setClassesError] = useState("");
 
   useEffect(() => {
     if (user?.userId) loadChildren(user.userId);
@@ -36,10 +37,12 @@ const ParentExercisesBody = () => {
       return;
     }
     setClassesLoading(true);
+    setClassesError("");
     try {
       setClasses(await parentService.getChildClasses(selectedChildId));
-    } catch {
+    } catch (e) {
       setClasses([]);
+      setClassesError(e instanceof Error && e.message ? e.message : t("classDetails.error.classes"));
     } finally {
       setClassesLoading(false);
     }
@@ -64,6 +67,7 @@ const ParentExercisesBody = () => {
         userId={selectedChildId}
         classes={classes}
         classesLoading={classesLoading}
+        classesError={classesError}
         readOnly={childHasAccount}
         learnerName={childName || undefined}
         hint={child ? t(childHasAccount ? "devoirs.childAdultHint" : "devoirs.childMinorHint", { name: childName }) : undefined}

@@ -23,6 +23,13 @@ import { useUser } from "../../../../context/UserContext";
 import { ClassEntity, Exercise } from "../../../../types";
 import { NIVEAU_GRADES, NIVEAU_OPTIONS, mapNiveauToEnum } from "./CreateExerciseView";
 import { formatDate, serverDateMs, toServerDateTime } from "../../../../utils/dates";
+import { translate } from "../../../../i18n";
+import CoursePickerField, {
+  CoursParClasseValue,
+  classesWithoutCourse,
+  countProgrammations,
+  toCoursParClasse,
+} from "./CoursePickerField";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -262,6 +269,8 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
     dateDebutExoEffectif: "",
     dateFinExoEffectif: "",
     classeIds: [] as string[],
+    /** Course chosen per selected class: course id | GENERAL_COURSE_ID (required for every class). */
+    coursParClasse: {} as CoursParClasseValue,
     diffuseImmediately: true,
   });
   const [progSubmitted, setProgSubmitted] = useState(false);
@@ -379,6 +388,7 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
       dateDebutExoEffectif: "",
       dateFinExoEffectif: "",
       classeIds: [],
+      coursParClasse: {},
       diffuseImmediately: true,
     });
     setProgSubmitted(false);
@@ -393,6 +403,8 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
     else if (prog.dateDebutExoEffectif && serverDateMs(prog.dateFinExoEffectif, NaN) <= serverDateMs(prog.dateDebutExoEffectif, NaN))
       e.dateFinExoEffectif = "Doit être après le début";
     if (prog.classeIds.length === 0) e.classeIds = "Sélectionnez au moins une classe";
+    else if (classesWithoutCourse(prog.coursParClasse, prog.classeIds).length > 0)
+      e.coursId = translate("learning.schedule.courseRequired");
     return e;
   }, [progSubmitted, prog]);
 
@@ -403,7 +415,8 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
       !prog.dateDebutExoEffectif ||
       !prog.dateFinExoEffectif ||
       serverDateMs(prog.dateFinExoEffectif, NaN) <= serverDateMs(prog.dateDebutExoEffectif, NaN) ||
-      prog.classeIds.length === 0;
+      prog.classeIds.length === 0 ||
+      classesWithoutCourse(prog.coursParClasse, prog.classeIds).length > 0;
     if (invalid) return;
     const userId = user?.userId;
     if (!userId) {
@@ -420,15 +433,19 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
         dateDebutExoEffectif: toServerDateTime(prog.dateDebutExoEffectif) ?? undefined,
         dateFinExoEffectif: toServerDateTime(prog.dateFinExoEffectif) ?? undefined,
         classeIds: prog.classeIds || [],
+        coursParClasse: toCoursParClasse(prog.coursParClasse, prog.classeIds || []),
         etat: "ACTIF",
       };
-      if (prog.diffuseImmediately !== false) {
-        await exerciseProgrammerService.programmerEtDiffuser(payload);
-        setNotice({ kind: "success", text: "Exercice programmé et diffusé !" });
-      } else {
-        await exerciseProgrammerService.programmer(payload);
-        setNotice({ kind: "success", text: "Exercice programmé" });
-      }
+      const diffuse = prog.diffuseImmediately !== false;
+      const created = diffuse
+        ? await exerciseProgrammerService.programmerEtDiffuser(payload)
+        : await exerciseProgrammerService.programmer(payload);
+      const n = countProgrammations(created);
+      const base = diffuse ? "Exercice programmé et diffusé" : "Exercice programmé";
+      setNotice({
+        kind: "success",
+        text: n > 1 ? `${base} : ${translate("learning.schedule.createdMany", { count: n })}` : `${base} !`,
+      });
       setShowProgram(false);
       resetProgram();
       onChanged?.();
@@ -880,6 +897,18 @@ export const ExerciseDetailView = ({ exerciseId, onBack, onEdit, onDeleted, onCh
               {classesLoading ? "Chargement..." : `${classes.length} classe(s) disponible(s)`}
             </Text>
           </View>
+
+          <CoursePickerField
+            classes={prog.classeIds.map((id) => {
+              const c = classes.find((x) => String(x.id) === id);
+              return { id, nom: c ? className(c) : "Classe" };
+            })}
+            value={prog.coursParClasse}
+            onChange={(classeId, v) =>
+              setProg((p) => ({ ...p, coursParClasse: { ...p.coursParClasse, [classeId]: v } }))
+            }
+            error={progErrors.coursId}
+          />
 
           <View style={styles.diffuseBox}>
             <View style={{ flex: 1 }}>

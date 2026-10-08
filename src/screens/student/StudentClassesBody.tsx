@@ -17,7 +17,8 @@ import { EmptyState, LoadingSpinner } from "../../components/ui";
 import StudentJoinClassPage from "./StudentJoinClassPage";
 import StudentClassDetailPage from "./StudentClassDetailPage";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { accederService, classAdminService, coursProgrammerService } from "../../services/api";
+import { accederService, classAdminService, coursProgrammerService, learningService } from "../../services/api";
+import type { ClasseResume } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { useT } from "../../i18n";
@@ -81,6 +82,8 @@ const StudentClassesBody = () => {
   const [accessMap, setAccessMap] = useState<Record<string, AccessStatus>>({});
   const [courseCounts, setCourseCounts] = useState<Record<string, number>>({});
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
+  /** GET /utilisateurs/{id}/classes/resume (course + homework counts); empty when unavailable. */
+  const [summaries, setSummaries] = useState<Record<string, ClasseResume>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -94,10 +97,16 @@ const StudentClassesBody = () => {
     setLoading(true);
     setError("");
     try {
-      const [allData, approvedData] = await Promise.all([
+      const [allData, approvedData, summaryList] = await Promise.all([
         classAdminService.getAll(),
         accederService.getAccessibleClasses(userId),
+        learningService.getLearnerClassesSummary(userId).catch(() => [] as ClasseResume[]),
       ]);
+      const summaryMap: Record<string, ClasseResume> = {};
+      summaryList.forEach((r) => {
+        summaryMap[r.classeId] = r;
+      });
+      setSummaries(summaryMap);
       const active = (allData || []).filter((c) => c.etat === "ACTIF");
       setAllClasses(active);
 
@@ -128,7 +137,12 @@ const StudentClassesBody = () => {
       const countMap: Record<string, number> = {};
       const memberMap: Record<string, number> = {};
       await Promise.all([
+        // Course counts: from the summary when present, else one call per class (fallback).
         ...myClasses.map(async (c) => {
+          if (summaryMap[c.id]) {
+            countMap[c.id] = summaryMap[c.id].nbCours;
+            return;
+          }
           try {
             countMap[c.id] = ((await coursProgrammerService.getByClasse(c.id)) || []).length;
           } catch {
@@ -363,6 +377,7 @@ const StudentClassesBody = () => {
           const accessCfg = status ? ACCESS[status] : null;
           const courseCount = courseCounts[classe.id] ?? "—";
           const memberCount = memberCounts[classe.id] ?? (classe.eleves?.length || 0);
+          const toDo = summaries[classe.id]?.nbDevoirsAFaire ?? 0;
           return (
             <View key={classe.id} style={[styles.card, isApproved && { borderColor: "rgba(37,99,235,0.35)" }]}>
               {isApproved ? (
@@ -405,6 +420,14 @@ const StudentClassesBody = () => {
                       <Text style={styles.statStrong}>{memberCount}</Text> {t("studentClasses.members")}
                     </Text>
                   </View>
+                  {isApproved && toDo > 0 ? (
+                    <View style={styles.inlineRow}>
+                      <View style={[styles.miniIcon, { backgroundColor: "rgba(217,119,6,0.12)" }]}>
+                        <FontAwesome5 name="tasks" size={10} color="#d97706" />
+                      </View>
+                      <Text style={styles.statText}>{t("learning.classes.devoirsToDo", { count: toDo })}</Text>
+                    </View>
+                  ) : null}
                   {classe.dateCreation ? (
                     <View style={[styles.inlineRow, { marginLeft: "auto" }]}>
                       <FontAwesome5 name="calendar-alt" size={10} color={colors.textLight} />
@@ -424,8 +447,8 @@ const StudentClassesBody = () => {
                   {isApproved ? (
                     <TouchableOpacity onPress={() => setView({ name: "detail", classe })} activeOpacity={0.85}>
                       <LinearGradient colors={["#2563eb", "#4f46e5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.actionBtn}>
-                        <Text style={styles.actionBtnTextWhite}>{t("studentClasses.enter")}</Text>
-                        <FontAwesome5 name="arrow-right" size={11} color="#FFFFFF" />
+                        <FontAwesome5 name="sign-in-alt" size={13} color="#FFFFFF" />
+                        <Text style={styles.actionBtnTextWhite}>{t("learning.classes.enter")}</Text>
                       </LinearGradient>
                     </TouchableOpacity>
                   ) : isPending ? (

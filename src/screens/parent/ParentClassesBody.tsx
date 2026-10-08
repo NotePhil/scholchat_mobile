@@ -8,7 +8,8 @@ import StudentClassDetailPage from "../student/StudentClassDetailPage";
 import ChildSelectorRow from "./ChildSelectorRow";
 import AddChildSheet from "./AddChildSheet";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { accederService, classAdminService, parentService } from "../../services/api";
+import { accederService, classAdminService, coursProgrammerService, learningService, parentService } from "../../services/api";
+import type { ClasseResume } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
@@ -38,6 +39,8 @@ const ParentClassesBody = () => {
   const [showJoin, setShowJoin] = useState(false);
   const [showAddChild, setShowAddChild] = useState(false);
   const [selectedClass, setSelectedClass] = useState<ClassEntity | null>(null);
+  /** Per class: number of courses and homework to do for the selected child (summary, else fallback count). */
+  const [counts, setCounts] = useState<Record<string, { nbCours: number | null; nbDevoirsAFaire: number }>>({});
 
   useEffect(() => {
     if (user?.userId) loadChildren(user.userId);
@@ -96,6 +99,24 @@ const ParentClassesBody = () => {
         });
 
       setRows(built);
+
+      // Course / homework counts: GET /utilisateurs/{childId}/classes/resume, else count the
+      // programmed courses of each approved class (older backend).
+      const childId = selectedChildId;
+      const summary = await learningService.getLearnerClassesSummary(childId).catch(() => null as ClasseResume[] | null);
+      const next: Record<string, { nbCours: number | null; nbDevoirsAFaire: number }> = {};
+      (summary ?? []).forEach((r) => {
+        next[r.classeId] = { nbCours: r.nbCours, nbDevoirsAFaire: r.nbDevoirsAFaire };
+      });
+      await Promise.all(
+        built
+          .filter((r) => r.access === "APPROVED" && !next[r.cls.id])
+          .map(async (r) => {
+            const list = await coursProgrammerService.getByClasse(r.cls.id).catch(() => null);
+            next[r.cls.id] = { nbCours: list ? list.length : null, nbDevoirsAFaire: 0 };
+          })
+      );
+      if (useSelectedChildStore.getState().selectedChildId === childId) setCounts(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("studentClasses.loadError"));
     } finally {
@@ -109,6 +130,7 @@ const ParentClassesBody = () => {
 
   // Switching child closes the class that was open for the previous one.
   useEffect(() => setSelectedClass(null), [selectedChildId]);
+  useEffect(() => setCounts({}), [selectedChildId]);
 
   // Opened from a notification tap (useUiStore.requestClass): find the child concerned by that
   // class (selected child first), select them and open the class; a request still pending /
@@ -205,7 +227,17 @@ const ParentClassesBody = () => {
   }
 
   if (selectedClass && selectedChildId) {
-    return <StudentClassDetailPage classe={selectedClass} learnerId={selectedChildId} onBack={() => setSelectedClass(null)} />;
+    const kid = children.find((c) => c.id === selectedChildId);
+    return (
+      <StudentClassDetailPage
+        classe={selectedClass}
+        learnerId={selectedChildId}
+        learnerName={kid?.prenom || kid?.nom || undefined}
+        // Adult child (own login) answers himself; the parent hands in a minor's work.
+        readOnly={!!kid?.email}
+        onBack={() => setSelectedClass(null)}
+      />
+    );
   }
 
   return (
@@ -291,14 +323,14 @@ const ParentClassesBody = () => {
                 : null;
             const actionLabel =
               access === "APPROVED"
-                ? t("parentClasses.viewCourses")
+                ? t("learning.classes.enter")
                 : access === "EN_ATTENTE"
                 ? t("parentClasses.pendingAction")
                 : access === "REJETEE"
                 ? t("parentClasses.seeReason")
                 : t("studentClasses.requestAccess");
             const actionIcon =
-              access === "APPROVED" ? "eye" : access === "EN_ATTENTE" ? "clock" : access === "REJETEE" ? "info-circle" : "paper-plane";
+              access === "APPROVED" ? "sign-in-alt" : access === "EN_ATTENTE" ? "clock" : access === "REJETEE" ? "info-circle" : "paper-plane";
             return (
               <TouchableOpacity
                 key={cls.id}
@@ -328,11 +360,42 @@ const ParentClassesBody = () => {
                   </View>
                 ) : null}
 
+                {access === "APPROVED" && counts[cls.id] ? (
+                  <View style={styles.countsRow}>
+                    {counts[cls.id].nbCours != null ? (
+                      <View style={styles.metaRow}>
+                        <FontAwesome5 name="book" size={12} color="#2563eb" />
+                        <Text style={styles.classMeta}>{t("learning.classes.coursesCount", { count: counts[cls.id].nbCours ?? 0 })}</Text>
+                      </View>
+                    ) : null}
+                    {counts[cls.id].nbDevoirsAFaire > 0 ? (
+                      <View style={styles.metaRow}>
+                        <FontAwesome5 name="tasks" size={12} color="#d97706" />
+                        <Text style={[styles.classMeta, { color: "#d97706", fontWeight: "700" }]}>
+                          {t("learning.classes.devoirsToDo", { count: counts[cls.id].nbDevoirsAFaire })}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 <View style={styles.cardActions}>
-                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleRowPress({ cls, access, motifRejet })}>
-                    <FontAwesome5 name={actionIcon} size={12} color={colors.primary} />
-                    <Text style={styles.actionBtnText}>{actionLabel}</Text>
-                  </TouchableOpacity>
+                  {access === "APPROVED" ? (
+                    <TouchableOpacity
+                      style={styles.enterBtn}
+                      onPress={() => handleRowPress({ cls, access, motifRejet })}
+                      activeOpacity={0.85}
+                      accessibilityRole="button"
+                    >
+                      <FontAwesome5 name="sign-in-alt" size={14} color="#FFFFFF" />
+                      <Text style={styles.enterText}>{actionLabel}</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={styles.actionBtn} onPress={() => handleRowPress({ cls, access, motifRejet })}>
+                      <FontAwesome5 name={actionIcon} size={12} color={colors.primary} />
+                      <Text style={styles.actionBtnText}>{actionLabel}</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </TouchableOpacity>
             );
@@ -441,6 +504,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     marginTop: spacing.xs,
   },
   classMeta: { ...typography.caption, color: colors.textMuted },
+  countsRow: { flexDirection: "row", flexWrap: "wrap", columnGap: spacing.md },
   cardActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -456,6 +520,17 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.c
     paddingVertical: 2,
   },
   actionBtnText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
+  enterBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 11,
+    backgroundColor: "#2563EB",
+    borderRadius: 12,
+  },
+  enterText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
 });
 
 export default ParentClassesBody;

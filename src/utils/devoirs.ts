@@ -2,6 +2,7 @@ import { exerciseProgrammerService, participationService } from '../services/api
 import { ClassEntity, ExerciseProgramme, Participation, Question, Reponse } from '../types';
 import type { TranslationKey } from '../i18n';
 import { serverDateMs } from './dates';
+import { programmeCoursId, programmeCoursTitre } from '../services/api/learningService';
 
 export interface DevoirItem {
   programme: ExerciseProgramme;
@@ -11,6 +12,12 @@ export interface DevoirItem {
   isGraded: boolean;
   isPending: boolean;
   overdue: boolean;
+  /** Class the exercise was found in (first one when diffused to several). */
+  classeId?: string;
+  classeNom?: string;
+  /** Course the programmed exercise belongs to; null = "Exercices généraux". */
+  coursId: string | null;
+  coursTitre: string | null;
 }
 
 /** Route params of the full-screen attempt page (RootNavigator "ExerciseAttempt"). */
@@ -57,48 +64,99 @@ export const isSubmittedEtat = (etat?: string | null) =>
   etat === 'SOUMIS' || etat === 'EN_ATTENTE_CORRECTION' || etat === 'CORRIGE' || etat === 'VALIDE';
 export const isGradedEtat = (etat?: string | null) => etat === 'CORRIGE' || etat === 'VALIDE';
 
+const PARTICIPATION_ETATS = ['EN_COURS', 'SOUMIS', 'EN_ATTENTE_CORRECTION', 'CORRIGE', 'VALIDE'];
+
+/** Status flags of one learner on one programmed exercise. */
+export const buildDevoirItem = (
+  programme: ExerciseProgramme,
+  participation: Participation | null,
+  classe?: { id?: string; nom?: string } | null
+): DevoirItem => {
+  // The course endpoint may return the learner's status inline (statut / etatSoumission / note).
+  const rawInline = (programme.etatSoumission ?? programme.statut) as string | undefined;
+  // Only real participation states count (a "to do" status means no participation yet).
+  const inlineEtat = rawInline && PARTICIPATION_ETATS.includes(rawInline) ? rawInline : undefined;
+  const etat = participation?.etatSoumission ?? inlineEtat ?? undefined;
+  const effective: Participation | null =
+    participation ?? (inlineEtat ? { etatSoumission: inlineEtat, note: programme.note != null ? String(programme.note) : undefined } : null);
+  const isSubmitted = isSubmittedEtat(etat);
+  const isGraded = isGradedEtat(etat);
+  const isPending = etat === 'EN_ATTENTE_CORRECTION';
+  const overdue = !isSubmitted && !!programme.dateFinExoEffectif && serverDateMs(programme.dateFinExoEffectif, NaN) < Date.now();
+  return {
+    programme,
+    participation: effective,
+    etat,
+    isSubmitted,
+    isGraded,
+    isPending,
+    overdue,
+    classeId: classe?.id,
+    classeNom: classe?.nom,
+    coursId: programmeCoursId(programme),
+    coursTitre: programmeCoursTitre(programme),
+  };
+};
+
+/** Not yet submitted first, then by due date ascending. */
+export const sortDevoirs = (items: DevoirItem[]) =>
+  [...items].sort((a, b) => {
+    if (a.isSubmitted !== b.isSubmitted) return a.isSubmitted ? 1 : -1;
+    return serverDateMs(a.programme.dateFinExoEffectif, 0) - serverDateMs(b.programme.dateFinExoEffectif, 0);
+  });
+
 /**
  * The student's (or a parent-viewed child's) homework list — mirrors web's
  * StudentDevoirsContent.jsx: for each of the user's classes, fetch that
  * class's programmed exercises, keep only `typeAssignation === "DEVOIR"`
  * ones (deduplicated, with an exerciseId), and attach the user's own
  * participation (keyed by exerciseProgrammerId) to compute status, overdue
- * flag and grade. Sorted like web: not yet submitted first, then by due date
- * ascending.
+ * flag and grade. Each item keeps its class and course (for grouping).
+ * `includeExercises` also keeps the auto-corrected EXERCICE ones.
+ * Throws when every class request failed (so the screen can offer a retry).
  */
-export const loadDevoirs = async (userId: string, classes: ClassEntity[]): Promise<DevoirItem[]> => {
+export const loadDevoirs = async (
+  userId: string,
+  classes: ClassEntity[],
+  options: { includeExercises?: boolean } = {}
+): Promise<DevoirItem[]> => {
+  let failures = 0;
+  let lastError: unknown = null;
   const perClass = await Promise.all(
-    classes.map((c) => exerciseProgrammerService.getByClasse(c.id).catch(() => [] as ExerciseProgramme[]))
+    classes.map((c) =>
+      exerciseProgrammerService.getByClasse(c.id).catch((e) => {
+        failures += 1;
+        lastError = e;
+        return [] as ExerciseProgramme[];
+      })
+    )
   );
+  if (classes.length > 0 && failures === classes.length) {
+    throw lastError instanceof Error ? lastError : new Error('load failed');
+  }
   const seen = new Set<string>();
-  const devoirs: ExerciseProgramme[] = [];
-  perClass.flat().forEach((ep) => {
-    if (ep.typeAssignation !== 'DEVOIR' || seen.has(ep.id)) return;
-    seen.add(ep.id);
-    // Web skips records without exerciseId (questions can't be resolved).
-    if (!ep.exerciseId) return;
-    devoirs.push(ep);
+  const found: { ep: ExerciseProgramme; classe: ClassEntity }[] = [];
+  perClass.forEach((list, i) => {
+    (list ?? []).forEach((ep) => {
+      if (!ep || seen.has(ep.id)) return;
+      if (!options.includeExercises && ep.typeAssignation !== 'DEVOIR') return;
+      seen.add(ep.id);
+      // Web skips records without exerciseId (questions can't be resolved).
+      if (!ep.exerciseId) return;
+      found.push({ ep, classe: classes[i] });
+    });
   });
 
   const participations = await participationService.getByUser(userId).catch(() => [] as Participation[]);
   const byProgrammeId = new Map(participations.map((p) => [p.exerciseProgrammerId, p]));
 
-  const items: DevoirItem[] = devoirs.map((programme) => {
+  const items: DevoirItem[] = found.map(({ ep, classe }) => {
     // Own participation: from /participations-exercises/utilisateur, else the one embedded in the programme (web's source).
-    const participation =
-      byProgrammeId.get(programme.id) ?? (programme.participations ?? []).find((p) => p.utilisateurId === userId) ?? null;
-    const etat = participation?.etatSoumission;
-    const isSubmitted = isSubmittedEtat(etat);
-    const isGraded = isGradedEtat(etat);
-    const isPending = etat === 'EN_ATTENTE_CORRECTION';
-    const overdue = !isSubmitted && !!programme.dateFinExoEffectif && serverDateMs(programme.dateFinExoEffectif, NaN) < Date.now();
-    return { programme, participation, etat, isSubmitted, isGraded, isPending, overdue };
+    const participation = byProgrammeId.get(ep.id) ?? (ep.participations ?? []).find((p) => p.utilisateurId === userId) ?? null;
+    return buildDevoirItem(ep, participation, classe);
   });
 
-  return items.sort((a, b) => {
-    if (a.isSubmitted !== b.isSubmitted) return a.isSubmitted ? 1 : -1;
-    return serverDateMs(a.programme.dateFinExoEffectif, 0) - serverDateMs(b.programme.dateFinExoEffectif, 0);
-  });
+  return sortDevoirs(items);
 };
 
 export const DEVOIR_STATUS_KEY: Record<string, TranslationKey> = {

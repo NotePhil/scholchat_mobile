@@ -19,14 +19,17 @@ const StudentExercisesBody = () => {
   const { t } = useT();
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
+  const [classesError, setClassesError] = useState("");
 
   const loadClasses = useCallback(async () => {
     if (!user?.userId) return;
     setClassesLoading(true);
+    setClassesError("");
     try {
       setClasses(await accederService.getAccessibleClasses(user.userId));
-    } catch {
+    } catch (e) {
       setClasses([]);
+      setClassesError(e instanceof Error && e.message ? e.message : t("classDetails.error.classes"));
     } finally {
       setClassesLoading(false);
     }
@@ -41,7 +44,7 @@ const StudentExercisesBody = () => {
       <View style={styles.header}>
         <Text style={styles.title}>{t("devoirs.title")}</Text>
       </View>
-      <DevoirsBody userId={user?.userId ?? null} classes={classes} classesLoading={classesLoading} onRefreshClasses={loadClasses} />
+      <DevoirsBody userId={user?.userId ?? null} classes={classes} classesLoading={classesLoading} classesError={classesError} onRefreshClasses={loadClasses} />
     </View>
   );
 };

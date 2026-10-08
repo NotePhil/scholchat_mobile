@@ -26,6 +26,8 @@ import ScheduleExerciseView from "./ScheduleExerciseView";
 import ExerciseCorrectionsView from "./ExerciseCorrectionsView";
 import { useUiStore } from "../../../../store/useUiStore";
 import ExerciseDetailView from "./ExerciseDetailView";
+import ProgrammedExercisesOverview from "./ProgrammedExercisesOverview";
+import { useT } from "../../../../i18n";
 import { formatDate } from "../../../../utils/dates";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
@@ -145,6 +147,7 @@ const DashboardExercisesBody = () => {
   const isDark = useThemeStore((s) => s.mode === "dark");
   const styles = useMemo(() => createStyles(themeColors, isDark), [themeColors, isDark]);
   const insets = useSafeAreaInsets();
+  const { t: tr } = useT();
 
   const [allExercises, setAllExercises] = useState<Exercise[]>([]);
   const [professorClasses, setProfessorClasses] = useState<ClassEntity[]>([]);
@@ -162,6 +165,9 @@ const DashboardExercisesBody = () => {
   const [page, setPage] = useState(1);
 
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  /** "library" = the exercise bank; "programmed" = programmed exercises by class → course. */
+  const [listTab, setListTab] = useState<"library" | "programmed">("library");
+  const [programmedRefresh, setProgrammedRefresh] = useState(0);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(null);
   const [editingExercise, setEditingExercise] = useState<Exercise | null>(null);
 
@@ -218,6 +224,7 @@ const DashboardExercisesBody = () => {
   const handleRefresh = async () => {
     setRefreshing(true);
     await fetchExercises();
+    setProgrammedRefresh((n) => n + 1);
     setRefreshing(false);
     setSuccessMessage("Données actualisées avec succès");
   };
@@ -300,6 +307,12 @@ const DashboardExercisesBody = () => {
   };
   const openCorrections = () => {
     closeFab();
+    setCorrectionFocus(null);
+    setViewMode("corrections");
+  };
+  /** Corrections of one programmed exercise (from the "Programmés" view). */
+  const openCorrectionsFor = (exerciseProgrammerId: string) => {
+    setCorrectionFocus({ exerciseProgrammerId, nonce: Date.now() });
     setViewMode("corrections");
   };
   const openDetail = (id: string) => {
@@ -462,8 +475,40 @@ const DashboardExercisesBody = () => {
           </LinearGradient>
         </View>
 
+        {/* ── Library / programmed switch ── */}
+        <View style={styles.segment}>
+          {(["library", "programmed"] as const).map((k) => {
+            const on = listTab === k;
+            return (
+              <TouchableOpacity
+                key={k}
+                style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                onPress={() => setListTab(k)}
+                activeOpacity={0.85}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+              >
+                <FontAwesome5 name={k === "library" ? "book" : "calendar-check"} size={12} color={on ? "#FFFFFF" : muted} />
+                <Text style={[styles.segmentText, on && { color: "#FFFFFF" }]}>
+                  {k === "library" ? tr("learning.prof.tabLibrary") : tr("learning.prof.tabProgrammed")}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {listTab === "programmed" ? (
+          <ProgrammedExercisesOverview
+            classes={professorClasses}
+            classesLoading={loading && professorClasses.length === 0}
+            onOpenCorrections={openCorrectionsFor}
+            onSchedule={openSchedule}
+            refreshKey={programmedRefresh}
+          />
+        ) : null}
+
         {/* ── Class filter + banner ── */}
-        {professorClasses.length > 0 || (filterClassId && filterClassName) ? (
+        {listTab === "library" && (professorClasses.length > 0 || (filterClassId && filterClassName)) ? (
           <View style={styles.classRow}>
             {professorClasses.length > 0 && (
               <View style={{ minWidth: 160, flexGrow: 1, flexDirection: "row" }}>
@@ -511,7 +556,7 @@ const DashboardExercisesBody = () => {
           </View>
         ) : null}
 
-        {loading && !refreshing && allExercises.length === 0 ? (
+        {listTab !== "library" ? null : loading && !refreshing && allExercises.length === 0 ? (
           <LoadingSpinner label="Chargement des exercices..." />
         ) : (
           <>
@@ -771,6 +816,17 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean
     },
     newBtnText: { color: "#1A3A5C", fontWeight: "700", fontSize: 14 },
 
+    segment: {
+      flexDirection: "row",
+      gap: 6,
+      padding: 4,
+      borderRadius: 12,
+      backgroundColor: isDark ? "#1E293B" : "#F1F5F9",
+      marginBottom: 14,
+    },
+    segmentBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 9 },
+    segmentBtnOn: { backgroundColor: "#2D6A9F" },
+    segmentText: { fontSize: 13, fontWeight: "700", color: isDark ? "#CBD5E1" : "#475569" },
     classRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 16 },
 
     // Alerts (antd)
