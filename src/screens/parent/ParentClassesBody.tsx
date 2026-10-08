@@ -15,6 +15,7 @@ import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 import { serverDateMs } from "../../utils/dates";
 import { useT } from "../../i18n";
 import { useUiStore } from "../../store/useUiStore";
+import { useMountedRef } from "../../hooks/useMountedRef";
 
 type AccessState = "APPROVED" | "EN_ATTENTE" | "REJETEE" | "NONE";
 
@@ -109,6 +110,69 @@ const ParentClassesBody = () => {
   // Switching child closes the class that was open for the previous one.
   useEffect(() => setSelectedClass(null), [selectedChildId]);
 
+  // Opened from a notification tap (useUiStore.requestClass): find the child concerned by that
+  // class (selected child first), select them and open the class; a request still pending /
+  // declined, or a class no longer reachable, is explained instead of silently showing the list.
+  const pendingClass = useUiStore((s) => s.pendingClass);
+  const mountedRef = useMountedRef();
+  const [openingClass, setOpeningClass] = useState(false);
+  const [openAfterSwitch, setOpenAfterSwitch] = useState<{ childId: string; cls: ClassEntity } | null>(null);
+  useEffect(() => {
+    if (!pendingClass) return;
+    const { classId } = pendingClass;
+    useUiStore.getState().clearPendingClass();
+    setOpeningClass(true);
+    (async () => {
+      const parentId = user?.userId;
+      const store = useSelectedChildStore.getState();
+      if (!store.loaded && parentId) await store.loadChildren(parentId);
+      const { children: kids, selectedChildId: current } = useSelectedChildStore.getState();
+      const ordered = [...kids].sort((a, b) => (a.id === current ? -1 : b.id === current ? 1 : 0));
+      let found: { childId: string; cls: ClassEntity } | null = null;
+      for (const kid of ordered) {
+        const classes = await parentService.getChildClasses(kid.id).catch(() => [] as ClassEntity[]);
+        const cls = classes.find((c) => String(c.id) === classId);
+        if (cls) {
+          found = { childId: kid.id, cls };
+          break;
+        }
+      }
+      if (!mountedRef.current) return;
+      if (found) {
+        setOpeningClass(false);
+        if (found.childId !== current) {
+          setOpenAfterSwitch(found);
+          useSelectedChildStore.getState().setSelectedChildId(found.childId);
+        } else {
+          setSelectedClass(found.cls);
+        }
+        return;
+      }
+      // Not (yet) a member: the parent's latest request for that class tells why.
+      const requests = parentId ? await accederService.getMyRequests(parentId).catch(() => []) : [];
+      if (!mountedRef.current) return;
+      setOpeningClass(false);
+      const req = requests
+        .filter((r) => String(r.classeId) === classId)
+        .sort((a, b) => serverDateMs(b.dateDemande ?? 0) - serverDateMs(a.dateDemande ?? 0))[0];
+      if (req?.eleveAssocieId && req.eleveAssocieId !== current && kids.some((k) => k.id === req.eleveAssocieId)) {
+        useSelectedChildStore.getState().setSelectedChildId(req.eleveAssocieId);
+      }
+      const name = (req?.classeNom as string | undefined) ?? "";
+      if (req && req.etat === "REJETEE") Alert.alert(t("parentClasses.rejectedTitle"), t("notifications.classRejected", { name }));
+      else if (req && req.etat !== "APPROUVEE") Alert.alert(t("parentClasses.pendingTitle"), t("notifications.classPending", { name }));
+      else Alert.alert(t("notifications.unavailableTitle"), t("notifications.classUnavailable"));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingClass]);
+  // Declared after the "switching child closes the class" reset so that it wins in the same commit.
+  useEffect(() => {
+    if (openAfterSwitch && openAfterSwitch.childId === selectedChildId) {
+      setSelectedClass(openAfterSwitch.cls);
+      setOpenAfterSwitch(null);
+    }
+  }, [openAfterSwitch, selectedChildId]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     await loadClasses();
@@ -136,6 +200,10 @@ const ParentClassesBody = () => {
   const childName = child?.prenom || child?.nom || "";
 
   // Entering an approved class: same full page as the student (web: StudentClassList → CoursProgrammeManagement), fed with the child's id.
+  if (openingClass) {
+    return <LoadingSpinner label={t("notifications.opening")} fullScreen />;
+  }
+
   if (selectedClass && selectedChildId) {
     return <StudentClassDetailPage classe={selectedClass} learnerId={selectedChildId} onBack={() => setSelectedClass(null)} />;
   }
@@ -182,7 +250,7 @@ const ParentClassesBody = () => {
         style={styles.list}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} colors={[colors.primary]} />}
       >
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error && rows.length > 0 ? <Text style={styles.error}>{error}</Text> : null}
         {children.length === 0 ? (
           <EmptyState
             icon="child"
@@ -193,6 +261,15 @@ const ParentClassesBody = () => {
           />
         ) : loading && !refreshing ? (
           <LoadingSpinner label={t("studentClasses.loading")} />
+        ) : error && rows.length === 0 ? (
+          // Failed load: error + retry, never the "no class" empty state.
+          <EmptyState
+            icon="exclamation-triangle"
+            title={t("classDetails.error.classes")}
+            message={error}
+            actionLabel={t("classDetails.retry")}
+            onAction={loadClasses}
+          />
         ) : rows.length === 0 ? (
           <EmptyState
             icon="chalkboard"

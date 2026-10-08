@@ -4,7 +4,15 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BrandColors, ff, roleAccents, useBrandColors } from '../../components/brand';
-import { CLASS_APPROVAL_PENDING, SignupPayload, SignupRole, authService } from '../../services/home/authService';
+import {
+  CLASS_APPROVAL_PENDING,
+  SignupError,
+  SignupPayload,
+  SignupRole,
+  authService,
+} from '../../services/home/authService';
+import { ClassPreview, ClassPreviewError, classPreviewService } from '../../services/api/classPreviewService';
+import { isClassCodeError } from '../../services/api/parentService';
 import {
   AuthScreen,
   AuthTitle,
@@ -20,13 +28,43 @@ import {
 import { SIGNUP_EMAIL_REGEX } from './components/passwordRules';
 import { TFunction, TranslationKey, translate, useT } from '../../i18n';
 import type { AccountCreatedParams } from './AccountCreatedScreen';
-import { useClassPreview } from '../../hooks/useClassPreview';
+import { ClassPreviewStatus, useClassPreview } from '../../hooks/useClassPreview';
 import ClassPreviewCard from '../../components/common/ClassPreviewCard';
 
 type DocumentAsset = DocumentPicker.DocumentPickerAsset;
 type DocKey = 'cniRecto' | 'cniVerso' | 'selfie';
 
-type StepId = 'infos' | 'classe' | 'confirmation' | 'documents';
+type StepId = 'infos' | 'classe' | 'confirmation' | 'enfants' | 'recap' | 'documents';
+
+/** Child card of the parent sign-up ("Vos enfants"), with its own class-code check. */
+interface ChildDraft {
+  key: string;
+  prenom: string;
+  nom: string;
+  code: string;
+  status: ClassPreviewStatus;
+  preview: ClassPreview | null;
+  /** Normalized code the preview / error belongs to. */
+  checkedCode: string;
+  lookupError: string;
+  errors: { prenom?: string; nom?: string; code?: string; general?: string };
+}
+
+const MAX_CHILDREN = 10;
+const normalizeCode = (code: string) => code.trim().toUpperCase();
+let childKeySeq = 0;
+const newChild = (): ChildDraft => ({
+  key: `child-${++childKeySeq}`,
+  prenom: '',
+  nom: '',
+  code: '',
+  status: 'idle',
+  preview: null,
+  checkedCode: '',
+  lookupError: '',
+  errors: {},
+});
+const isChildVerified = (ch: ChildDraft) => ch.status === 'found' && !!ch.preview && ch.checkedCode === normalizeCode(ch.code);
 
 /** Existing e-mail reported by the sign-up (actions shown under the e-mail field). */
 type EmailIssue = 'exists' | 'pending' | 'inactive' | 'other';
@@ -64,13 +102,15 @@ const mapSignupFieldError = (
 };
 
 /**
- * Steps per role (the role itself is picked beforehand on RoleChoiceScreen). Parent / élève:
- * Infos perso → Classe (required class code) → Confirmation, then the class teacher approves.
+ * Steps per role (the role itself is picked beforehand on RoleChoiceScreen). Élève: Infos perso →
+ * Classe (required class code) → Confirmation, then the class teacher approves. Parent: Infos perso →
+ * Vos enfants (one card per child, each with its verified class code) → Récapitulatif; the account
+ * is created at once and each child's request waits for its class teacher.
  */
 const STEPS: Record<SignupRole, StepId[]> = {
   professeur: ['infos', 'documents'],
   eleve: ['infos', 'classe', 'confirmation'],
-  parent: ['infos', 'classe', 'confirmation'],
+  parent: ['infos', 'enfants', 'recap'],
 };
 
 const roleLabel = (t: TFunction, role: SignupRole) => t(`auth.roleChoice.roles.${role}.title`);
@@ -115,10 +155,11 @@ const DOCS: { key: DocKey; icon: string }[] = [
 /**
  * Sign-up (Professeur / Élève / Parent): nom, prénom, téléphone, email, adresse for everyone;
  * CNI recto/verso + selfie (+ optional matricule) for the professeur; the class code (codeClasse)
- * for a parent / élève, then a confirmation summary. No password: the account is created via
- * POST /utilisateurs without motDePasse. A professor chooses the password from the e-mailed link
- * after admin validation; a parent / élève receives a temporary password by e-mail once the class
- * teacher approved the request, and must change it at first login.
+ * for an élève; the children (prénom, nom, verified class code each) for a parent; then a summary.
+ * No password: the account is created via POST /utilisateurs without motDePasse. A professor
+ * chooses the password from the e-mailed link after admin validation; an élève receives a temporary
+ * password by e-mail once the class teacher approved the request; a parent receives it right away
+ * (children requests pending). The temporary password is changed at first login.
  */
 const SignUpScreen = () => {
   const c = useBrandColors();
@@ -140,8 +181,10 @@ const SignUpScreen = () => {
   const [countryCode, setCountryCode] = useState<CountryCode>('237');
   const [phone, setPhone] = useState('');
   const [adresse, setAdresse] = useState('');
-  // Parent / élève
+  // Élève
   const [codeClasse, setCodeClasse] = useState('');
+  // Parent: one card per child
+  const [enfants, setEnfants] = useState<ChildDraft[]>(() => [newChild()]);
   // Professeur
   const [matricule, setMatricule] = useState('');
   const [docs, setDocs] = useState<Record<DocKey, DocumentAsset | null>>({ cniRecto: null, cniVerso: null, selfie: null });
@@ -153,8 +196,9 @@ const SignUpScreen = () => {
   // Professor profile already posted (an upload failed afterwards): retry only the uploads.
   const [createdProfessor, setCreatedProfessor] = useState<{ id: string; statut?: string; uploadToken?: string } | null>(null);
 
-  // Class code (parent / élève): public preview, looked up only by the "Vérifier le code" button.
-  const classLookup = useClassPreview(codeClasse, role === 'parent' ? 'parent' : 'eleve');
+  // Class code (élève): public preview, looked up only by the "Vérifier le code" button.
+  const classLookup = useClassPreview(codeClasse, 'eleve');
+  const allChildrenVerified = enfants.length > 0 && enfants.every(isChildVerified);
 
   const isLast = step === steps.length - 1;
   const verifyingCode = steps[step] === 'classe' && classLookup.status !== 'found';
@@ -179,6 +223,8 @@ const SignUpScreen = () => {
       if (!adresse.trim()) errs.adresse = t('auth.signup.errors.address');
     } else if (current === 'classe') {
       if (!codeClasse.trim()) errs.codeClasse = t('auth.signup.errors.classCodeRequired');
+    } else if (current === 'enfants') {
+      return validateChildren();
     } else if (current === 'documents') {
       if (!docs.cniRecto || !docs.cniVerso || !docs.selfie) {
         setError(t('auth.signup.errors.documents'));
@@ -187,6 +233,70 @@ const SignUpScreen = () => {
     }
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
+  };
+
+  // ── Parent: children cards ─────────────────────────────────────────────────
+  const updateChild = (key: string, patch: Partial<ChildDraft> | ((ch: ChildDraft) => Partial<ChildDraft>)) => {
+    setEnfants((list) => list.map((ch) => (ch.key === key ? { ...ch, ...(typeof patch === 'function' ? patch(ch) : patch) } : ch)));
+    if (error) setError('');
+  };
+
+  const setChildCount = (count: number) => {
+    const n = Math.max(1, Math.min(MAX_CHILDREN, count));
+    setEnfants((list) => (n > list.length ? [...list, ...Array.from({ length: n - list.length }, newChild)] : list.slice(0, n)));
+    if (error) setError('');
+  };
+
+  const removeChild = (key: string) => {
+    setEnfants((list) => (list.length > 1 ? list.filter((ch) => ch.key !== key) : list));
+    if (error) setError('');
+  };
+
+  /** "Vérifier le code" of one card: public preview (GET /public/classes/apercu?type=parent). */
+  const verifyChild = async (key: string) => {
+    const ch = enfants.find((x) => x.key === key);
+    if (!ch) return;
+    const code = normalizeCode(ch.code);
+    if (!code) {
+      updateChild(key, { errors: { ...ch.errors, code: t('classPreview.errors.required') } });
+      return;
+    }
+    updateChild(key, { status: 'loading', preview: null, checkedCode: code, lookupError: '', errors: { ...ch.errors, code: undefined } });
+    try {
+      const preview = await classPreviewService.getPreview(code, 'parent');
+      // Ignore a late answer for a code edited meanwhile.
+      updateChild(key, (cur) => (cur.checkedCode === code && normalizeCode(cur.code) === code ? { status: 'found', preview } : {}));
+    } catch (err) {
+      const e = err as ClassPreviewError;
+      updateChild(key, (cur) =>
+        cur.checkedCode === code && normalizeCode(cur.code) === code
+          ? { status: 'error', preview: null, lookupError: e?.message || translate('classPreview.errors.generic') }
+          : {}
+      );
+    }
+  };
+
+  /** "Vos enfants" step: names + verified code on every card, no child twice. */
+  const validateChildren = (): boolean => {
+    let ok = true;
+    const seen = new Set<string>();
+    const next = enfants.map((ch) => {
+      const errors: ChildDraft['errors'] = {};
+      if (!ch.prenom.trim()) errors.prenom = t('auth.signup.errors.firstName');
+      if (!ch.nom.trim()) errors.nom = t('auth.signup.errors.lastName');
+      if (!ch.code.trim()) errors.code = t('classPreview.errors.required');
+      else if (!isChildVerified(ch)) errors.code = t('classPreview.verifyFirst');
+      const identity = `${ch.prenom.trim().toLowerCase()}|${ch.nom.trim().toLowerCase()}`;
+      if (ch.prenom.trim() && ch.nom.trim()) {
+        if (seen.has(identity)) errors.general = t('parentChildren.errors.duplicateForm');
+        seen.add(identity);
+      }
+      if (Object.keys(errors).length) ok = false;
+      return { ...ch, errors };
+    });
+    setEnfants(next);
+    if (!ok) setError('');
+    return ok;
   };
 
   // ── Professor documents ───────────────────────────────────────────────────
@@ -219,7 +329,22 @@ const SignUpScreen = () => {
   const finish = (params: AccountCreatedParams) => navigation.navigate('AccountCreated', params);
 
   /** End screen from the sign-up response's inscriptionStatut (same cases as web SignUp.jsx). */
-  const afterCreate = (statut?: string, statutInscription?: string, classeNom?: string) => {
+  const afterCreate = (statut?: string, statutInscription?: string, classeNom?: string, res?: Record<string, unknown>) => {
+    if (role === 'parent' && statut !== 'ROLE_ADDED') {
+      // Parent: account created now (login + temporary password e-mailed), children requests pending.
+      const returned = Array.isArray(res?.enfants) ? (res?.enfants as Record<string, unknown>[]) : [];
+      const children = (returned.length ? returned : enfants).map((e, i) => {
+        const draft = enfants[i];
+        const r = e as Record<string, unknown>;
+        return {
+          prenom: String(r.prenom ?? draft?.prenom ?? '').trim(),
+          nom: String(r.nom ?? draft?.nom ?? '').trim(),
+          classeNom: typeof r.classeNom === 'string' && r.classeNom ? r.classeNom : draft?.preview?.nom ?? '',
+        };
+      });
+      finish({ variant: 'parentCreated', email: email.trim(), enfants: children });
+      return;
+    }
     if (statutInscription === CLASS_APPROVAL_PENDING) {
       // Parent / élève: the class teacher must approve, then login + temporary password by e-mail.
       finish({ variant: 'classPending', email: email.trim(), classeNom: classeNom || undefined });
@@ -272,13 +397,17 @@ const SignUpScreen = () => {
           telephone: `+${countryCode}${normalizePhone(countryCode, phone) ?? phone.replace(/\D/g, '')}`,
           adresse: adresse.trim(),
         };
-        if (role !== 'professeur') payload.codeClasse = codeClasse.trim();
+        if (role === 'eleve') payload.codeClasse = codeClasse.trim();
+        if (role === 'parent') {
+          payload.enfants = enfants.map((ch) => ({ prenom: ch.prenom.trim(), nom: ch.nom.trim(), codeClasse: normalizeCode(ch.code) }));
+        }
         const res = await authService.signUp(payload);
         if (role !== 'professeur' || res.inscriptionStatut === 'ROLE_ADDED' || !res.id) {
           afterCreate(
             res.inscriptionStatut,
             typeof res.statutInscription === 'string' ? res.statutInscription : undefined,
-            typeof res.classeNom === 'string' ? res.classeNom : undefined
+            typeof res.classeNom === 'string' ? res.classeNom : undefined,
+            res
           );
           return;
         }
@@ -296,14 +425,32 @@ const SignUpScreen = () => {
       afterCreate(created.statut);
     } catch (err) {
       const msg = err instanceof Error ? err.message : translate('auth.signup.errors.createFailed');
-      const code = (err as { code?: string })?.code;
+      const code = (err as SignupError)?.code;
+      const enfantIndex = (err as SignupError)?.enfantIndex;
+      if (role === 'parent' && enfantIndex !== undefined && enfantIndex < enfants.length) {
+        // A child refused: back to "Vos enfants", error on that child's card.
+        const key = enfants[enfantIndex].key;
+        updateChild(
+          key,
+          isClassCodeError(code)
+            ? { status: 'idle', preview: null, checkedCode: '', lookupError: '', errors: { code: msg } }
+            : { errors: { general: msg } }
+        );
+        setStep(steps.indexOf('enfants'));
+        return;
+      }
+      if (role === 'parent' && (code === 'ENFANTS_REQUIS' || isClassCodeError(code))) {
+        setStep(steps.indexOf('enfants'));
+        setError(msg);
+        return;
+      }
       const fieldError = mapSignupFieldError(code, msg);
       if (fieldError && !createdProfessor) {
         // E-mail (existing account…) or phone refused: back to the infos step, error under the field.
         showEmailIssue(fieldError.issue ?? null, fieldError.message, fieldError.field);
         return;
       }
-      if (role !== 'professeur' && code && /CODE_CLASSE|CLASSE_/.test(code)) {
+      if (role === 'eleve' && code && /CODE_CLASSE|CLASSE_/.test(code)) {
         // Class code refused: back to the code step, error under the field.
         classLookup.reset();
         setStep(steps.indexOf('classe'));
@@ -449,7 +596,9 @@ const SignUpScreen = () => {
         autoComplete="street-address"
         error={fieldErrors.adresse}
       />
-      {role !== 'professeur' ? <Text style={s.hint}>{t('auth.signup.infos.passwordLater')}</Text> : null}
+      {role !== 'professeur' ? (
+        <Text style={s.hint}>{t(role === 'parent' ? 'auth.signup.infos.passwordLaterParent' : 'auth.signup.infos.passwordLater')}</Text>
+      ) : null}
     </>
   );
 
@@ -479,7 +628,7 @@ const SignUpScreen = () => {
         style={s.previewCard}
       />
       <Banner type="info" message={t('auth.signup.classe.hint')} />
-      <Text style={s.hint}>{t(role === 'parent' ? 'auth.signup.classe.approvalParent' : 'auth.signup.classe.approvalStudent')}</Text>
+      <Text style={s.hint}>{t('auth.signup.classe.approvalStudent')}</Text>
     </>
   );
 
@@ -522,6 +671,165 @@ const SignUpScreen = () => {
       </>
     );
   };
+
+  const personalRows = (): { icon: string; label: string; value: string }[] => [
+    { icon: 'user-tag', label: t('auth.signup.confirmation.profile'), value: roleLabel(t, role) },
+    { icon: 'user', label: t('auth.signup.confirmation.name'), value: `${prenom.trim()} ${nom.trim()}`.trim() },
+    { icon: 'envelope', label: t('auth.common.email'), value: email.trim() },
+    { icon: 'phone', label: t('auth.common.phone'), value: `+${countryCode} ${normalizePhone(countryCode, phone) ?? phone.trim()}` },
+    { icon: 'map-marker-alt', label: t('auth.signup.infos.address'), value: adresse.trim() },
+  ];
+
+  const renderEnfants = () => (
+    <>
+      <AuthTitle align="left" title={t('auth.signup.enfants.title')} subtitle={t('auth.signup.enfants.subtitle')} />
+      <View style={s.countRow}>
+        <Text style={s.countLabel}>{t('auth.signup.enfants.howMany')}</Text>
+        <View style={s.stepper}>
+          <TouchableOpacity
+            style={[s.stepperBtn, enfants.length <= 1 && s.stepperBtnDisabled]}
+            onPress={() => setChildCount(enfants.length - 1)}
+            disabled={enfants.length <= 1 || loading}
+            accessibilityRole="button"
+            accessibilityLabel={t('auth.signup.enfants.fewer')}
+          >
+            <FontAwesome5 name="minus" size={12} color={c.primary} />
+          </TouchableOpacity>
+          <Text style={s.countValue} accessibilityLiveRegion="polite">
+            {enfants.length}
+          </Text>
+          <TouchableOpacity
+            style={[s.stepperBtn, enfants.length >= MAX_CHILDREN && s.stepperBtnDisabled]}
+            onPress={() => setChildCount(enfants.length + 1)}
+            disabled={enfants.length >= MAX_CHILDREN || loading}
+            accessibilityRole="button"
+            accessibilityLabel={t('auth.signup.enfants.more')}
+          >
+            <FontAwesome5 name="plus" size={12} color={c.primary} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {enfants.map((ch, i) => {
+        const verified = isChildVerified(ch);
+        const shownStatus: ClassPreviewStatus = ch.checkedCode === normalizeCode(ch.code) ? ch.status : 'idle';
+        return (
+          <View key={ch.key} style={[s.childCard, verified && { borderColor: c.success }]}>
+            <View style={s.childHead}>
+              <Text style={s.childTitle}>{t('auth.signup.enfants.child', { index: i + 1 })}</Text>
+              {enfants.length > 1 ? (
+                <TextLink label={t('auth.signup.enfants.remove')} onPress={() => removeChild(ch.key)} disabled={loading} muted />
+              ) : null}
+            </View>
+            <TextField
+              label={t('auth.signup.infos.firstName')}
+              required
+              icon="child"
+              placeholder={t('parentChildren.firstNamePlaceholder')}
+              value={ch.prenom}
+              onChangeText={(v) => updateChild(ch.key, { prenom: v, errors: { ...ch.errors, prenom: undefined, general: undefined } })}
+              autoCapitalize="words"
+              error={ch.errors.prenom}
+            />
+            <TextField
+              label={t('auth.signup.infos.lastName')}
+              required
+              icon="user"
+              placeholder={t('parentChildren.lastNamePlaceholder')}
+              value={ch.nom}
+              onChangeText={(v) => updateChild(ch.key, { nom: v, errors: { ...ch.errors, nom: undefined, general: undefined } })}
+              autoCapitalize="words"
+              error={ch.errors.nom}
+            />
+            <TextField
+              label={t('auth.signup.classe.label')}
+              required
+              icon="key"
+              placeholder={t('auth.signup.classe.placeholder')}
+              value={ch.code}
+              onChangeText={(v) =>
+                updateChild(ch.key, { code: v, status: 'idle', preview: null, lookupError: '', errors: { ...ch.errors, code: undefined } })
+              }
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => verifyChild(ch.key)}
+              error={ch.errors.code}
+            />
+            {!verified ? (
+              <GradientButton
+                label={shownStatus === 'loading' ? t('classPreview.verifying') : t('classPreview.verify')}
+                icon="search"
+                variant="outline"
+                onPress={() => verifyChild(ch.key)}
+                loading={shownStatus === 'loading'}
+                disabled={!ch.code.trim() || loading}
+                style={s.verifyBtn}
+              />
+            ) : null}
+            <ClassPreviewCard status={shownStatus} preview={ch.preview} error={ch.lookupError} style={s.previewCard} />
+            {ch.errors.general ? <Banner message={ch.errors.general} /> : null}
+          </View>
+        );
+      })}
+
+      {enfants.length < MAX_CHILDREN ? (
+        <TouchableOpacity style={s.addChild} onPress={() => setChildCount(enfants.length + 1)} disabled={loading} accessibilityRole="button">
+          <FontAwesome5 name="plus-circle" size={14} color={c.primary} />
+          <Text style={s.addChildText}>{t('auth.signup.enfants.add')}</Text>
+        </TouchableOpacity>
+      ) : null}
+      {!allChildrenVerified ? <Text style={s.hint}>{t('auth.signup.enfants.verifyAll')}</Text> : null}
+      <Banner type="info" message={t('auth.signup.enfants.approvalHint')} />
+    </>
+  );
+
+  const renderRecap = () => (
+    <>
+      <AuthTitle align="left" title={t('auth.signup.recap.title')} subtitle={t('auth.signup.confirmation.subtitle')} />
+      <View style={s.summary}>
+        {personalRows().map((r, i) => (
+          <View key={r.label} style={[s.summaryRow, i > 0 && s.summaryRowBorder]}>
+            <View style={s.summaryIcon}>
+              <FontAwesome5 name={r.icon} size={12} color={c.primary} />
+            </View>
+            <View style={s.flex}>
+              <Text style={s.summaryLabel}>{r.label}</Text>
+              <Text style={s.summaryValue} numberOfLines={2}>
+                {r.value || '—'}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+      <TextLink label={t('auth.signup.confirmation.edit')} onPress={() => setStep(0)} disabled={loading} style={s.editLink} />
+      <Text style={s.sectionLabel}>{t('auth.signup.recap.children', { count: enfants.length })}</Text>
+      <View style={s.summary}>
+        {enfants.map((ch, i) => (
+          <View key={ch.key} style={[s.summaryRow, i > 0 && s.summaryRowBorder]}>
+            <View style={s.summaryIcon}>
+              <FontAwesome5 name="child" size={12} color={c.primary} />
+            </View>
+            <View style={s.flex}>
+              <Text style={s.summaryValue} numberOfLines={1}>
+                {`${ch.prenom.trim()} ${ch.nom.trim()}`.trim() || '—'}
+              </Text>
+              <Text style={s.summaryLabel} numberOfLines={2}>
+                {[ch.preview?.nom, ch.preview?.etablissementNom].filter(Boolean).join(' · ') || normalizeCode(ch.code)}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </View>
+      <TextLink
+        label={t('auth.signup.recap.editChildren')}
+        onPress={() => setStep(steps.indexOf('enfants'))}
+        disabled={loading}
+        style={s.editLink}
+      />
+      <Banner type="info" message={t('auth.signup.recap.nextSteps')} />
+    </>
+  );
 
   const renderDocuments = () => (
     <>
@@ -599,6 +907,8 @@ const SignUpScreen = () => {
       {current === 'infos' && renderInfos()}
       {current === 'classe' && renderClasse()}
       {current === 'confirmation' && renderConfirmation()}
+      {current === 'enfants' && renderEnfants()}
+      {current === 'recap' && renderRecap()}
       {current === 'documents' && renderDocuments()}
 
       <GradientButton
@@ -606,7 +916,9 @@ const SignUpScreen = () => {
           isLast
             ? role === 'professeur'
               ? t('auth.signup.sendRequest')
-              : t('auth.signup.createMyAccount')
+              : role === 'parent'
+                ? t('common.confirm')
+                : t('auth.signup.createMyAccount')
             : verifyingCode
               ? classLookup.status === 'loading'
                 ? t('classPreview.verifying')
@@ -615,7 +927,7 @@ const SignUpScreen = () => {
         }
         onPress={next}
         loading={loading || (verifyingCode && classLookup.status === 'loading')}
-        disabled={current === 'classe' && !codeClasse.trim()}
+        disabled={(current === 'classe' && !codeClasse.trim()) || (current === 'enfants' && !allChildrenVerified)}
         style={s.cta}
       />
       <View style={s.links}>
@@ -663,6 +975,45 @@ const createStyles = (c: BrandColors) =>
     editLink: { alignSelf: 'flex-end', marginBottom: 14 },
     emailActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: -6, marginBottom: 14 },
     previewCard: { marginBottom: 14 },
+    countRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 14,
+      backgroundColor: c.card,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      marginBottom: 14,
+    },
+    countLabel: { ...ff('semibold'), fontSize: 14, color: c.text, flex: 1 },
+    stepper: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    stepperBtn: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: c.primarySoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    stepperBtnDisabled: { opacity: 0.4 },
+    countValue: { ...ff('bold'), fontSize: 17, color: c.text, minWidth: 22, textAlign: 'center' },
+    childCard: {
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 14,
+      backgroundColor: c.card,
+      padding: 14,
+      paddingBottom: 4,
+      marginBottom: 14,
+    },
+    childHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+    childTitle: { ...ff('bold'), fontSize: 15, color: c.text },
+    verifyBtn: { marginTop: -4, marginBottom: 12 },
+    addChild: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, marginBottom: 10 },
+    addChildText: { ...ff('semibold'), fontSize: 14, color: c.primary },
+    sectionLabel: { ...ff('semibold'), fontSize: 13, color: c.textSecondary, marginBottom: 8 },
     docField: { marginBottom: 14 },
     docLabel: { ...ff('medium'), fontSize: 14, color: c.text, marginBottom: 8 },
     docBox: {

@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,9 @@ import { Skeleton } from "../../../components/ui";
 import { ActivityMediaGallery, ActivityMediaViewer, FeedMedia } from "../../../components/common/ActivityMediaGallery";
 import { useUser } from "../../../context/UserContext";
 import { useAuthStore } from "../../../store/useAuthStore";
+import { useUiStore } from "../../../store/useUiStore";
+import { useMountedRef } from "../../../hooks/useMountedRef";
+import { translate } from "../../../i18n";
 import { useThemeStore } from "../../../store/useThemeStore";
 import { useThemeColors } from "../../../styles/theme";
 import { ActivityEvent } from "../../../types";
@@ -331,6 +334,54 @@ const DashboardActivitiesBody = () => {
 
   const currentTab = tabs.find((t) => t.key === activeTab) ?? tabs[0];
 
+  // Opened from a notification tap (useUiStore.requestActivity): show that activity — fetched and
+  // put on top when it isn't in the loaded pages — scrolled to and briefly highlighted.
+  const pendingActivity = useUiStore((s) => s.pendingActivity);
+  const mountedRef = useMountedRef();
+  const listRef = useRef<FlatList<FeedActivity>>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [openingActivity, setOpeningActivity] = useState(false);
+  useEffect(() => {
+    if (!pendingActivity || loading) return;
+    const eventId = pendingActivity;
+    useUiStore.getState().clearPendingActivity();
+    setActiveTab("all");
+    (async () => {
+      if (!rawActivities.some((r) => String(r.id) === eventId)) {
+        setOpeningActivity(true);
+        try {
+          const ev = await activityFeedService.getById(eventId);
+          if (!ev?.id) throw new Error("not found");
+          await resolveNames([ev]);
+          if (!mountedRef.current) return;
+          setRawActivities((prev) => (prev.some((r) => String(r.id) === eventId) ? prev : [ev, ...prev]));
+          setNamesVersion((v) => v + 1);
+        } catch {
+          if (mountedRef.current) Alert.alert(translate("notifications.unavailableTitle"), translate("notifications.activityUnavailable"));
+          return;
+        } finally {
+          if (mountedRef.current) setOpeningActivity(false);
+        }
+      }
+      if (mountedRef.current) setHighlightId(eventId);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingActivity, loading]);
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+  useEffect(() => {
+    if (!highlightId) return;
+    const scroll = setTimeout(() => {
+      const index = filteredRef.current.findIndex((a) => a.id === highlightId);
+      if (index >= 0) listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+    }, 300);
+    const clear = setTimeout(() => setHighlightId(null), 5000);
+    return () => {
+      clearTimeout(scroll);
+      clearTimeout(clear);
+    };
+  }, [highlightId]);
+
   const patchRaw = (id: string, updater: (r: ActivityEvent) => ActivityEvent) =>
     setRawActivities((prev) => prev.map((r) => (String(r.id) === id ? updater(r) : r)));
 
@@ -470,7 +521,7 @@ const DashboardActivitiesBody = () => {
     </View>
   );
 
-  const empty = loading ? (
+  const empty = loading || openingActivity ? (
     <View>
       {[0, 1, 2].map((i) => (
         <View key={i} style={[styles.card, { padding: 12 }]}>
@@ -525,9 +576,16 @@ const DashboardActivitiesBody = () => {
       {header}
 
       <FlatList
-        data={loading ? [] : filtered}
+        ref={listRef}
+        data={loading || openingActivity ? [] : filtered}
         keyExtractor={(a) => a.id}
+        onScrollToIndexFailed={(info) => {
+          // Variable-height cards: jump near it, then retry once it is laid out.
+          listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+          setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0 }), 300);
+        }}
         renderItem={({ item }) => (
+          <View style={item.id === highlightId ? styles.highlighted : undefined}>
           <ActivityCard
             activity={item}
             styles={styles}
@@ -546,6 +604,7 @@ const DashboardActivitiesBody = () => {
             onDelete={() => setConfirmDeleteId(item.id)}
             onOpenMedia={(index) => setViewer({ medias: item.medias, index })}
           />
+          </View>
         )}
         ListHeaderComponent={error ? <Text style={styles.errorText}>{error}</Text> : null}
         ListEmptyComponent={empty}
@@ -875,6 +934,8 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean
   const subStrong = isDark ? "#D1D5DB" : "#4B5563";
   const divider = isDark ? "#374151" : "#F3F4F6";
   return StyleSheet.create({
+    /** Activity opened from a notification (briefly outlined). */
+    highlighted: { backgroundColor: colors.primaryLight, paddingTop: 10, borderRadius: 16, marginHorizontal: 2 },
     container: { flex: 1, backgroundColor: colors.background },
 
     headerBar: {

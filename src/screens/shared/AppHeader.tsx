@@ -8,10 +8,10 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { useNotificationsStore } from "../../store/useNotificationsStore";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 import { useThemeStore } from "../../store/useThemeStore";
-import { useUiStore } from "../../store/useUiStore";
 import { useNotificationsRealtime } from "../../hooks/useNotificationsRealtime";
 import { useMessagesRealtime } from "../../hooks/useMessagesRealtime";
-import { formatNotificationDate, getNotificationClassTarget, getNotificationIcon, getNotificationTargetTab } from "../../services/notificationRouting";
+import { formatNotificationDate, getNotificationIcon } from "../../services/notificationRouting";
+import { openNotification } from "../../services/notificationNavigation";
 import type { NotificationItem } from "../../store/useNotificationsStore";
 import { colors, radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { confirmLogout } from "../../utils/confirmLogout";
@@ -23,7 +23,7 @@ import LanguageSwitch from "../../components/common/LanguageSwitch";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useT } from "../../i18n";
 import { HelpButton, HelpTarget } from "./HelpSheet";
-import { handleRoleNotification } from "../../services/roleNotifications";
+import { useParentLimited } from "../../services/parentAccess";
 
 interface AppHeaderProps {
   roleLabel: string;
@@ -82,7 +82,9 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
   // the logged-in user's id (login response field `userId`, not `id`).
   const notificationsUserId = (authUser?.userId as string | undefined) ?? user?.userId;
   const { refresh: refreshNotifications } = useNotificationsRealtime(notificationsUserId);
-  useMessagesRealtime(notificationsUserId);
+  // Parent in limited mode: messaging is refused (403 PARENT_SANS_ENFANT_VALIDE) — don't load it.
+  const parentLimited = useParentLimited();
+  useMessagesRealtime(parentLimited ? undefined : notificationsUserId);
 
   // The language itself is loaded at boot (RootNavigator), before any screen renders.
   useEffect(() => {
@@ -95,19 +97,8 @@ const AppHeader = ({ roleLabel, accentColor = colors.primary, onLogout, onNaviga
       notificationService.markAsRead(n.id).catch(() => {});
     }
     setShowNotifications(false);
-    // Profile validated/rejected (e.g. PROFESSOR_ROLE_VALIDATED): refresh the session's roles, open the profile.
-    if (handleRoleNotification(n, currentRole, login)) return;
-    // A live session started: go straight to the join screen.
-    if ((n.type ?? "").toUpperCase() === "LIVE_SESSION_STARTED" && n.relatedEntityId && currentRole !== "professor" && currentRole !== "tutor") {
-      navigation.navigate("LiveSession", { coursId: n.relatedEntityId, isHost: false });
-      return;
-    }
-    const tab = getNotificationTargetTab(n, currentRole);
-    if (tab) {
-      useUiStore.getState().requestTab(tab);
-      const cls = getNotificationClassTarget(n, currentRole);
-      if (cls) useUiStore.getState().requestClass(cls.classId, cls.tab);
-    }
+    // Straight to the item itself (class, course, devoir, conversation, activity, profile…).
+    openNotification(n, { role: currentRole, userId: notificationsUserId, navigation, login });
   };
 
   const handleMarkAllRead = () => {

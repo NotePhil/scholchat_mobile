@@ -26,6 +26,7 @@ import ClassRejectionScreen from '../screens/auth/ClassRejectionScreen';
 import RenewalScreen from '../screens/auth/RenewalScreen';
 import LiveSessionScreen from '../screens/shared/LiveSessionScreen';
 import NotificationsScreen from '../screens/shared/NotificationsScreen';
+import NotificationTargetScreen from '../screens/shared/NotificationTargetScreen';
 import ExerciseAttemptScreen from '../screens/student/ExerciseAttemptScreen';
 import ExerciseResultScreen from '../screens/student/ExerciseResultScreen';
 import CourseViewerScreen from '../screens/shared/CourseViewerScreen';
@@ -164,6 +165,7 @@ const RootNavigator = () => {
           <Stack.Screen name="Renewal" component={RenewalScreen} />
           <Stack.Screen name="LiveSession" component={LiveSessionScreen} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen name="NotificationTarget" component={NotificationTargetScreen} />
           <Stack.Screen name="ExerciseAttempt" component={ExerciseAttemptScreen} />
           <Stack.Screen name="ExerciseResult" component={ExerciseResultScreen} />
           <Stack.Screen name="CourseViewer" component={CourseViewerScreen} />

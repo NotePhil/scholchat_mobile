@@ -36,6 +36,26 @@ interface UiState {
   pendingJoinClass: boolean;
   requestJoinClass: () => void;
   clearPendingJoinClass: () => void;
+  /**
+   * Deep links from a notification tap (services/notificationNavigation), each picked up by the
+   * screen that owns the item once it is mounted (set alongside requestTab):
+   *  - pendingCourse: the professor's course detail (DashboardCoursBody)
+   *  - pendingCorrection: corrections of a programmed exercise (DashboardExercisesBody)
+   *  - pendingConversation: a messages thread (DashboardMessagesBody)
+   *  - pendingActivity: an activity of the feed (DashboardActivitiesBody)
+   */
+  pendingCourse: string | null;
+  requestCourse: (coursId: string) => void;
+  clearPendingCourse: () => void;
+  pendingCorrection: { exerciseProgrammerId: string; studentId?: string } | null;
+  requestCorrection: (exerciseProgrammerId: string, studentId?: string) => void;
+  clearPendingCorrection: () => void;
+  pendingConversation: { partnerId?: string; messageId?: string } | null;
+  requestConversation: (target: { partnerId?: string; messageId?: string }) => void;
+  clearPendingConversation: () => void;
+  pendingActivity: string | null;
+  requestActivity: (eventId: string) => void;
+  clearPendingActivity: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -45,6 +65,10 @@ export const useUiStore = create<UiState>((set) => ({
   pendingTab: null,
   pendingClass: null,
   pendingJoinClass: false,
+  pendingCourse: null,
+  pendingCorrection: null,
+  pendingConversation: null,
+  pendingActivity: null,
   setTheme: (theme) => set({ theme }),
   setLanguage: (language) => set({ language }),
   setActiveSection: (activeSection) => set({ activeSection }),
@@ -54,4 +78,12 @@ export const useUiStore = create<UiState>((set) => ({
   clearPendingClass: () => set({ pendingClass: null }),
   requestJoinClass: () => set({ pendingJoinClass: true }),
   clearPendingJoinClass: () => set({ pendingJoinClass: false }),
+  requestCourse: (pendingCourse) => set({ pendingCourse }),
+  clearPendingCourse: () => set({ pendingCourse: null }),
+  requestCorrection: (exerciseProgrammerId, studentId) => set({ pendingCorrection: { exerciseProgrammerId, studentId } }),
+  clearPendingCorrection: () => set({ pendingCorrection: null }),
+  requestConversation: (pendingConversation) => set({ pendingConversation }),
+  clearPendingConversation: () => set({ pendingConversation: null }),
+  requestActivity: (pendingActivity) => set({ pendingActivity }),
+  clearPendingActivity: () => set({ pendingActivity: null }),
 }));

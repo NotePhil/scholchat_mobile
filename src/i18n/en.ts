@@ -431,6 +431,18 @@ export const en: Dictionary = {
     deleteFailed: 'Deletion failed.',
     allCount: 'All ({{count}})',
     unreadCount: 'Unread ({{count}})',
+    opening: 'Opening…',
+    unavailableTitle: 'Item unavailable',
+    unavailable: 'This item no longer exists or is no longer accessible to you.',
+    classUnavailable: 'This class no longer exists or is no longer accessible to you.',
+    classPending: 'Your access request to the class "{{name}}" is awaiting approval.',
+    classRejected: 'Your access request to the class "{{name}}" was declined.',
+    courseUnavailable: 'This course no longer exists or is no longer accessible to you.',
+    devoirUnavailable: 'This assignment no longer exists or is no longer accessible to you.',
+    correctionUnavailable: 'No submitted copy was found for this exercise.',
+    conversationUnavailable: 'This message is no longer available (deleted or moved to the trash).',
+    activityUnavailable: 'This activity no longer exists or is no longer accessible to you.',
+    noChildForItem: 'None of your children is concerned by this item.',
   },
 
   devoirs: {
@@ -828,6 +840,8 @@ export const en: Dictionary = {
         confirmation: 'Confirmation',
         niveau: 'Level',
         documents: 'Documents',
+        enfants: 'Your children',
+        recap: 'Summary',
       },
       countries: {
         '237': 'Cameroon',
@@ -886,6 +900,7 @@ export const en: Dictionary = {
         address: 'Address',
         addressPlaceholder: 'Your full address',
         passwordLater: "No password to choose now: once the teacher approves, you'll receive a temporary password by email.",
+        passwordLaterParent: "No password to choose: as soon as you sign up, you'll receive by email your login and a temporary password.",
       },
       classe: {
         title: 'Class / Enrolment code',
@@ -894,7 +909,6 @@ export const en: Dictionary = {
         placeholder: 'E.g. ABC123',
         hint: 'Code given by your teacher or your school.',
         approvalStudent: "Your request will be sent to the class's teacher, who must approve it.",
-        approvalParent: "Your request will be sent to the class's teacher, who must approve it. You can then add your children.",
       },
       confirmation: {
         title: 'Confirm your sign-up',
@@ -904,6 +918,26 @@ export const en: Dictionary = {
         edit: 'Edit',
         nextSteps:
           "Once the teacher approves, you'll receive by email your login and a temporary password, to be changed at your first sign-in.",
+      },
+      enfants: {
+        title: 'Your children',
+        subtitle: "Add each child with their class code, given by their teacher or school.",
+        howMany: 'How many children?',
+        fewer: 'One fewer child',
+        more: 'One more child',
+        child: 'Child {{index}}',
+        remove: 'Remove',
+        add: 'Add a child',
+        verifyAll: "Check each child's class code to continue.",
+        approvalHint: "Each request is sent to the class's teacher, who must approve it. You'll follow their status in “My children”.",
+      },
+      recap: {
+        title: 'Summary',
+        children_one: 'Your child',
+        children_other: 'Your {{count}} children',
+        editChildren: 'Edit children',
+        nextSteps:
+          "Your account is created as soon as you confirm: you'll receive by email your login and a temporary password (to change at your first sign-in). Your children's requests stay pending until the teacher approves them.",
       },
       niveau: {
         title: 'Education level',
@@ -956,13 +990,6 @@ export const en: Dictionary = {
       hint: 'This password will work on the web and in the mobile app.',
       logout: 'Sign out',
     },
-    addChildPrompt: {
-      title: 'Add your child',
-      message:
-        "Welcome to ScholChat! To follow your child's classes, courses, homework and results, first add their profile. You can add several children.",
-      add: 'Add my child',
-      later: 'Later',
-    },
     reset: {
       title: 'New password',
       subtitle: 'Create a strong password',
@@ -996,10 +1023,21 @@ export const en: Dictionary = {
       classPendingMessage: 'Your request to join the class {{classe}} has been sent to its teacher.',
       classPendingMessageNoClass: 'Your request to join the class has been sent to its teacher.',
       classPendingSteps: {
+        ack: 'An email acknowledging your request has just been sent to you.',
         approval: "The class's teacher reviews and approves your request.",
         email: 'You then receive by email your login (your email address) and a temporary password.',
         firstLogin:
           "Sign in with these credentials, on the web or in the app: you'll choose a new password at your first sign-in.",
+      },
+      parentTitle: 'Sign-up recorded',
+      parentMessage:
+        "An email with your login and a temporary password has just been sent to you. You'll find your children and the status of their requests in “My children”.",
+      parentChildPending: 'Request awaiting approval',
+      parentChildPendingNamed: '{{classe}} — request awaiting approval',
+      parentSteps: {
+        email: 'Open the email you received: it contains your login (your email address) and a temporary password.',
+        firstLogin: 'Sign in, on the web or in the app, then choose a new password.',
+        children: "Follow the requests' status in “My children”: each teacher approves the one for their class.",
       },
       pendingTitle: 'Request received',
       pendingMessage:
@@ -1395,6 +1433,88 @@ export const en: Dictionary = {
       roleModerator: 'Moderator',
       rolePublication: 'Publishing right',
       roleMember: 'Member',
+    },
+  },
+
+  parentChildren: {
+    intro: 'Your children and the status of their class requests. Tap an accepted child to select them.',
+    introLimited: "As soon as a teacher accepts one of your children's requests, the whole app becomes available.",
+    loadError: "Couldn't load the status of your children's requests.",
+    emptyTitle: 'No children',
+    emptyText: "Add your child with their class code to send their request to the teacher.",
+    selected: 'Selected',
+    noRequest: 'No class request yet.',
+    statusUnavailable: 'Request status unavailable.',
+    joinAnother: 'Join another class',
+    requestedOn: 'Requested on {{date}}',
+    reason: 'Reason: {{reason}}',
+    pendingHint: "Waiting for the teacher's approval.",
+    firstNamePlaceholder: "Child's first name",
+    lastNamePlaceholder: "Child's last name",
+    status: {
+      approved: 'Accepted',
+      pending: 'Pending',
+      rejected: 'Declined',
+    },
+    limited: {
+      banner:
+        'Limited access: until one of your children\'s requests is accepted, only “My children”, your profile and notifications are available.',
+    },
+    add: {
+      title: 'Add a child',
+      hint: "The child's first name, last name and class code: the request is sent to the class's teacher.",
+      submit: 'Enrol the child',
+      failed: 'Failed to add the child.',
+      successTitle: 'Request sent',
+      successMessage: '{{name}} has been added. The request for “{{classe}}” is awaiting the teacher\'s approval.',
+    },
+    remove: {
+      title: 'Remove child',
+      message: "Remove {{name}} from your list? This doesn't delete their account.",
+      confirm: 'Remove',
+      failed: 'Failed to remove.',
+    },
+    errors: {
+      invalidChild: "The child's information is invalid.",
+      duplicate: 'This child is already enrolled or already has a request for this class.',
+      duplicateForm: 'This child is entered twice.',
+      tooManyChildren: "You can register at most 10 children at once.",
+      childrenRequired: 'Add at least one child.',
+    },
+  },
+
+  classDetails: {
+    retry: 'Retry',
+    requests: {
+      parentForChild: '{{parent}} for the child {{child}}',
+      child: 'Child',
+      approve: 'Approve',
+      approveTitle: 'Approve the request?',
+      approveMessage: 'Approve the access request from {{who}}?',
+      rejectMessage: 'Please enter the rejection reason for {{who}}:',
+    },
+    loading: {
+      details: 'Loading class…',
+      members: 'Loading members…',
+      professeurs: 'Loading teachers…',
+      eleves: 'Loading students…',
+      parents: 'Loading parents…',
+      utilisateurs: 'Loading users…',
+      requests: 'Loading access requests…',
+      courses: 'Loading courses…',
+      exercises: 'Loading exercises…',
+      events: 'Loading events…',
+      moderator: 'Loading moderator…',
+      classes: 'Loading classes…',
+    },
+    error: {
+      details: 'Could not load the class details.',
+      members: 'Could not load the class members.',
+      requests: 'Could not load the access requests.',
+      courses: 'Could not load the courses.',
+      exercises: 'Could not load the exercises.',
+      events: 'Could not load the events.',
+      classes: 'Could not load your classes.',
     },
   },
 };

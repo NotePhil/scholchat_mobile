@@ -39,7 +39,32 @@ export interface SignupPayload {
    * (statutInscription EN_ATTENTE_APPROBATION_CLASSE).
    */
   codeClasse?: string;
+  /**
+   * Parent only (at least one): each child to enrol, with the code of its class. The account is
+   * created at once (login + temporary password e-mailed); each child's request then waits for its
+   * class teacher's approval.
+   */
+  enfants?: SignupChild[];
 }
+
+export interface SignupChild {
+  prenom: string;
+  nom: string;
+  codeClasse: string;
+}
+
+/** Child returned by a parent sign-up (request pending at first). */
+export interface SignupChildResult {
+  id?: string;
+  prenom?: string;
+  nom?: string;
+  classeId?: string;
+  classeNom?: string;
+  statut?: string;
+}
+
+/** statutInscription of a parent sign-up: account created, children requests pending. */
+export const PARENT_ACCOUNT_CREATED = 'COMPTE_PARENT_CREE';
 
 export interface SignupResponse {
   id?: string;
@@ -63,8 +88,13 @@ export interface SignupResponse {
   statutInscription?: 'EN_ATTENTE_APPROBATION_CLASSE' | string;
   /** Name of the class matching codeClasse (parent / élève sign-up). */
   classeNom?: string;
+  /** Parent sign-up: the children created, each with its pending class request. */
+  enfants?: SignupChildResult[];
   [key: string]: unknown;
 }
+
+/** Sign-up failure: backend `code`, and for a parent the index of the child card concerned. */
+export type SignupError = Error & { code?: string; enfantIndex?: number; status?: number };
 
 /** statutInscription of a parent / élève sign-up awaiting the class teacher's approval. */
 export const CLASS_APPROVAL_PENDING = 'EN_ATTENTE_APPROBATION_CLASSE';
@@ -76,6 +106,10 @@ const SIGNUP_ERROR_KEYS: Record<string, TranslationKey> = {
   CODE_CLASSE_REQUIS: 'auth.signup.errors.classCodeRequired',
   CLASSE_RESERVEE_MINEURS: 'auth.signup.errors.classMinorsOnly',
   CLASSE_NON_ACTIVE: 'auth.signup.errors.classInactive',
+  ENFANT_INVALIDE: 'parentChildren.errors.invalidChild',
+  ENFANTS_REQUIS: 'parentChildren.errors.childrenRequired',
+  ENFANT_EN_DOUBLE: 'parentChildren.errors.duplicateForm',
+  ENFANTS_TROP_NOMBREUX: 'parentChildren.errors.tooManyChildren',
   INSCRIPTION_EN_ATTENTE: 'auth.signup.errors.signupPending',
   EMAIL_DEJA_UTILISE: 'auth.signup.errors.emailUsed',
   COMPTE_NON_ACTIVE: 'auth.signup.errors.emailInactive',
@@ -228,16 +262,27 @@ export const authService = {
         etat: 'INACTIVE',
       };
       if (payload.type === 'eleve') body.niveau = payload.niveau ?? '';
-      if (payload.type !== 'professeur' && payload.codeClasse?.trim()) body.codeClasse = payload.codeClasse.trim();
+      if (payload.type === 'eleve' && payload.codeClasse?.trim()) body.codeClasse = payload.codeClasse.trim();
+      if (payload.type === 'parent') {
+        body.enfants = (payload.enfants ?? []).map((e) => ({
+          prenom: e.prenom.trim(),
+          nom: e.nom.trim(),
+          codeClasse: e.codeClasse.trim().toUpperCase(),
+        }));
+      }
       const { data } = await apiClient.post<SignupResponse>('/utilisateurs', body);
       return data ?? {};
     } catch (error) {
       const message = extractErrorMessage(error, translate('auth.signup.errors.createFailed'));
-      const code = (error as { response?: { data?: { code?: string } } })?.response?.data?.code;
+      const response = (error as { response?: { status?: number; data?: { code?: string; enfantIndex?: unknown } } })?.response;
+      const code = typeof response?.data?.code === 'string' ? response.data.code : undefined;
       // Known business errors (student profile exclusive, invalid class code…): localized when
-      // not in French; the error keeps its `code` for the screen.
-      const err = new Error(localizedServerMessage(message, code ? SIGNUP_ERROR_KEYS[code] : undefined)) as Error & { code?: string };
+      // not in French; the error keeps its `code` (and, for a child, `enfantIndex`) for the screen.
+      const err = new Error(localizedServerMessage(message, code ? SIGNUP_ERROR_KEYS[code] : undefined)) as SignupError;
       if (code) err.code = code;
+      const index = Number(response?.data?.enfantIndex);
+      if (response?.data?.enfantIndex != null && Number.isInteger(index) && index >= 0) err.enfantIndex = index;
+      err.status = response?.status;
       throw err;
     }
   },

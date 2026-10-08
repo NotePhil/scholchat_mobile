@@ -24,6 +24,7 @@ import { ClassEntity, Exercise } from "../../../../types";
 import CreateExerciseView, { NIVEAU_OPTIONS } from "./CreateExerciseView";
 import ScheduleExerciseView from "./ScheduleExerciseView";
 import ExerciseCorrectionsView from "./ExerciseCorrectionsView";
+import { useUiStore } from "../../../../store/useUiStore";
 import ExerciseDetailView from "./ExerciseDetailView";
 import { formatDate } from "../../../../utils/dates";
 
@@ -277,6 +278,17 @@ const DashboardExercisesBody = () => {
     if (isFabOpen) toggleFab();
   };
 
+  // Opened from a notification tap (useUiStore.requestCorrection): the corrections of that
+  // programmed exercise, with the submitting student's copy.
+  const pendingCorrection = useUiStore((s) => s.pendingCorrection);
+  const [correctionFocus, setCorrectionFocus] = useState<{ exerciseProgrammerId: string; studentId?: string; nonce: number } | null>(null);
+  useEffect(() => {
+    if (!pendingCorrection) return;
+    useUiStore.getState().clearPendingCorrection();
+    setCorrectionFocus({ ...pendingCorrection, nonce: Date.now() });
+    setViewMode("corrections");
+  }, [pendingCorrection]);
+
   const openCreate = () => {
     closeFab();
     setEditingExercise(null);
@@ -344,7 +356,7 @@ const DashboardExercisesBody = () => {
   }
 
   if (viewMode === "corrections") {
-    return <ExerciseCorrectionsView onBack={() => setViewMode("list")} />;
+    return <ExerciseCorrectionsView onBack={() => setViewMode("list")} focus={correctionFocus} />;
   }
 
   if (viewMode === "detail" && selectedExerciseId) {

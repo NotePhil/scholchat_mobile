@@ -3,6 +3,8 @@ import { notificationService, normalizeNotification } from '../services/api/noti
 import { storageService } from '../services/storageService';
 import { stompClient } from '../services/realtime/stompClient';
 import { useNotificationsStore } from '../store/useNotificationsStore';
+import { isChildAccessNotification } from '../services/notificationRouting';
+import { refreshParentAccess } from '../services/parentAccess';
 
 /**
  * Keeps the notification store live for the logged-in user:
@@ -43,7 +45,10 @@ export const useNotificationsRealtime = (userId?: string | null) => {
         unsubscribe = stompClient.subscribe(`/topic/notifications/${userId}`, (body) => {
           if (!body || typeof body !== 'object') return;
           try {
-            upsert(normalizeNotification(body as Record<string, unknown>));
+            const item = normalizeNotification(body as Record<string, unknown>);
+            upsert(item);
+            // A child's class request was decided: refresh the parent's access (may unlock the app).
+            if (isChildAccessNotification(item.type)) refreshParentAccess();
           } catch {
             // malformed payload — ignore
           }

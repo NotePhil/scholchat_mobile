@@ -10,6 +10,8 @@ import ClassDetails from "../professeurs/components/classes/ClassDetails";
 import { UIClass, enrichClassForDetails } from "../professeurs/components/classes/DashboardClassesBody";
 import { ClassEntity, Etablissement } from "../../types";
 import { useUser } from "../../context/UserContext";
+import { useUiStore } from "../../store/useUiStore";
+import { useMountedRef } from "../../hooks/useMountedRef";
 import { useT } from "../../i18n";
 import { getClassActionTexts, useClassActionConfirm } from "../../hooks/useClassActionConfirm";
 
@@ -69,6 +71,32 @@ const EstablishmentClassesBody = ({ autoCreate }: EstablishmentClassesBodyProps)
   useEffect(() => {
     load();
   }, [load]);
+
+  // Opened from a notification tap (useUiStore.requestClass): straight into that class's details.
+  const pendingClass = useUiStore((st) => st.pendingClass);
+  const mountedRef = useMountedRef();
+  useEffect(() => {
+    if (!pendingClass) return;
+    const { classId, tab } = pendingClass;
+    useUiStore.getState().clearPendingClass();
+    const cls = classes.find((c) => String(c.id) === classId) ?? ({ id: classId } as ClassEntity);
+    setManagedClass(cls);
+    setActiveDetailTab(tab);
+    setManaging(true);
+    enrichClassForDetails(cls)
+      .then((ui) => {
+        if (mountedRef.current) setSelectedClass(ui);
+      })
+      .catch(() => {
+        if (!mountedRef.current) return;
+        setManagedClass(null);
+        Alert.alert(t("notifications.unavailableTitle"), t("notifications.classUnavailable"));
+      })
+      .finally(() => {
+        if (mountedRef.current) setManaging(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingClass]);
 
   useEffect(() => {
     if (autoCreate) setShowCreate(true);

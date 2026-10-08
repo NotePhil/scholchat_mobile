@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheet } from '../../../../components/ui';
 import { useThemeColors } from '../../../../styles/theme';
 import { useThemeStore } from '../../../../store/useThemeStore';
+import { translate } from '../../../../i18n';
 import {
   accederService,
   exerciseProgrammerService,
@@ -40,6 +41,11 @@ try {
 
 export interface ExerciseCorrectionsViewProps {
   onBack: () => void;
+  /**
+   * Opened from a notification (DEVOIR_SOUMIS…): select that programmation once loaded and
+   * expand that student's copy. `nonce` changes on every request.
+   */
+  focus?: { exerciseProgrammerId: string; studentId?: string; nonce: number } | null;
 }
 
 /**
@@ -227,9 +233,12 @@ const SaveButton = ({
 const ProgrammationCorrections = ({
   prog,
   notify,
+  focusStudentId,
 }: {
   prog: ProgItem;
   notify: (type: 'success' | 'error', text: string) => void;
+  /** Copy to expand once loaded (notification of that student's submission). */
+  focusStudentId?: string;
 }) => {
   const { styles, tone, muted, isDark } = useCorrStyles();
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -292,6 +301,10 @@ const ProgrammationCorrections = ({
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (focusStudentId && !loading) setExpandedStudent(focusStudentId);
+  }, [focusStudentId, loading]);
 
   // Build student map (answers first, then participations — like the web)
   const studentMap: Record<string, Student> = {};
@@ -828,7 +841,7 @@ const ProgList = ({
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
-export const ExerciseCorrectionsView = ({ onBack }: ExerciseCorrectionsViewProps) => {
+export const ExerciseCorrectionsView = ({ onBack, focus }: ExerciseCorrectionsViewProps) => {
   const { styles, tone, isDark } = useCorrStyles();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
@@ -926,6 +939,22 @@ export const ExerciseCorrectionsView = ({ onBack }: ExerciseCorrectionsViewProps
   }, [load]);
 
   const selectedProg = programmations.find((p) => p.id === selectedProgId);
+
+  // Notification focus: once the list is loaded, select that programmation (or say it has no copy).
+  const handledFocusRef = useRef<number | null>(null);
+  const [focusStudentId, setFocusStudentId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!focus || loading || handledFocusRef.current === focus.nonce) return;
+    handledFocusRef.current = focus.nonce;
+    if (programmations.some((p) => String(p.id) === focus.exerciseProgrammerId)) {
+      setFilterType('all');
+      setSelectedProgId(focus.exerciseProgrammerId);
+      setFocusStudentId(focus.studentId);
+      setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, panelY.current - 8), animated: true }), 300);
+    } else {
+      notify('error', translate('notifications.correctionUnavailable'));
+    }
+  }, [focus, loading, programmations, notify]);
 
   // Resolve professor name when a non-own programmation is selected
   useEffect(() => {
@@ -1067,7 +1096,12 @@ export const ExerciseCorrectionsView = ({ onBack }: ExerciseCorrectionsViewProps
 
               <View style={styles.panelBody}>
                 {selectedProg ? (
-                  <ProgrammationCorrections key={selectedProg.id} prog={selectedProg} notify={notify} />
+                  <ProgrammationCorrections
+                    key={selectedProg.id}
+                    prog={selectedProg}
+                    notify={notify}
+                    focusStudentId={focus && selectedProg.id === focus.exerciseProgrammerId ? focusStudentId : undefined}
+                  />
                 ) : (
                   <View style={styles.panelEmpty}>
                     <FontAwesome5 name="clipboard-check" size={32} color={isDark ? '#475569' : '#D1D5DB'} />

@@ -12,6 +12,8 @@ interface MobileFooterNavProps {
   onOpenQuickActions: () => void;
   quickActionsOpen: boolean;
   accentColor?: string;
+  /** Parent in limited mode (no approved child yet): only "Mes enfants" and the profile. */
+  parentLimited?: boolean;
 }
 
 /**
@@ -28,6 +30,7 @@ const MobileFooterNav = ({
   onOpenQuickActions,
   quickActionsOpen,
   accentColor = colors.primary,
+  parentLimited = false,
 }: MobileFooterNavProps) => {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
@@ -80,6 +83,15 @@ const MobileFooterNav = ({
   };
 
   if (keyboardOpen) return null;
+
+  if (parentLimited) {
+    return (
+      <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12), paddingTop: 8 }]}>
+        {renderItem({ icon: 'child', label: t('header.myChildren'), tab: 'children' })}
+        {renderItem({ icon: 'user', label: t('nav.profile'), tab: 'settings' })}
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12) }]}>

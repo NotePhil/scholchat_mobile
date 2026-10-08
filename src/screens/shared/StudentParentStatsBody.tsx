@@ -6,7 +6,10 @@ import { Badge, Card, EmptyState, HeroCard, LoadingSpinner, QuickActionGrid } fr
 import { colors, spacing, typography, useThemeColors } from "../../styles/theme";
 import { accederService, coursProgrammerService, notificationService, parentService } from "../../services/api";
 import { ClassEntity, CoursProgramme } from "../../types";
-import { NotificationItem } from "../../store/useNotificationsStore";
+import { NotificationItem, useNotificationsStore } from "../../store/useNotificationsStore";
+import { useAuthStore } from "../../store/useAuthStore";
+import { openNotification } from "../../services/notificationNavigation";
+import { useNavigation } from "@react-navigation/native";
 import { useUser } from "../../context/UserContext";
 import { useSelectedChildStore } from "../../store/useSelectedChildStore";
 import ChildSelectorRow from "../parent/ChildSelectorRow";
@@ -58,6 +61,7 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
   const [error, setError] = useState("");
   const [classes, setClasses] = useState<ClassEntity[]>([]);
   const [courses, setCourses] = useState<CoursProgramme[]>([]);
+  const navigation = useNavigation<any>();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
@@ -122,6 +126,17 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
   const completedCourses = courses.filter((c) => c.etatCoursProgramme === "TERMINE");
   const inProgressCourses = courses.filter((c) => c.etatCoursProgramme === "EN_COURS");
   const unreadNotifications = notifications.filter((n) => !n.isRead);
+
+  // Same as the header bell: mark read, then straight to the item.
+  const handleNotificationPress = (n: NotificationItem) => {
+    if (!n.isRead) {
+      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, isRead: true } : x)));
+      useNotificationsStore.getState().markReadLocally(n.id);
+      notificationService.markAsRead(n.id).catch(() => {});
+    }
+    const auth = useAuthStore.getState();
+    openNotification(n, { role: auth.role, userId: (auth.user?.userId as string | undefined) ?? null, navigation, login: auth.login });
+  };
 
   const coursesByClassData = classes.map((cls) => ({
     name: cls.nom && cls.nom.length > 12 ? `${cls.nom.slice(0, 12)}…` : cls.nom || "Classe",
@@ -378,7 +393,12 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
                 <EmptyState icon="bell" title="Aucune notification" />
               ) : (
                 notifications.slice(0, 5).map((n) => (
-                  <View key={n.id} style={[styles.listRow, !n.isRead && styles.listRowUnread]}>
+                  <TouchableOpacity
+                    key={n.id}
+                    style={[styles.listRow, !n.isRead && styles.listRowUnread]}
+                    activeOpacity={0.7}
+                    onPress={() => handleNotificationPress(n)}
+                  >
                     <View style={[styles.listAvatar, { backgroundColor: !n.isRead ? colors.primaryLight : colors.grayLight }]}>
                       <FontAwesome5 name="bell" size={12} color={!n.isRead ? colors.primary : colors.textMuted} />
                     </View>
@@ -393,7 +413,7 @@ const StudentParentStatsBody = ({ userRole, onNavigate, accentColor = colors.pri
                     {n.createdAt ? (
                       <Text style={styles.listTime}>{formatDate(n.createdAt, { day: "numeric", month: "short" })}</Text>
                     ) : null}
-                  </View>
+                  </TouchableOpacity>
                 ))
               )}
             </Card>

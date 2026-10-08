@@ -28,7 +28,7 @@ import {
   publicationRightsService,
   studentService,
 } from "../../../../services/api";
-import { BottomSheet, LoadingSpinner } from "../../../../components/ui";
+import { BottomSheet, Skeleton } from "../../../../components/ui";
 import { useThemeColors } from "../../../../styles/theme";
 import { useThemeStore } from "../../../../store/useThemeStore";
 import { useAuthStore } from "../../../../store/useAuthStore";
@@ -36,7 +36,7 @@ import { useUiStore } from "../../../../store/useUiStore";
 import OffreInfoPanel from "../../../../components/common/OffreInfoPanel";
 import { RejectionMotif } from "../../../../types";
 import { formatDate, formatDateTime } from "../../../../utils/dates";
-import { useT } from "../../../../i18n";
+import { TranslationKey, useT } from "../../../../i18n";
 import { getClassActionTexts } from "../../../../hooks/useClassActionConfirm";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
@@ -105,6 +105,17 @@ interface UsersState {
   accessRequests: AnyUser[];
 }
 
+type SectionKey = "members" | "requests" | "courses" | "exercises" | "events";
+type SectionStatus = "loading" | "ready" | "error";
+const SECTION_KEYS: SectionKey[] = ["members", "requests", "courses", "exercises", "events"];
+const INITIAL_SECTIONS: Record<SectionKey, SectionStatus> = {
+  members: "loading",
+  requests: "loading",
+  courses: "loading",
+  exercises: "loading",
+  events: "loading",
+};
+
 const EMPTY_USERS: UsersState = { professeurs: [], eleves: [], parents: [], utilisateurs: [], accessRequests: [] };
 const PAGE_SIZE = 10;
 const HERO_GRADIENT = ["#1E3A5F", "#2D6A9F", "#4F8EC9"];
@@ -126,6 +137,9 @@ const categoryOf = (u: AnyUser): UserCategory => {
 };
 
 const fullName = (u?: AnyUser | null) => `${u?.prenom || ""} ${u?.nom || ""}`.trim();
+/** Child named by a parent's access request (DemandeAccesDto eleveAssociePrenom / eleveAssocieNom), or "". */
+const requestChildName = (u?: AnyUser | null) =>
+  `${u?.eleveAssociePrenom || ""} ${u?.eleveAssocieNom || ""}`.trim();
 const initials = (u?: AnyUser | null) =>
   (((u?.prenom || "").charAt(0) + (u?.nom || "").charAt(0)).toUpperCase() || "?");
 const fmtDate = (d?: string | null) => (d ? formatDate(d) : "N/A");
@@ -210,6 +224,14 @@ const LIST_EMPTY: Record<ListType, string> = {
   utilisateurs: "Aucun utilisateur n'a accès à cette classe",
   "access-requests": "Aucune demande d'accès en attente",
 };
+
+const LIST_LOADING = {
+  professeurs: "classDetails.loading.professeurs",
+  eleves: "classDetails.loading.eleves",
+  parents: "classDetails.loading.parents",
+  utilisateurs: "classDetails.loading.utilisateurs",
+  "access-requests": "classDetails.loading.requests",
+} as const satisfies Record<ListType, TranslationKey>;
 
 const normalizeTab = (tab: string, adminMode: boolean): TabKey => {
   const known: TabKey[] = ["overview", "professeurs", "eleves", "parents", "utilisateurs", "access-requests", "courses", "exercises", "events"];
@@ -510,6 +532,77 @@ const Dialog = ({
   );
 };
 
+/**
+ * Loading / error placeholder of one tab section: a centered spinner with a short label while the
+ * request is pending, or the error message with a "Réessayer" button after a failure.
+ */
+const SectionStatusView = ({
+  status,
+  loadingLabel,
+  errorLabel,
+  onRetry,
+}: {
+  status: "loading" | "error";
+  loadingLabel: string;
+  errorLabel: string;
+  onRetry: () => void;
+}) => {
+  const { styles, colors } = useCDStyles();
+  const { t } = useT();
+  if (status === "loading") {
+    return (
+      <View style={styles.sectionState} accessibilityRole="progressbar" accessibilityLabel={loadingLabel}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.sectionStateText}>{loadingLabel}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.sectionState}>
+      <FontAwesome5 name="exclamation-triangle" size={24} color={colors.danger} />
+      <Text style={styles.sectionStateText}>{errorLabel}</Text>
+      <TouchableOpacity style={styles.retryBtn} onPress={onRetry} activeOpacity={0.85}>
+        <FontAwesome5 name="redo" size={11} color="#FFFFFF" />
+        <Text style={styles.retryText}>{t("classDetails.retry")}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+/** Header placeholder shown until the class details arrive (same shape as the hero). */
+const HeroSkeleton = ({ onBack, label }: { onBack: () => void; label: string }) => {
+  const { styles } = useCDStyles();
+  const { t } = useT();
+  return (
+    <LinearGradient colors={HERO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+      <View style={styles.heroBubble} pointerEvents="none" />
+      <View style={styles.heroTopRow}>
+        <TouchableOpacity style={styles.heroBack} onPress={onBack} activeOpacity={0.8}>
+          <FontAwesome5 name="arrow-left" size={12} color="#FFFFFF" />
+          <Text style={styles.heroBackText}>{t("common.back")}</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={styles.heroIdentity}>
+        <View style={styles.heroIcon}>
+          <FontAwesome5 name="graduation-cap" size={18} color="#FFFFFF" />
+        </View>
+        <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
+          <Skeleton width="70%" height={18} style={styles.heroSkel} />
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <Skeleton width={60} height={16} borderRadius={8} style={styles.heroSkel} />
+            <Skeleton width={80} height={16} borderRadius={8} style={styles.heroSkel} />
+          </View>
+          <Skeleton width="50%" height={12} style={styles.heroSkel} />
+        </View>
+      </View>
+      <View style={styles.heroLoadingRow}>
+        <ActivityIndicator size="small" color="#FFFFFF" />
+        <Text style={styles.heroMetaText}>{label}</Text>
+      </View>
+    </LinearGradient>
+  );
+};
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 const ClassDetails = ({
@@ -554,6 +647,19 @@ const ClassDetails = ({
   const [exercises, setExercises] = useState<AnyUser[]>([]);
   const [events, setEvents] = useState<AnyUser[]>([]);
   const poolsRef = useRef<{ profs: AnyUser[]; students: AnyUser[]; parents: AnyUser[] }>({ profs: [], students: [], parents: [] });
+  // Per-section request status (see loadMembers / loadCourses / …)
+  const [sections, setSections] = useState<Record<SectionKey, SectionStatus>>(INITIAL_SECTIONS);
+  const sectionsRef = useRef<Record<SectionKey, SectionStatus>>(INITIAL_SECTIONS);
+  const markSections = (keys: SectionKey[], status: SectionStatus) => {
+    const next = { ...sectionsRef.current };
+    keys.forEach((k) => {
+      next[k] = status;
+    });
+    sectionsRef.current = next;
+    setSections(next);
+  };
+  /** Incremented on every loadAll: responses of an older load are ignored. */
+  const loadSeqRef = useRef(0);
 
   // ── Feedback ──
   const [success, setSuccess] = useState("");
@@ -664,8 +770,15 @@ const ClassDetails = ({
           nom: full?.nom || request.utilisateurNom || "Non disponible",
           prenom: full?.prenom || request.utilisateurPrenom || "Non disponible",
           email: full?.email || request.utilisateurEmail || "Non disponible",
-          telephone: full?.telephone || "Non disponible",
-          typeUtilisateur: userType || "INCONNU",
+          telephone: full?.telephone || request.utilisateurTelephone || "Non disponible",
+          // The access-request DTO already carries the requester's type (backend convertToDto:
+          // PARENT for a parent request, else PROFESSEUR/ELEVE/REPETITEUR/UTILISATEUR); the member
+          // pools above are often empty for a professor, so use it before giving up.
+          typeUtilisateur:
+            userType ||
+            (request.typeUtilisateur ? String(request.typeUtilisateur).toUpperCase() : null) ||
+            (request.estParent ? "PARENT" : null) ||
+            "INCONNU",
           dateDemande: request.dateDemande,
           etat: request.etat,
           motifRejet: request.motifRejet,
@@ -679,12 +792,20 @@ const ClassDetails = ({
 
   const loadAccessRequests = useCallback(async () => {
     if (!canManageRef.current) return; // server answers 403 to non-managers
+    // The member load fetches the requests too (with the profile pools): don't race it.
+    if (sectionsRef.current.members === "loading") return;
+    const seq = loadSeqRef.current;
+    if (sectionsRef.current.requests !== "ready") markSections(["requests"], "loading");
     try {
       const reqs = (await accederService.getRequestsForClass(classId)) as AnyUser[];
+      if (seq !== loadSeqRef.current) return;
       const built = buildAccessRequests(reqs);
       setUsers((prev) => ({ ...prev, accessRequests: built }));
+      markSections(["requests"], "ready");
     } catch {
-      showError("Erreur lors du chargement des demandes d'accès");
+      if (seq !== loadSeqRef.current) return;
+      if (sectionsRef.current.requests === "ready") showError("Erreur lors du chargement des demandes d'accès");
+      else markSections(["requests"], "error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classId]);
@@ -712,19 +833,165 @@ const ClassDetails = ({
     return { canManage, canPublish: canManage || !!myRight?.peutPublier };
   };
 
+  /**
+   * Each tab's data is tracked separately (members / access requests / courses / exercises / events)
+   * so a tab shows its own loader while its request is pending, its error + retry on failure, and
+   * the empty state only after a successful load with no data. A pull-to-refresh keeps the current
+   * data on screen (RefreshControl spinner) instead of flashing the loaders.
+   */
+  const loadMembers = async (canManage: boolean, mode: "initial" | "refresh", seq: number) => {
+    if (mode === "initial" || sectionsRef.current.members === "error") markSections(["members"], "loading");
+    if (canManage && (mode === "initial" || sectionsRef.current.requests === "error")) markSections(["requests"], "loading");
+    // Profile pools used to enrich members & requests (web: scholchatService.getAll*)
+    const [profs, students, parents] = await Promise.all([
+      professorService.getAll().catch(() => []),
+      studentService.getAll().catch(() => []),
+      parentService.getAllSummary().catch(() => []),
+    ]);
+    if (seq !== loadSeqRef.current) return;
+    if (!canManage) markSections(["requests"], "ready"); // tab hidden: nothing to load
+    poolsRef.current = {
+      profs: (profs || []) as AnyUser[],
+      students: (students || []) as AnyUser[],
+      parents: (parents || []) as AnyUser[],
+    };
+
+    // Users with access + access requests + publication rights, in parallel
+    const [accessRes, requestsRes, rightsRes] = await Promise.allSettled([
+      accederService.getUsersWithAccess(classId),
+      canManage ? accederService.getRequestsForClass(classId) : Promise.resolve([]),
+      publicationRightsService.getUsersForClass(classId),
+    ]);
+    if (seq !== loadSeqRef.current) return;
+
+    let accessRequests: AnyUser[] = [];
+    if (canManage) {
+      if (requestsRes.status === "fulfilled") {
+        accessRequests = buildAccessRequests(((requestsRes.value || []) as AnyUser[]));
+        markSections(["requests"], "ready");
+      } else {
+        markSections(["requests"], "error");
+      }
+    }
+
+    if (accessRes.status === "rejected") {
+      markSections(["members"], "error");
+      setUsers((prev) => ({ ...prev, accessRequests: canManage && requestsRes.status === "fulfilled" ? accessRequests : prev.accessRequests }));
+      return;
+    }
+    const access = ((accessRes.value || []) as AnyUser[]);
+    const cat: Record<UserCategory, AnyUser[]> = { professeurs: [], eleves: [], parents: [], utilisateurs: [] };
+    access.forEach((u) => {
+      const c = categoryOf(u);
+      cat[c].push({ ...u, typeUtilisateur: TYPE_FIX[c] });
+    });
+    const enrich = (list: AnyUser[], pool: AnyUser[]) => list.map((u) => ({ ...(pool.find((p) => p.id === u.id) || {}), ...u }));
+    cat.professeurs = enrich(cat.professeurs, poolsRef.current.profs);
+    cat.eleves = enrich(cat.eleves, poolsRef.current.students);
+    cat.parents = enrich(cat.parents, poolsRef.current.parents);
+
+    // Publication rights — merged into the member lists like web's loadModeratorsAndRights()
+    const rights: AnyUser[] = rightsRes.status === "fulfilled" ? (((rightsRes.value || []) as AnyUser[])) : [];
+    const existing = new Set([...cat.professeurs, ...cat.eleves, ...cat.parents, ...cat.utilisateurs].map((u) => u.id));
+    rights.forEach((u) => {
+      if (existing.has(u.id)) return;
+      const t = String(u.typeUtilisateur || u.type || "").toUpperCase();
+      const c: UserCategory =
+        t === "PROFESSEUR" || t === "PROFESSOR"
+          ? "professeurs"
+          : t === "ELEVE" || t === "ÉLÈVE" || t === "STUDENT"
+            ? "eleves"
+            : t === "PARENT"
+              ? "parents"
+              : "utilisateurs";
+      cat[c].push({ ...u, typeUtilisateur: TYPE_FIX[c] });
+    });
+    setUsersWithRights(rights);
+    setUsers((prev) => ({
+      ...cat,
+      accessRequests: !canManage || requestsRes.status === "fulfilled" ? accessRequests : prev.accessRequests,
+    }));
+    markSections(["members"], "ready");
+  };
+
+  const loadCourses = async (mode: "initial" | "refresh", seq: number) => {
+    if (mode === "initial" || sectionsRef.current.courses === "error") markSections(["courses"], "loading");
+    try {
+      const c = await coursProgrammerService.getByClasse(classId);
+      if (seq !== loadSeqRef.current) return;
+      const courseOrder: Record<string, number> = { EN_COURS: 0, PLANIFIE: 1, ANNULE: 2, TERMINE: 3 };
+      setCourses(
+        [...((c || []) as AnyUser[])].sort(
+          (a, b) => (courseOrder[a.etatCoursProgramme] ?? 99) - (courseOrder[b.etatCoursProgramme] ?? 99)
+        )
+      );
+      markSections(["courses"], "ready");
+    } catch {
+      if (seq === loadSeqRef.current) markSections(["courses"], "error");
+    }
+  };
+
+  const loadExercises = async (mode: "initial" | "refresh", seq: number) => {
+    if (mode === "initial" || sectionsRef.current.exercises === "error") markSections(["exercises"], "loading");
+    try {
+      const e = await exerciseProgrammerService.getByClasse(classId);
+      if (seq !== loadSeqRef.current) return;
+      const exOrder: Record<string, number> = { ACTIF: 0, PUBLIE: 0, BROUILLON: 1, EN_ATTENTE_CORRECTION: 2, CORRIGE: 3, ANNULE: 4 };
+      setExercises(
+        [...((e || []) as AnyUser[])].sort(
+          (a, b) => (exOrder[a.etat] ?? exOrder[a.etatExercise] ?? 99) - (exOrder[b.etat] ?? exOrder[b.etatExercise] ?? 99)
+        )
+      );
+      markSections(["exercises"], "ready");
+    } catch {
+      if (seq === loadSeqRef.current) markSections(["exercises"], "error");
+    }
+  };
+
+  const loadEvents = async (mode: "initial" | "refresh", seq: number) => {
+    if (mode === "initial" || sectionsRef.current.events === "error") markSections(["events"], "loading");
+    try {
+      const ev = await activityFeedService.getAll();
+      if (seq !== loadSeqRef.current) return;
+      const evOrder: Record<string, number> = { EN_COURS: 0, PLANIFIE: 1, A_VENIR: 1, PASSE: 2, ANNULE: 3 };
+      setEvents(
+        ((ev || []) as AnyUser[])
+          .filter((x) => Array.isArray(x.classesIds) && x.classesIds.includes(classId))
+          .sort((a, b) => (evOrder[a.etat] ?? 99) - (evOrder[b.etat] ?? 99))
+      );
+      markSections(["events"], "ready");
+    } catch {
+      if (seq === loadSeqRef.current) markSections(["events"], "error");
+    }
+  };
+
+  /** Retry one section from its error state (Réessayer button). */
+  const retrySection = (key: SectionKey) => {
+    const seq = loadSeqRef.current;
+    if (key === "members" || key === "requests") loadMembers(canManageRef.current, "refresh", seq);
+    else if (key === "courses") loadCourses("refresh", seq);
+    else if (key === "exercises") loadExercises("refresh", seq);
+    else loadEvents("refresh", seq);
+  };
+
   const loadAll = useCallback(
     async (mode: "initial" | "refresh") => {
-      if (mode === "initial") setLoading(true);
-      else setRefreshing(true);
+      const seq = ++loadSeqRef.current;
+      if (mode === "initial") {
+        setLoading(true);
+        markSections(SECTION_KEYS, "loading");
+      } else setRefreshing(true);
       try {
         let details: AnyUser;
         try {
           details = (await classService.getClassDetails(classId)) as AnyUser;
         } catch {
+          if (seq !== loadSeqRef.current) return;
           showError("Erreur lors du chargement des détails de la classe");
           if (mode === "initial") setClassDetails(null);
           return;
         }
+        if (seq !== loadSeqRef.current) return;
         const enriched: AnyUser = {
           ...details,
           dateCreation: details.dateCreation || details.date_creation || null,
@@ -736,101 +1003,25 @@ const ClassDetails = ({
           moderatorId: details.moderatorId || details.moderator_id || null,
         };
         setClassDetails(enriched);
+        // The header is ready: stop the full-page loader, the tabs keep their own loaders.
+        if (mode === "initial") setLoading(false);
 
         const p = await resolveClassPermissions(enriched);
+        if (seq !== loadSeqRef.current) return;
         canManageRef.current = p.canManage;
         setPerms(p);
 
-        // Profile pools used to enrich members & requests (web: scholchatService.getAll*)
-        const [profs, students, parents] = await Promise.all([
-          professorService.getAll().catch(() => []),
-          studentService.getAll().catch(() => []),
-          parentService.getAllSummary().catch(() => []),
+        await Promise.all([
+          loadMembers(p.canManage, mode, seq),
+          loadCourses(mode, seq),
+          loadExercises(mode, seq),
+          loadEvents(mode, seq),
         ]);
-        poolsRef.current = {
-          profs: (profs || []) as AnyUser[],
-          students: (students || []) as AnyUser[],
-          parents: (parents || []) as AnyUser[],
-        };
-
-        // Users with access
-        let access: AnyUser[] = [];
-        try {
-          access = ((await accederService.getUsersWithAccess(classId)) || []) as AnyUser[];
-        } catch {
-          showError("Erreur lors du chargement des utilisateurs");
-        }
-        const cat: Record<UserCategory, AnyUser[]> = { professeurs: [], eleves: [], parents: [], utilisateurs: [] };
-        access.forEach((u) => {
-          const c = categoryOf(u);
-          cat[c].push({ ...u, typeUtilisateur: TYPE_FIX[c] });
-        });
-        const enrich = (list: AnyUser[], pool: AnyUser[]) => list.map((u) => ({ ...(pool.find((p) => p.id === u.id) || {}), ...u }));
-        cat.professeurs = enrich(cat.professeurs, poolsRef.current.profs);
-        cat.eleves = enrich(cat.eleves, poolsRef.current.students);
-        cat.parents = enrich(cat.parents, poolsRef.current.parents);
-
-        // Access requests
-        let accessRequests: AnyUser[] = [];
-        if (p.canManage) {
-          try {
-            accessRequests = buildAccessRequests(((await accederService.getRequestsForClass(classId)) || []) as AnyUser[]);
-          } catch {
-            showError("Erreur lors du chargement des demandes d'accès");
-          }
-        }
-
-        // Publication rights — merged into the member lists like web's loadModeratorsAndRights()
-        let rights: AnyUser[] = [];
-        try {
-          rights = ((await publicationRightsService.getUsersForClass(classId)) || []) as AnyUser[];
-        } catch {
-          rights = [];
-        }
-        const existing = new Set([...cat.professeurs, ...cat.eleves, ...cat.parents, ...cat.utilisateurs].map((u) => u.id));
-        rights.forEach((u) => {
-          if (existing.has(u.id)) return;
-          const t = String(u.typeUtilisateur || u.type || "").toUpperCase();
-          const c: UserCategory =
-            t === "PROFESSEUR" || t === "PROFESSOR"
-              ? "professeurs"
-              : t === "ELEVE" || t === "ÉLÈVE" || t === "STUDENT"
-                ? "eleves"
-                : t === "PARENT"
-                  ? "parents"
-                  : "utilisateurs";
-          cat[c].push({ ...u, typeUtilisateur: TYPE_FIX[c] });
-        });
-        setUsersWithRights(rights);
-        setUsers({ ...cat, accessRequests });
-
-        // Modules
-        const [c, e, ev] = await Promise.all([
-          coursProgrammerService.getByClasse(classId).catch(() => []),
-          exerciseProgrammerService.getByClasse(classId).catch(() => []),
-          activityFeedService.getAll().catch(() => []),
-        ]);
-        const courseOrder: Record<string, number> = { EN_COURS: 0, PLANIFIE: 1, ANNULE: 2, TERMINE: 3 };
-        setCourses(
-          [...((c || []) as AnyUser[])].sort(
-            (a, b) => (courseOrder[a.etatCoursProgramme] ?? 99) - (courseOrder[b.etatCoursProgramme] ?? 99)
-          )
-        );
-        const exOrder: Record<string, number> = { ACTIF: 0, PUBLIE: 0, BROUILLON: 1, EN_ATTENTE_CORRECTION: 2, CORRIGE: 3, ANNULE: 4 };
-        setExercises(
-          [...((e || []) as AnyUser[])].sort(
-            (a, b) => (exOrder[a.etat] ?? exOrder[a.etatExercise] ?? 99) - (exOrder[b.etat] ?? exOrder[b.etatExercise] ?? 99)
-          )
-        );
-        const evOrder: Record<string, number> = { EN_COURS: 0, PLANIFIE: 1, A_VENIR: 1, PASSE: 2, ANNULE: 3 };
-        setEvents(
-          ((ev || []) as AnyUser[])
-            .filter((x) => Array.isArray(x.classesIds) && x.classesIds.includes(classId))
-            .sort((a, b) => (evOrder[a.etat] ?? 99) - (evOrder[b.etat] ?? 99))
-        );
       } finally {
-        setLoading(false);
-        setRefreshing(false);
+        if (seq === loadSeqRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1255,11 +1446,28 @@ const ClassDetails = ({
       },
     });
 
+  /** "<Parent> pour l'enfant <Enfant>" for a parent's request naming a child, else the requester's name. */
+  const requestLabel = (r: AnyUser) => {
+    const child = requestChildName(r);
+    const name = fullName(r);
+    return child ? tr("classDetails.requests.parentForChild", { parent: name || "—", child }) : name;
+  };
+
+  // Approving a request (as rejecting it) is confirmed first.
+  const askApproveRequest = (r: AnyUser) =>
+    setConfirm({
+      title: tr("classDetails.requests.approveTitle"),
+      message: tr("classDetails.requests.approveMessage", { who: requestLabel(r) || "—" }),
+      okLabel: tr("classDetails.requests.approve"),
+      onOk: () => approveRequest(r),
+    });
+
   const approveRequest = async (r: AnyUser) => {
     setActionLoading(`approve-${r.id}`);
     try {
       await accederService.approveRequest(r.id);
-      const name = fullName(r);
+      const child = requestChildName(r);
+      const name = child || fullName(r);
       showSuccess(name ? `Demande approuvée. ${name} a été ajouté(e).` : "Demande approuvée avec succès");
       await reloadAfterMutation();
     } catch {
@@ -1337,8 +1545,16 @@ const ClassDetails = ({
 
   if (loading && !classDetails) {
     return (
-      <View style={styles.container}>
-        <LoadingSpinner label="Chargement des détails de la classe..." />
+      <View style={[styles.container, { padding: 16, paddingTop: 12 }]}>
+        <HeroSkeleton onBack={onBack} label={tr("classDetails.loading.details")} />
+        <View style={[styles.card, { padding: 16, gap: 12 }]}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", gap: 16 }}>
+              <Skeleton width="35%" height={12} />
+              <Skeleton width="40%" height={12} />
+            </View>
+          ))}
+        </View>
       </View>
     );
   }
@@ -1450,7 +1666,11 @@ const ClassDetails = ({
             ) : null}
             <View style={styles.heroMetaItem}>
               <FontAwesome5 name="user-friends" size={10} color="#DBEAFE" />
-              <Text style={styles.heroMetaText}>{users.eleves.length} participants</Text>
+              {sections.members === "loading" ? (
+                <Skeleton width={70} height={10} style={styles.heroSkel} />
+              ) : (
+                <Text style={styles.heroMetaText}>{users.eleves.length} participants</Text>
+              )}
             </View>
           </View>
         </View>
@@ -1513,14 +1733,29 @@ const ClassDetails = ({
     );
   };
 
+  /** Section feeding each tab (overview has none). */
+  const sectionOf = (key: TabKey): SectionKey | null =>
+    key === "overview"
+      ? null
+      : key === "access-requests"
+        ? "requests"
+        : key === "courses" || key === "exercises" || key === "events"
+          ? key
+          : "members";
+  /** "Élèves (3)" once loaded; just "Élèves" while pending or failed (the chip shows a spinner). */
+  const tabLabel = (label: string, key: TabKey, count: number) => {
+    const sec = sectionOf(key);
+    return sec && sections[sec] !== "ready" ? label : `${label} (${count})`;
+  };
+
   const tabs: { key: TabKey; label: string; icon: string }[] = [
     { key: "overview", label: "Aperçu", icon: "book" },
-    { key: "professeurs", label: `Professeurs (${users.professeurs.length})`, icon: "user" },
-    { key: "eleves", label: `Élèves (${users.eleves.length})`, icon: "user-friends" },
-    { key: "parents", label: `Parents (${users.parents.length})`, icon: "user-friends" },
-    { key: "utilisateurs", label: `Utilisateurs (${users.utilisateurs.length})`, icon: "user" },
+    { key: "professeurs", label: tabLabel("Professeurs", "professeurs", users.professeurs.length), icon: "user" },
+    { key: "eleves", label: tabLabel("Élèves", "eleves", users.eleves.length), icon: "user-friends" },
+    { key: "parents", label: tabLabel("Parents", "parents", users.parents.length), icon: "user-friends" },
+    { key: "utilisateurs", label: tabLabel("Utilisateurs", "utilisateurs", users.utilisateurs.length), icon: "user" },
     ...(isModerator
-      ? ([{ key: "access-requests", label: `Demandes (${users.accessRequests.length})`, icon: "clock" }] as {
+      ? ([{ key: "access-requests", label: tabLabel("Demandes", "access-requests", users.accessRequests.length), icon: "clock" }] as {
           key: TabKey;
           label: string;
           icon: string;
@@ -1528,11 +1763,11 @@ const ClassDetails = ({
       : []),
     ...(!isAdmin
       ? ([
-          { key: "courses", label: `Cours (${courses.length})`, icon: "book" },
-          { key: "exercises", label: `Exercices (${exercises.length})`, icon: "file-alt" },
+          { key: "courses", label: tabLabel("Cours", "courses", courses.length), icon: "book" },
+          { key: "exercises", label: tabLabel("Exercices", "exercises", exercises.length), icon: "file-alt" },
         ] as { key: TabKey; label: string; icon: string }[])
       : []),
-    { key: "events", label: `Événements (${events.length})`, icon: "calendar-alt" },
+    { key: "events", label: tabLabel("Événements", "events", events.length), icon: "calendar-alt" },
   ];
 
   const renderTabBar = () => (
@@ -1540,9 +1775,15 @@ const ClassDetails = ({
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabBarContent}>
         {tabs.map((t) => {
           const active = activeTab === t.key;
+          const sec = sectionOf(t.key);
+          const tabColor = active ? (isDark ? "#A5B4FC" : "#4338CA") : colors.textMuted;
           return (
             <TouchableOpacity key={t.key} style={[styles.tab, active && styles.tabActive]} onPress={() => handleTabChange(t.key)} activeOpacity={0.8}>
-              <FontAwesome5 name={t.icon as any} size={11} color={active ? (isDark ? "#A5B4FC" : "#4338CA") : colors.textMuted} solid />
+              {sec && sections[sec] === "loading" ? (
+                <ActivityIndicator size={14} color={tabColor} />
+              ) : (
+                <FontAwesome5 name={t.icon as any} size={11} color={tabColor} solid />
+              )}
               <Text style={[styles.tabText, active && styles.tabTextActive]}>{t.label}</Text>
             </TouchableOpacity>
           );
@@ -1553,6 +1794,14 @@ const ClassDetails = ({
 
   const renderModeratorInfo = () => {
     const current = classDetails.moderator || (moderatorsWithRights.length > 0 ? moderatorsWithRights[0] : null);
+    if (!current && sections.members === "loading") {
+      return (
+        <View style={styles.inlineLoading}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.mutedText}>{tr("classDetails.loading.moderator")}</Text>
+        </View>
+      );
+    }
     if (!current) return <Text style={styles.mutedText}>Aucun modérateur assigné</Text>;
     return (
       <View>
@@ -1658,8 +1907,8 @@ const ClassDetails = ({
             <Text style={styles.avatarText}>{initials(u)}</Text>
           </LinearGradient>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.userName} numberOfLines={1}>
-              {fullName(u) || "Non renseigné"}
+            <Text style={styles.userName} numberOfLines={type === "access-requests" ? 2 : 1}>
+              {(type === "access-requests" ? requestLabel(u) : fullName(u)) || "Non renseigné"}
               {isSelf ? <Text style={styles.youText}>  (vous)</Text> : null}
             </Text>
             <Text style={styles.userSub} numberOfLines={1}>
@@ -1743,8 +1992,8 @@ const ClassDetails = ({
             isModerator ? (
               <>
                 <TouchableOpacity
-                  style={[styles.actBtn, styles.actPrimary]}
-                  onPress={() => approveRequest(u)}
+                  style={[styles.actBtn, styles.actPrimary, actionLoading === `approve-${u.id}` && { opacity: 0.6 }]}
+                  onPress={() => askApproveRequest(u)}
                   disabled={actionLoading === `approve-${u.id}`}
                 >
                   {actionLoading === `approve-${u.id}` ? (
@@ -1755,7 +2004,8 @@ const ClassDetails = ({
                   <Text style={[styles.actText, { color: "#FFFFFF" }]}>Approuver</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.actBtn, styles.actDanger]}
+                  style={[styles.actBtn, styles.actDanger, actionLoading === `approve-${u.id}` && { opacity: 0.5 }]}
+                  disabled={actionLoading === `approve-${u.id}`}
                   onPress={() => {
                     setRejectReqUser(u);
                     setRejectReqReason("");
@@ -1799,11 +2049,14 @@ const ClassDetails = ({
     const safePage = Math.min(page, totalPages);
     const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
     const isReq = type === "access-requests";
+    const listSection: SectionKey = isReq ? "requests" : "members";
     return (
       <View style={styles.card}>
         <View style={styles.cardHeader}>
           <Text style={[styles.listTitle, { flex: 1 }]}>{LIST_TITLES[type]}</Text>
-          <Tag tone="blue" label={`${source.length} ${isReq ? "demande(s)" : "utilisateur(s)"}`} />
+          {sections[listSection] === "ready" ? (
+            <Tag tone="blue" label={`${source.length} ${isReq ? "demande(s)" : "utilisateur(s)"}`} />
+          ) : null}
         </View>
         <View style={styles.filterRow}>
           {isReq ? (
@@ -1841,8 +2094,13 @@ const ClassDetails = ({
           )}
         </View>
         <View style={styles.cardBody}>
-          {refreshing && source.length === 0 ? (
-            <ActivityIndicator color="#4F46E5" style={{ paddingVertical: 20 }} />
+          {sections[listSection] !== "ready" ? (
+            <SectionStatusView
+              status={sections[listSection] as "loading" | "error"}
+              loadingLabel={tr(LIST_LOADING[type])}
+              errorLabel={tr(isReq ? "classDetails.error.requests" : "classDetails.error.members")}
+              onRetry={() => retrySection(listSection)}
+            />
           ) : pageItems.length === 0 ? (
             <View style={styles.empty}>
               <FontAwesome5 name={isReq ? "inbox" : "users"} size={26} color={colors.textLight} />
@@ -1949,7 +2207,7 @@ const ClassDetails = ({
           </View>
         </View>
         <View style={styles.moduleToolbar}>
-          <Tag tone={conf.countTone} label={conf.count} />
+          {sections[kind] === "ready" ? <Tag tone={conf.countTone} label={conf.count} /> : <View />}
           <View style={styles.moduleBtns}>
             {kind === "courses" && navCoursManagement ? (
               <TouchableOpacity style={styles.smallOutline} onPress={() => navCoursManagement(classId)}>
@@ -1972,7 +2230,14 @@ const ClassDetails = ({
           </View>
         </View>
         <View style={styles.cardBody}>
-          {items.length === 0 ? (
+          {sections[kind] !== "ready" ? (
+            <SectionStatusView
+              status={sections[kind] as "loading" | "error"}
+              loadingLabel={tr(`classDetails.loading.${kind}`)}
+              errorLabel={tr(`classDetails.error.${kind}`)}
+              onRetry={() => retrySection(kind)}
+            />
+          ) : items.length === 0 ? (
             <View style={styles.empty}>
               <FontAwesome5 name={conf.icon as any} size={26} color={colors.textLight} />
               <Text style={styles.emptyText}>{conf.empty}</Text>
@@ -2125,6 +2390,7 @@ const ClassDetails = ({
               {u.nomEtablissement ? <InfoRow label="Établissement">{u.nomEtablissement}</InfoRow> : null}
               {u.matriculeProfesseur ? <InfoRow label="Matricule">{u.matriculeProfesseur}</InfoRow> : null}
               {u.adresse ? <InfoRow label="Adresse">{u.adresse}</InfoRow> : null}
+              {requestChildName(u) ? <InfoRow label={tr("classDetails.requests.child")}>{requestChildName(u)}</InfoRow> : null}
               {u.dateDemande ? <InfoRow label="Date de la demande">{fmtDate(u.dateDemande)}</InfoRow> : <InfoRow label="Date de création">{userDate(u)}</InfoRow>}
             </View>
           </ScrollView>
@@ -2326,7 +2592,7 @@ const ClassDetails = ({
       }
     >
       <Text style={styles.confirmText}>
-        Veuillez saisir le motif du rejet pour {rejectReqUser?.prenom} {rejectReqUser?.nom} :
+        {rejectReqUser ? tr("classDetails.requests.rejectMessage", { who: requestLabel(rejectReqUser) || "—" }) : ""}
       </Text>
       <TextInput
         style={[styles.input, styles.textarea]}
@@ -2723,6 +2989,21 @@ const createStyles = (c: ReturnType<typeof useThemeColors>, isDark: boolean) => 
     fieldLabel: { fontSize: 13, fontWeight: "700", color: c.text, marginBottom: 8 },
     inlineError: { fontSize: 12, color: "#EF4444", marginTop: 8 },
     inlineLoading: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
+    sectionState: { alignItems: "center", justifyContent: "center", paddingVertical: 28, paddingHorizontal: 16, gap: 10 },
+    sectionStateText: { fontSize: 13, color: c.textMuted, textAlign: "center" },
+    retryBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: c.primary,
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      paddingVertical: 9,
+      marginTop: 4,
+    },
+    retryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+    heroSkel: { backgroundColor: "rgba(255,255,255,0.28)" },
+    heroLoadingRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14 },
 
     checkRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 },
     checkbox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1.5, borderColor: c.grayMid, alignItems: "center", justifyContent: "center" },

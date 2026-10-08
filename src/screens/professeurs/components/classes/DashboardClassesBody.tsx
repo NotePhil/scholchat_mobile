@@ -29,7 +29,7 @@ import {
 } from "../../../../services/api";
 import { PaymentInfo } from "../../../../services/api/contratService";
 import PaymentModal from "../../../../components/common/PaymentModal";
-import { BottomSheet, LoadingSpinner } from "../../../../components/ui";
+import { BottomSheet, EmptyState, LoadingSpinner } from "../../../../components/ui";
 import { useUser } from "../../../../context/UserContext";
 import { ClassEntity, ClassUser, Etablissement, Offre, Professor } from "../../../../types";
 import { useUiStore } from "../../../../store/useUiStore";
@@ -829,6 +829,8 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  /** Failure of the class list itself (error state + retry instead of the empty state). */
+  const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [currentTab, setCurrentTab] = useState<StatusTab>("active");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
@@ -870,6 +872,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   const loadClasses = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
+    setLoadError("");
     try {
       // Same sources as web's "Mes classes" (ManageClassContent.fetchUserClasses):
       // 1. /droits-publication/utilisateurs/{id}/classes-avec-droits → created / moderator / publication
@@ -920,7 +923,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
       setClasses(enriched);
       loadProgrammationCounts(enriched);
     } catch (e: any) {
-      setError(e?.message || t("profClasses.list.loadError"));
+      setLoadError(e?.message || t("profClasses.list.loadError"));
       setClasses([]);
     } finally {
       setLoading(false);
@@ -966,27 +969,42 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   // Opened from a notification tap (useUiStore.requestClass): jump straight
   // into that class, on the requested ClassDetails tab.
   const pendingClass = useUiStore((st) => st.pendingClass);
+  // Not tied to the effect's cleanup: clearing pendingClass re-runs the effect, and a cleanup-based
+  // "cancelled" flag used to drop the class loaded in the background (the screen stayed on the list
+  // whenever the classes weren't loaded yet, i.e. every time a notification opened this tab).
+  const mountedRef = useRef(true);
+  /** A class requested by a notification is being loaded (spinner instead of the list). */
+  const [openingClass, setOpeningClass] = useState(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   useEffect(() => {
     if (!pendingClass) return;
     const { classId, tab } = pendingClass;
     useUiStore.getState().clearPendingClass();
-    let cancelled = false;
     (async () => {
       const known = classes.find((c) => String(c.id) === classId);
+      if (!known) setOpeningClass(true);
       const cls =
         known ??
         (await enrichClassForDetails({ id: classId } as ClassEntity, { loadAccessRequests: tab === "access-requests" }).catch(
           () => null
         ));
-      if (cancelled || !cls) return;
+      if (!mountedRef.current) return;
+      setOpeningClass(false);
+      if (!cls) {
+        // Deleted class, or no longer a member / manager (403/404): say so instead of silently staying on the list.
+        Alert.alert(t("notifications.unavailableTitle"), t("notifications.classUnavailable"));
+        return;
+      }
       setMenuClass(null);
       setSelectedClass(cls);
       setActiveDetailTab(tab);
       setCurrentView("details");
     })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingClass]);
 
@@ -1075,6 +1093,10 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
     loadClasses();
   }, [loadClasses]);
 
+  if (openingClass && currentView !== "details") {
+    return <LoadingSpinner label={t("notifications.opening")} fullScreen />;
+  }
+
   if (currentView === "details" && selectedClass) {
     return (
       <ClassDetails
@@ -1101,7 +1123,20 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#2563EB" />}
       >
         {/* Header */}
-        <Text style={styles.pageTitle}>{t("profClasses.list.title")}</Text>
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageTitle} numberOfLines={1}>
+            {t("profClasses.list.title")}
+          </Text>
+          {/* Create class (web: setActiveTab("create-class")) — compact header pill */}
+          <TouchableOpacity onPress={() => setCurrentView("create")} activeOpacity={0.85} accessibilityLabel={t("profClasses.list.createClass")}>
+            <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.createPill}>
+              <FontAwesome5 name="plus" size={12} color="#FFFFFF" />
+              <Text style={styles.createPillText} numberOfLines={1}>
+                {t("profClasses.list.createClass")}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
 
         {/* Search */}
         <View style={styles.searchBox}>
@@ -1194,6 +1229,15 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
         {/* List */}
         {loading && classes.length === 0 ? (
           <LoadingSpinner label={t("profClasses.list.loading")} />
+        ) : loadError && classes.length === 0 ? (
+          // Failed load: error + retry, never the "no class" empty state.
+          <EmptyState
+            icon="exclamation-triangle"
+            title={t("classDetails.error.classes")}
+            message={loadError}
+            actionLabel={t("classDetails.retry")}
+            onAction={loadClasses}
+          />
         ) : (
           <View style={styles.cardsList}>
             {filteredClasses.map((cls) => (
@@ -1219,15 +1263,6 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
           </View>
         )}
       </ScrollView>
-
-      {/* FAB → create class (web: setActiveTab("create-class")) */}
-      <View style={styles.fabWrap} pointerEvents="box-none">
-        <TouchableOpacity onPress={() => setCurrentView("create")} activeOpacity={0.85} accessibilityLabel={t("profClasses.list.createClass")}>
-          <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 1 }} end={{ x: 1, y: 0 }} style={styles.fab}>
-            <FontAwesome5 name="plus" size={26} color="#FFFFFF" />
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
 
       {/* Ellipsis menu — mounted only while open */}
       {menuClass ? (
@@ -1286,7 +1321,17 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, p: ReturnType<t
 
     // ── List page ───────────────────────────────────────────────────────
     listScroll: { paddingHorizontal: 16, paddingTop: 12 },
-    pageTitle: { fontSize: 28, fontWeight: "900", color: p.title, marginBottom: 20 },
+    pageHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 20 },
+    pageTitle: { fontSize: 28, fontWeight: "900", color: p.title, flexShrink: 1 },
+    createPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      height: 38,
+      paddingHorizontal: 14,
+      borderRadius: 999,
+    },
+    createPillText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
     searchBox: {
       flexDirection: "row",
       alignItems: "center",
@@ -1390,14 +1435,6 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, p: ReturnType<t
     },
     emptyTitle: { fontSize: 15, fontWeight: "700", color: p.title },
     emptyText: { fontSize: 12, color: p.sub, marginTop: 2, textAlign: "center" },
-    fabWrap: { position: "absolute", right: 24, bottom: 112, zIndex: 30 },
-    fab: {
-      width: 64,
-      height: 64,
-      borderRadius: 16,
-      justifyContent: "center",
-      alignItems: "center",
-    },
     menuInfoRow: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
     menuInfoLabel: { fontSize: 13, color: p.sub },
     menuInfoValue: { fontSize: 13, fontWeight: "700", color: p.title, flexShrink: 1, textAlign: "right" },

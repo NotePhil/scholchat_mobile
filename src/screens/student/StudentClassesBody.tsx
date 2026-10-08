@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -12,7 +13,7 @@ import {
 import { FontAwesome5 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LoadingSpinner } from "../../components/ui";
+import { EmptyState, LoadingSpinner } from "../../components/ui";
 import StudentJoinClassPage from "./StudentJoinClassPage";
 import StudentClassDetailPage from "./StudentClassDetailPage";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
@@ -154,6 +155,23 @@ const StudentClassesBody = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Opened from a notification tap (useUiStore.requestClass): once the classes and access
+  // statuses are loaded, open that class — or explain why it can't be (request pending /
+  // declined, class gone or no longer accessible) instead of silently showing the list.
+  const pendingClass = useUiStore((s) => s.pendingClass);
+  useEffect(() => {
+    if (!pendingClass || loading) return;
+    const { classId } = pendingClass;
+    useUiStore.getState().clearPendingClass();
+    const cls = userClasses.find((c) => String(c.id) === classId);
+    const status = cls ? accessMap[cls.id] : undefined;
+    if (cls && status === "APPROVED") setView({ name: "detail", classe: cls });
+    else if (cls && status === "PENDING") Alert.alert(t("parentClasses.pendingTitle"), t("notifications.classPending", { name: cls.nom ?? "" }));
+    else if (cls && status === "REJECTED") Alert.alert(t("parentClasses.rejectedTitle"), t("notifications.classRejected", { name: cls.nom ?? "" }));
+    else Alert.alert(t("notifications.unavailableTitle"), t("notifications.classUnavailable"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingClass, loading]);
 
   // Dashboard "Rejoindre une classe" CTA: open the join page on arrival.
   const pendingJoinClass = useUiStore((s) => s.pendingJoinClass);
@@ -309,10 +327,19 @@ const StudentClassesBody = () => {
         </View>
       ) : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error && userClasses.length > 0 ? <Text style={styles.error}>{error}</Text> : null}
 
       {loading && !refreshing ? (
         <LoadingSpinner label={t("studentClasses.loading")} />
+      ) : error && userClasses.length === 0 ? (
+        // Failed load: error + retry, never the "no class" empty state.
+        <EmptyState
+          icon="exclamation-triangle"
+          title={t("classDetails.error.classes")}
+          message={error}
+          actionLabel={t("classDetails.retry")}
+          onAction={fetchData}
+        />
       ) : filtered.length === 0 ? (
         <View style={styles.emptyCard}>
           <FontAwesome5 name="book" size={44} color={colors.grayLight} />

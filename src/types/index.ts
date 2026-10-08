@@ -38,6 +38,12 @@ export interface LoginResponse {
    * the app. Persisted with the session (storageService user data) so a restart still forces it.
    */
   mustChangePassword?: boolean;
+  /**
+   * Parent session: true once at least one child's class request was approved. While false the
+   * parent is in limited mode (only "Mes enfants", profile and notifications; every other call
+   * answers 403 PARENT_SANS_ENFANT_VALIDE). Absent (older backend) = not limited.
+   */
+  parentAEnfantValide?: boolean | null;
   [key: string]: any;
 }
 

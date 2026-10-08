@@ -4,6 +4,7 @@ import { FontAwesome5 } from '@expo/vector-icons';
 import { BrandColors, ff, useBrandColors } from '../../components/brand';
 import { authService } from '../../services/home/authService';
 import { useAuthStore } from '../../store/useAuthStore';
+import { useUiStore } from '../../store/useUiStore';
 import { AuthScreen, AuthTitle, Banner, GradientButton, Illustration, TextField, TextLink } from './components/AuthKit';
 import { PASSWORD_RULES } from './components/passwordRules';
 import { useT } from '../../i18n';
@@ -73,6 +74,8 @@ const ForceChangePasswordScreen = () => {
     // Password changed: refresh the session with the new password (same role). If that fails,
     // keep the current session and just lift the local flag.
     const store = useAuthStore.getState();
+    // A parent (account created with their children) lands on "Mes enfants" to follow the requests.
+    if (store.role === 'parent') useUiStore.getState().requestTab('children');
     const email = (user?.email ?? user?.username ?? '').trim();
     try {
       if (!email) throw new Error('no email');

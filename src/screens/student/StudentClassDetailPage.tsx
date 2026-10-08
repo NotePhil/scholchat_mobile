@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LoadingSpinner } from "../../components/ui";
+import { EmptyState, LoadingSpinner } from "../../components/ui";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
 import { coursProgrammerService, coursService, liveSessionService } from "../../services/api";
 import { ClassEntity, CoursProgramme } from "../../types";
@@ -59,7 +59,10 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
   const userId = learnerId ?? user?.userId;
 
   const [courses, setCourses] = useState<Enriched[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  /** True once the courses were fetched successfully at least once. */
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("TOUS");
@@ -79,24 +82,26 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (!userId) return;
-      setLoading(true);
+  // Courses request status: "loading" until the first answer (never the empty state while pending),
+  // "error" → message + Réessayer, pull-to-refresh keeps the list on screen.
+  const loadSeq = useRef(0);
+  const load = useCallback(
+    async (mode: "initial" | "refresh") => {
+      if (!userId) return; // user context not ready yet → keep the loader
+      const seq = ++loadSeq.current;
+      if (mode === "initial") {
+        setLoading(true);
+        setPage(1);
+      } else setRefreshing(true);
       setError("");
-      setPage(1);
       try {
-        const [scheduledRes, detailsRes] = await Promise.allSettled([
+        const [scheduled, details] = await Promise.all([
           coursProgrammerService.getByClasse(classe.id),
           coursService.getAccessible(userId).catch(() => []),
         ]);
-        if (cancelled) return;
-        const scheduled = scheduledRes.status === "fulfilled" ? scheduledRes.value || [] : [];
-        const detailsMap = new Map(
-          (detailsRes.status === "fulfilled" ? detailsRes.value || [] : []).map((c) => [c.id, c])
-        );
-        const enriched: Enriched[] = scheduled.map((sc) => {
+        if (seq !== loadSeq.current) return;
+        const detailsMap = new Map((details || []).map((c) => [c.id, c]));
+        const enriched: Enriched[] = (scheduled || []).map((sc) => {
           const detail = (sc.coursId && detailsMap.get(sc.coursId)) || undefined;
           return {
             ...sc,
@@ -108,18 +113,26 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
           };
         });
         setCourses(sortByCourseStatus(enriched));
+        setLoaded(true);
       } catch (err) {
-        if (!cancelled)
+        if (seq === loadSeq.current)
           setError(t("studentClasses.coursesLoadError", { message: err instanceof Error ? err.message : "" }));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (seq === loadSeq.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
-    };
-    load();
+    },
+    [classe.id, userId, t]
+  );
+
+  useEffect(() => {
+    load("initial");
     return () => {
-      cancelled = true;
+      loadSeq.current++; // ignore answers after unmount / class change
     };
-  }, [classe.id, userId, t]);
+  }, [load]);
 
   useEffect(() => setPage(1), [searchTerm, statusFilter]);
   useEffect(() => () => {
@@ -182,6 +195,14 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 150 }]}
         keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => load("refresh")}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
       >
         {/* Header */}
         <View style={styles.headerCard}>
@@ -198,7 +219,11 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
                 {`${classe.niveau ?? ""} · ${classe.description || t("studentClasses.classSpace")}`}
               </Text>
             </View>
-            <Text style={styles.heroCount}>{t("studentClasses.coursesCount", { count: courses.length })}</Text>
+            {loaded ? (
+              <Text style={styles.heroCount}>{t("studentClasses.coursesCount", { count: courses.length })}</Text>
+            ) : loading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : null}
           </LinearGradient>
 
           <View style={styles.toolbar}>
@@ -231,15 +256,26 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId }: Props) => {
           </View>
         </View>
 
-        {error ? (
+        {/* A failed refresh keeps the loaded list: the error is shown as a banner above it. */}
+        {error && loaded ? (
           <View style={styles.errorBox}>
             <FontAwesome5 name="exclamation-circle" size={15} color="#dc2626" />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
-        {loading ? (
+        {loading || (!loaded && !error) ? (
           <LoadingSpinner label={t("studentClasses.loadingCourses")} />
+        ) : !loaded ? (
+          <View style={styles.emptyCard}>
+            <EmptyState
+              icon="exclamation-triangle"
+              title={t("classDetails.error.courses")}
+              message={error}
+              actionLabel={t("classDetails.retry")}
+              onAction={() => load("initial")}
+            />
+          </View>
         ) : filtered.length === 0 ? (
           <View style={styles.emptyCard}>
             <FontAwesome5 name="book-open" size={42} color={colors.textLight} />

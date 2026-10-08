@@ -44,6 +44,9 @@ export const PROFESSOR_NOT_VALIDATED_CODE = 'PROFIL_PROFESSEUR_NON_VALIDE';
 /** 403 body code sent while the account still uses its temporary password (first login). */
 export const MUST_CHANGE_PASSWORD_CODE = 'MOT_DE_PASSE_A_CHANGER';
 
+/** 403 body code sent to a parent without any approved child (limited mode: only "Mes enfants"…). */
+export const PARENT_WITHOUT_VALID_CHILD_CODE = 'PARENT_SANS_ENFANT_VALIDE';
+
 /** Backend error `code` field of an axios error body, if any. */
 export const getErrorCode = (error: unknown): string | undefined => {
   const body = (error as { response?: { data?: unknown } })?.response?.data;
@@ -69,7 +72,8 @@ apiClient.interceptors.response.use(
     // 403 also means "your role can't call this" (e.g. a professor hitting an
     // admin-only endpoint) — so a 403 only counts as expiry when the token
     // itself has expired. markSessionExpired is a no-op when not logged in.
-    const { token, markSessionExpired, markProfessorNotValidated, markMustChangePassword } = useAuthStore.getState();
+    const { token, markSessionExpired, markProfessorNotValidated, markMustChangePassword, markParentWithoutValidChild } =
+      useAuthStore.getState();
     if (status === 401 || (status === 403 && (!token || isTokenExpired(token)))) {
       markSessionExpired();
     } else if (status === 403 && getErrorCode(error) === PROFESSOR_NOT_VALIDATED_CODE) {
@@ -79,6 +83,9 @@ apiClient.interceptors.response.use(
     } else if (status === 403 && getErrorCode(error) === MUST_CHANGE_PASSWORD_CODE) {
       // Temporary password not changed yet: RootNavigator swaps to the forced change screen.
       markMustChangePassword();
+    } else if (status === 403 && getErrorCode(error) === PARENT_WITHOUT_VALID_CHILD_CODE) {
+      // Parent without any approved child: limited mode, back to "Mes enfants".
+      markParentWithoutValidChild();
     }
     return Promise.reject(error);
   }

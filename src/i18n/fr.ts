@@ -430,6 +430,18 @@ export const fr = {
     deleteFailed: 'Échec de la suppression.',
     allCount: 'Toutes ({{count}})',
     unreadCount: 'Non lues ({{count}})',
+    opening: 'Ouverture…',
+    unavailableTitle: 'Élément indisponible',
+    unavailable: "Cet élément n'existe plus ou ne vous est plus accessible.",
+    classUnavailable: "Cette classe n'existe plus ou ne vous est plus accessible.",
+    classPending: "Votre demande d'accès à la classe « {{name}} » est en attente de validation.",
+    classRejected: "Votre demande d'accès à la classe « {{name}} » a été refusée.",
+    courseUnavailable: "Ce cours n'existe plus ou ne vous est plus accessible.",
+    devoirUnavailable: "Ce devoir n'existe plus ou ne vous est plus accessible.",
+    correctionUnavailable: "Aucune copie à corriger n'a été trouvée pour cet exercice.",
+    conversationUnavailable: "Ce message n'est plus disponible (supprimé ou déplacé dans la corbeille).",
+    activityUnavailable: "Cette activité n'existe plus ou ne vous est plus accessible.",
+    noChildForItem: "Aucun de vos enfants n'est concerné par cet élément.",
   },
 
   devoirs: {
@@ -828,6 +840,8 @@ export const fr = {
         confirmation: 'Confirmation',
         niveau: 'Niveau',
         documents: 'Documents',
+        enfants: 'Vos enfants',
+        recap: 'Récapitulatif',
       },
       countries: {
         '237': 'Cameroun',
@@ -886,6 +900,8 @@ export const fr = {
         address: 'Adresse',
         addressPlaceholder: 'Votre adresse complète',
         passwordLater: "Pas de mot de passe à choisir maintenant : après l'approbation de l'enseignant, vous recevrez par e-mail un mot de passe temporaire.",
+        passwordLaterParent:
+          "Pas de mot de passe à choisir : dès votre inscription, vous recevrez par e-mail votre identifiant et un mot de passe temporaire.",
       },
       classe: {
         title: "Classe / Code d'inscription",
@@ -894,7 +910,6 @@ export const fr = {
         placeholder: 'Ex. ABC123',
         hint: 'Code fourni par votre professeur ou votre établissement.',
         approvalStudent: "Votre demande sera envoyée à l'enseignant de la classe, qui devra l'approuver.",
-        approvalParent: "Votre demande sera envoyée à l'enseignant de la classe, qui devra l'approuver. Vous pourrez ensuite ajouter vos enfants.",
       },
       confirmation: {
         title: 'Confirmez votre inscription',
@@ -904,6 +919,27 @@ export const fr = {
         edit: 'Modifier',
         nextSteps:
           "Après validation par l'enseignant, vous recevrez par e-mail votre identifiant et un mot de passe temporaire, à changer lors de la première connexion.",
+      },
+      enfants: {
+        title: 'Vos enfants',
+        subtitle: "Ajoutez chaque enfant avec le code de sa classe, donné par son professeur ou l'établissement.",
+        howMany: "Combien d'enfants ?",
+        fewer: "Un enfant de moins",
+        more: 'Un enfant de plus',
+        child: 'Enfant {{index}}',
+        remove: 'Retirer',
+        add: 'Ajouter un enfant',
+        verifyAll: 'Vérifiez le code de la classe de chaque enfant pour continuer.',
+        approvalHint:
+          "Chaque demande est envoyée au professeur de la classe, qui doit l'approuver. Vous suivrez leur état dans « Mes enfants ».",
+      },
+      recap: {
+        title: 'Récapitulatif',
+        children_one: 'Votre enfant',
+        children_other: 'Vos {{count}} enfants',
+        editChildren: 'Modifier les enfants',
+        nextSteps:
+          "Votre compte est créé dès la confirmation : vous recevrez par e-mail votre identifiant et un mot de passe temporaire (à changer à la première connexion). Les demandes de vos enfants restent en attente jusqu'à l'approbation du professeur.",
       },
       niveau: {
         title: "Niveau d'éducation",
@@ -956,13 +992,6 @@ export const fr = {
       hint: "Ce mot de passe sera valable sur le web et sur l'application mobile.",
       logout: 'Se déconnecter',
     },
-    addChildPrompt: {
-      title: 'Ajoutez votre enfant',
-      message:
-        "Bienvenue sur ScholChat ! Pour suivre les classes, cours, devoirs et résultats de votre enfant, ajoutez d'abord son profil. Vous pourrez en ajouter plusieurs.",
-      add: 'Ajouter mon enfant',
-      later: 'Plus tard',
-    },
     reset: {
       title: 'Nouveau mot de passe',
       subtitle: 'Créez un mot de passe sécurisé',
@@ -997,11 +1026,22 @@ export const fr = {
         "Votre demande pour rejoindre la classe {{classe}} a été transmise à son enseignant.",
       classPendingMessageNoClass: "Votre demande pour rejoindre la classe a été transmise à son enseignant.",
       classPendingSteps: {
+        ack: 'Un e-mail accusant réception de votre demande vient de vous être envoyé.',
         approval: "L'enseignant de la classe examine et approuve votre demande.",
         email:
           "Vous recevez alors par e-mail votre identifiant (votre adresse e-mail) et un mot de passe temporaire.",
         firstLogin:
           "Connectez-vous avec ces identifiants, sur le web ou sur l'application : vous choisirez un nouveau mot de passe à la première connexion.",
+      },
+      parentTitle: 'Inscription enregistrée',
+      parentMessage:
+        'Un e-mail contenant votre identifiant et un mot de passe temporaire vient de vous être envoyé. Vous retrouverez vos enfants et l’état de leurs demandes dans « Mes enfants ».',
+      parentChildPending: "Demande en attente d'approbation",
+      parentChildPendingNamed: "{{classe}} — demande en attente d'approbation",
+      parentSteps: {
+        email: 'Ouvrez l’e-mail reçu : il contient votre identifiant (votre adresse e-mail) et un mot de passe temporaire.',
+        firstLogin: 'Connectez-vous, sur le web ou sur l’application, puis choisissez un nouveau mot de passe.',
+        children: "Suivez dans « Mes enfants » l'état des demandes : chaque professeur approuve celle de sa classe.",
       },
       pendingTitle: 'Demande reçue',
       pendingMessage:
@@ -1400,6 +1440,89 @@ export const fr = {
       roleModerator: 'Modérateur',
       rolePublication: 'Droit de publication',
       roleMember: 'Membre',
+    },
+  },
+
+  parentChildren: {
+    intro: 'Vos enfants et l’état de leurs demandes de classe. Touchez un enfant accepté pour le sélectionner.',
+    introLimited:
+      "Dès qu'un professeur aura accepté la demande d'un de vos enfants, toute l'application sera accessible.",
+    loadError: "Impossible de charger l'état des demandes de vos enfants.",
+    emptyTitle: 'Aucun enfant',
+    emptyText: 'Ajoutez votre enfant avec le code de sa classe pour envoyer sa demande au professeur.',
+    selected: 'Sélectionné',
+    noRequest: 'Aucune demande de classe pour le moment.',
+    statusUnavailable: 'État des demandes indisponible.',
+    joinAnother: 'Rejoindre une autre classe',
+    requestedOn: 'Demande du {{date}}',
+    reason: 'Motif : {{reason}}',
+    pendingHint: 'En attente de la validation du professeur.',
+    firstNamePlaceholder: "Prénom de l'enfant",
+    lastNamePlaceholder: "Nom de l'enfant",
+    status: {
+      approved: 'Acceptée',
+      pending: 'En attente',
+      rejected: 'Refusée',
+    },
+    limited: {
+      banner:
+        "Accès limité : en attendant qu'une demande de vos enfants soit acceptée, seuls « Mes enfants », votre profil et les notifications sont disponibles.",
+    },
+    add: {
+      title: 'Ajouter un enfant',
+      hint: "Prénom, nom et code de la classe de l'enfant : la demande est envoyée au professeur de la classe.",
+      submit: "Inscrire l'enfant",
+      failed: "Échec de l'ajout de l'enfant.",
+      successTitle: 'Demande envoyée',
+      successMessage: '{{name}} a été ajouté(e). La demande pour « {{classe}} » attend l’approbation du professeur.',
+    },
+    remove: {
+      title: "Retirer l'enfant",
+      message: 'Retirer {{name}} de votre liste ? Cela ne supprime pas son compte.',
+      confirm: 'Retirer',
+      failed: 'Échec du retrait.',
+    },
+    errors: {
+      invalidChild: "Les informations de l'enfant sont invalides.",
+      duplicate: 'Cet enfant est déjà inscrit ou a déjà une demande pour cette classe.',
+      duplicateForm: 'Cet enfant est saisi deux fois.',
+      tooManyChildren: "Vous pouvez inscrire au plus 10 enfants à la fois.",
+      childrenRequired: 'Ajoutez au moins un enfant.',
+    },
+  },
+
+  classDetails: {
+    retry: 'Réessayer',
+    requests: {
+      parentForChild: "{{parent}} pour l'enfant {{child}}",
+      child: 'Enfant',
+      approve: 'Approuver',
+      approveTitle: 'Approuver la demande ?',
+      approveMessage: "Approuver la demande d'accès de {{who}} ?",
+      rejectMessage: 'Veuillez saisir le motif du rejet pour {{who}} :',
+    },
+    loading: {
+      details: 'Chargement de la classe…',
+      members: 'Chargement des membres…',
+      professeurs: 'Chargement des professeurs…',
+      eleves: 'Chargement des élèves…',
+      parents: 'Chargement des parents…',
+      utilisateurs: 'Chargement des utilisateurs…',
+      requests: "Chargement des demandes d'accès…",
+      courses: 'Chargement des cours…',
+      exercises: 'Chargement des exercices…',
+      events: 'Chargement des événements…',
+      moderator: 'Chargement du modérateur…',
+      classes: 'Chargement des classes…',
+    },
+    error: {
+      details: 'Impossible de charger les détails de la classe.',
+      members: 'Impossible de charger les membres de la classe.',
+      requests: "Impossible de charger les demandes d'accès.",
+      courses: 'Impossible de charger les cours.',
+      exercises: 'Impossible de charger les exercices.',
+      events: 'Impossible de charger les événements.',
+      classes: 'Impossible de charger vos classes.',
     },
   },
 };

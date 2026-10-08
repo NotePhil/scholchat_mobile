@@ -16,12 +16,15 @@ import { translate, useT } from '../../i18n';
  *   link to set the password.
  * - `roleAdded` / `rolePending`: role added to (or professor role requested on) an existing
  *   account — the user signs in with that account's existing password.
- * - `classPending`: parent / élève signed up with a class code — "Compte créé – en attente
- *   d'approbation": the class teacher must approve; the user then receives by e-mail their login
- *   (e-mail) and a temporary password, valid on web and mobile (changed at first login).
+ * - `classPending`: adult élève signed up with a class code — "Compte créé – en attente
+ *   d'approbation": an acknowledgement e-mail is sent now; once the class teacher approves, the
+ *   user receives by e-mail their login (e-mail) and a temporary password (changed at first login).
+ * - `parentCreated`: parent signed up with their children — "Inscription enregistrée": the login +
+ *   temporary password are e-mailed right away; each child's request (state in « Mes enfants »)
+ *   waits for its class teacher.
  * Same outcomes and messages as web SignUp.jsx / VerifyEmail.jsx.
  */
-export type AccountCreatedVariant = 'activation' | 'pending' | 'roleAdded' | 'rolePending' | 'classPending';
+export type AccountCreatedVariant = 'activation' | 'pending' | 'roleAdded' | 'rolePending' | 'classPending' | 'parentCreated';
 
 export interface AccountCreatedParams {
   variant: AccountCreatedVariant;
@@ -31,6 +34,8 @@ export interface AccountCreatedParams {
   roleAdded?: boolean;
   /** Class requested with the code (variant `classPending`), when the backend returns its name. */
   classeNom?: string;
+  /** Children enrolled by a parent sign-up (variant `parentCreated`). */
+  enfants?: { prenom: string; nom: string; classeNom?: string }[];
 }
 
 const RESEND_COOLDOWN = 60;
@@ -74,6 +79,10 @@ const AccountCreatedScreen = () => {
       message = params.classeNom?.trim()
         ? t('auth.accountCreated.classPendingMessage', { classe: params.classeNom.trim() })
         : t('auth.accountCreated.classPendingMessageNoClass');
+      break;
+    case 'parentCreated':
+      title = t('auth.accountCreated.parentTitle');
+      message = t('auth.accountCreated.parentMessage');
       break;
     case 'roleAdded':
       title = t('auth.signup.roleAdded.title');
@@ -125,9 +134,40 @@ const AccountCreatedScreen = () => {
       <Illustration name="accountCreated" width={Math.min(width * 0.62, 280)} style={s.illustration} />
       <AuthTitle title={title} subtitle={message} />
 
+      {variant === 'parentCreated' && params.enfants?.length ? (
+        <View style={s.steps}>
+          {params.enfants.map((e, i) => (
+            <View key={`${e.prenom}-${e.nom}-${i}`} style={s.stepRow}>
+              <FontAwesome5 name="child" size={14} color={c.primary} style={s.childIcon} />
+              <View style={s.flex}>
+                <Text style={s.childName}>{`${e.prenom} ${e.nom}`.trim()}</Text>
+                <Text style={s.childSub}>
+                  {e.classeNom
+                    ? t('auth.accountCreated.parentChildPendingNamed', { classe: e.classeNom })
+                    : t('auth.accountCreated.parentChildPending')}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {variant === 'parentCreated' ? (
+        <View style={s.steps}>
+          {(['email', 'firstLogin', 'children'] as const).map((k, i) => (
+            <View key={k} style={s.stepRow}>
+              <View style={s.stepNum}>
+                <Text style={s.stepNumText}>{i + 1}</Text>
+              </View>
+              <Text style={s.stepText}>{t(`auth.accountCreated.parentSteps.${k}`)}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       {variant === 'classPending' ? (
         <View style={s.steps}>
-          {(['approval', 'email', 'firstLogin'] as const).map((k, i) => (
+          {(['ack', 'approval', 'email', 'firstLogin'] as const).map((k, i) => (
             <View key={k} style={s.stepRow}>
               <View style={s.stepNum}>
                 <Text style={s.stepNumText}>{i + 1}</Text>
@@ -138,7 +178,7 @@ const AccountCreatedScreen = () => {
         </View>
       ) : null}
 
-      {(variant === 'activation' || variant === 'classPending') && email ? (
+      {(variant === 'activation' || variant === 'classPending' || variant === 'parentCreated') && email ? (
         <View style={s.emailChip}>
           <FontAwesome5 name="envelope" size={13} color={c.primary} />
           <Text style={s.emailText} numberOfLines={1}>
@@ -146,7 +186,9 @@ const AccountCreatedScreen = () => {
           </Text>
         </View>
       ) : null}
-      {variant === 'activation' ? <Text style={s.hint}>{t('auth.accountCreated.checkSpam')}</Text> : null}
+      {variant === 'activation' || variant === 'parentCreated' || variant === 'classPending' ? (
+        <Text style={s.hint}>{t('auth.accountCreated.checkSpam')}</Text>
+      ) : null}
 
       {feedback ? <Banner type={feedback.type} message={feedback.text} /> : null}
 
@@ -214,6 +256,10 @@ const createStyles = (c: BrandColors) =>
     },
     stepNumText: { ...ff('semibold'), fontSize: 12, color: c.primary },
     stepText: { ...ff('regular'), fontSize: 13, lineHeight: 19, color: c.text, flex: 1 },
+    flex: { flex: 1 },
+    childIcon: { width: 22, textAlign: 'center', marginTop: 2 },
+    childName: { ...ff('semibold'), fontSize: 14, color: c.text },
+    childSub: { ...ff('regular'), fontSize: 12, lineHeight: 17, color: c.textSecondary, marginTop: 1 },
     links: { alignItems: 'center', marginTop: 22 },
   });
 

@@ -22,6 +22,10 @@ import { useThemeStore } from "../../../../store/useThemeStore";
 import { ClassEntity } from "../../../../types";
 import { CoursProgrammerScreen } from "./CoursProgrammerScreen";
 import CourseDetailView from "./CourseDetailView";
+import { useNavigation } from "@react-navigation/native";
+import { useUiStore } from "../../../../store/useUiStore";
+import { useMountedRef } from "../../../../hooks/useMountedRef";
+import { useT } from "../../../../i18n";
 import { formatDateTime as formatServerDateTime } from "../../../../utils/dates";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
@@ -193,6 +197,7 @@ const SelectPill = ({
 
 const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursBodyProps) => {
   const { user } = useUser();
+  const { t } = useT();
   const themeColors = useThemeColors();
   const isDark = useThemeStore((s) => s.mode === "dark");
   const coursStyles = useMemo(() => createCoursStyles(themeColors, isDark), [themeColors, isDark]);
@@ -295,6 +300,44 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
     }
   };
 
+  // Opened from a notification tap (useUiStore.requestCourse): the professor's own course opens
+  // in its detail; somebody else's (co-taught class) in the course reader.
+  const navigation = useNavigation<any>();
+  const pendingCourse = useUiStore((s) => s.pendingCourse);
+  const mountedRef = useMountedRef();
+  const [openingCourse, setOpeningCourse] = useState(false);
+  useEffect(() => {
+    if (!pendingCourse) return;
+    const coursId = pendingCourse;
+    useUiStore.getState().clearPendingCourse();
+    (async () => {
+      let own = cours.find((c) => String(c.id) === coursId);
+      if (!own) {
+        setOpeningCourse(true);
+        try {
+          const raw = (await coursService.getById(coursId)) as Record<string, any>;
+          if (!mountedRef.current) return;
+          const authorId = String(raw?.redacteurId ?? raw?.redacteur?.id ?? "");
+          if (!raw?.id) throw new Error("not found");
+          if (authorId && authorId !== String(user?.userId)) {
+            navigation.navigate("CourseViewer", { coursId, readOnlyProgress: true });
+            return;
+          }
+          own = mapApiCoursToUiCours(raw);
+        } catch {
+          if (mountedRef.current) Alert.alert(t("notifications.unavailableTitle"), t("notifications.courseUnavailable"));
+          return;
+        } finally {
+          if (mountedRef.current) setOpeningCourse(false);
+        }
+      }
+      if (!mountedRef.current || !own) return;
+      setSelectedCours(own);
+      setViewMode("detail");
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCourse]);
+
   // Animation values
   const fabAnimation = useRef(new Animated.Value(0)).current;
 
@@ -332,6 +375,10 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
     setSelectedCours(null);
     setViewMode("schedule");
   };
+
+  if (openingCourse) {
+    return <LoadingSpinner label={t("notifications.opening")} fullScreen />;
+  }
 
   if (viewMode === "detail" && selectedCours) {
     return (

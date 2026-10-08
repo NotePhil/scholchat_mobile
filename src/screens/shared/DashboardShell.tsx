@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, Text } from "react-native";
+import { FontAwesome5 } from "@expo/vector-icons";
 import AppHeader from "./AppHeader";
 import AccountSettingsBody from "./AccountSettingsBody";
 import MobileFooterNav from "./MobileFooterNav";
@@ -37,7 +38,7 @@ import ParentChildrenBody from "../parent/ParentChildrenBody";
 import ParentClassesBody from "../parent/ParentClassesBody";
 import ParentCoursesBody from "../parent/ParentCoursesBody";
 import ParentExercisesBody from "../parent/ParentExercisesBody";
-import AddChildPromptModal from "../parent/AddChildPromptModal";
+import { PARENT_LIMITED_TABS, useParentLimited } from "../../services/parentAccess";
 
 // Student
 import StudentClassesBody from "../student/StudentClassesBody";
@@ -204,9 +205,13 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   const role = useAuthStore((s) => s.role);
   const user = useAuthStore((s) => s.user);
   const { t } = useT();
+  // Parent without any approved child yet: limited mode — only "Mes enfants", the profile and the
+  // notifications (the server refuses the rest with 403 PARENT_SANS_ENFANT_VALIDE).
+  const parentLimited = useParentLimited();
   // Mirrors web's post-login redirect (Login.jsx → `/…Dashboard/activities`): every
-  // role lands on Activités first, not the home dashboard tab.
-  const [activeTab, setActiveTabState] = useState("activities");
+  // role lands on Activités first, not the home dashboard tab — except a parent in limited
+  // mode, who lands on "Mes enfants".
+  const [activeTab, setActiveTabState] = useState(() => (parentLimited ? "children" : "activities"));
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [coursViewMode, setCoursViewMode] = useState<"list" | "create">("list");
   const [editingCours, setEditingCours] = useState<Cours | null>(null);
@@ -220,7 +225,8 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   // Répétiteurs (tutor) have no document validation.
   const professorNotValidated = role === "professor" && user?.professeurStatutVerification !== "VALIDE";
 
-  const setActiveTab = (tab: string) => {
+  const setActiveTab = (requested: string) => {
+    const tab = parentLimited && !PARENT_LIMITED_TABS.has(requested) ? "children" : requested;
     setActiveTabState(tab);
     if (tab !== "cours") {
       setCoursViewMode("list");
@@ -247,16 +253,30 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
   useEffect(() => {
     if (previousRole.current === role) return;
     previousRole.current = role;
-    setActiveTab("activities");
+    setActiveTab(parentLimited ? "children" : "activities");
     setShowQuickActions(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
+
+  // Entering limited mode (e.g. a 403 PARENT_SANS_ENFANT_VALIDE): leave any locked tab for "Mes enfants".
+  useEffect(() => {
+    if (parentLimited && !PARENT_LIMITED_TABS.has(activeTab)) {
+      setActiveTab("children");
+      setShowQuickActions(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parentLimited]);
 
   // Picks up a tab switch requested from outside this instance (e.g. tapping a
   // message notification on the separate stack-pushed NotificationsScreen).
   useEffect(() => {
     if (pendingTab) {
       setActiveTab(pendingTab);
+      // A notification opening a course must reach the course list/detail, not a half-filled form.
+      if (pendingTab === "cours") {
+        setCoursViewMode("list");
+        setEditingCours(null);
+      }
       clearPendingTab();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -264,15 +284,16 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
 
   const config: RoleConfig = useMemo(() => {
     const def = ROLE_CONFIG[role] ?? (ROLE_CONFIG.unknown as RoleConfigDef);
+    const actions = parentLimited ? def.quickActions.filter((a) => !!a.tab && PARENT_LIMITED_TABS.has(a.tab)) : def.quickActions;
     return {
       roleLabel: t(`roles.${role}`),
       accentColor: def.accentColor,
-      quickActions: localizeActions(t, def.quickActions),
+      quickActions: localizeActions(t, actions),
       submenus: def.submenus
         ? Object.fromEntries(Object.entries(def.submenus).map(([key, items]) => [key, localizeActions(t, items)]))
         : undefined,
     };
-  }, [role, t]);
+  }, [role, t, parentLimited]);
   // Drop the self-referencing "Accueil" tile from the inline home-screen
   // grid — it still makes sense in the full QuickActionsSheet (jump home
   // from anywhere), but is redundant while already on the home screen.
@@ -354,6 +375,7 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
         }
 
       case "parent":
+        if (parentLimited && !PARENT_LIMITED_TABS.has(activeTab)) return <ParentChildrenBody />;
         switch (activeTab) {
           case "dashboard":
             return (
@@ -548,8 +570,15 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
         onNavigateToProfile={() => setActiveTab("settings")}
         helpTarget={helpTarget}
       />
+      {parentLimited ? (
+        <View style={styles.limitedBanner} accessibilityRole="alert">
+          <FontAwesome5 name="lock" size={13} color={themeColors.warning} />
+          <Text style={styles.limitedText}>{t("parentChildren.limited.banner")}</Text>
+        </View>
+      ) : null}
       {renderBody()}
       <MobileFooterNav
+        parentLimited={parentLimited}
         activeTab={activeTab}
         onTabPress={setActiveTab}
         onOpenQuickActions={() => setShowQuickActions(true)}
@@ -565,14 +594,26 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
         submenus={config.submenus}
         accentColor={config.accentColor}
       />
-      {/* Parent without any child yet (e.g. first connection): "Ajoutez votre enfant". */}
-      {role === "parent" ? <AddChildPromptModal onGoToChildren={() => setActiveTab("children")} /> : null}
     </View>
   );
 };
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  limitedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: `${colors.warning}55`,
+    backgroundColor: `${colors.warning}14`,
+  },
+  limitedText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.text, fontWeight: "500" },
 });
 
 export default DashboardShell;

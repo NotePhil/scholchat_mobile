@@ -3,6 +3,7 @@ import { storageService } from '../services/storageService';
 import { stompClient } from '../services/realtime/stompClient';
 import { decodeToken, getUserRoles, isTokenExpired, normalizeRole, resolveSessionRole } from '../utils/tokenUtils';
 import { AppRole, AuthUser, LoginResponse } from '../types';
+import { useUiStore } from './useUiStore';
 
 interface AuthState {
   user: AuthUser | null;
@@ -55,6 +56,11 @@ interface AuthState {
    */
   tempPassword: string | null;
   setTempPassword: (password: string | null) => void;
+  /**
+   * The server refused a call with 403 PARENT_SANS_ENFANT_VALIDE: the parent has no approved child
+   * yet — switch to limited mode (parentAEnfantValide false) and bring them to "Mes enfants".
+   */
+  markParentWithoutValidChild: () => void;
 }
 
 const deriveAuthState = (loginResponse: LoginResponse) => {
@@ -180,6 +186,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     storageService.saveUserData(updated as LoginResponse).catch(() => {
       // Non-fatal — the in-memory state is already updated; next hydrate will re-sync from server data.
     });
+  },
+
+  markParentWithoutValidChild: () => {
+    const { user, role, isAuthenticated } = get();
+    if (!isAuthenticated || !user || role !== 'parent') return;
+    // Only on the transition: once limited, DashboardShell already keeps the parent on the allowed
+    // tabs (a background call refused later must not pull them away from their profile).
+    if (user.parentAEnfantValide === false) return;
+    get().updateUser({ parentAEnfantValide: false });
+    useUiStore.getState().requestTab('children');
   },
 
   markProfessorNotValidated: () => {

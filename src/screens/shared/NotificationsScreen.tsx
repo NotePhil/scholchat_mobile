@@ -7,13 +7,12 @@ import { EmptyState, LoadingSpinner } from '../../components/ui';
 import { spacing, typography, useThemeColors } from '../../styles/theme';
 import { notificationService } from '../../services/api';
 import { useNotificationsStore, NotificationItem } from '../../store/useNotificationsStore';
-import { useUiStore } from '../../store/useUiStore';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useT } from '../../i18n';
 import { HelpButton, getHelpTarget } from './HelpSheet';
-import { handleRoleNotification } from '../../services/roleNotifications';
-import { formatNotificationDate, getNotificationClassTarget, getNotificationIcon, getNotificationTargetTab } from '../../services/notificationRouting';
+import { formatNotificationDate, getNotificationIcon } from '../../services/notificationRouting';
+import { openNotification } from '../../services/notificationNavigation';
 
 type Filter = 'all' | 'unread';
 
@@ -70,25 +69,15 @@ const NotificationsScreen = () => {
       markReadLocally(notification.id);
       notificationService.markAsRead(notification.id).catch(() => {});
     }
-    // Profile validated/rejected (PROFESSOR_ROLE_VALIDATED…): profile tab + session roles refreshed.
-    if (handleRoleNotification(notification, role, useAuthStore.getState().login)) {
-      navigation.goBack();
-      return;
-    }
-    // A live session started: go straight to the join screen.
-    if ((notification.type ?? '').toUpperCase() === 'LIVE_SESSION_STARTED' && notification.relatedEntityId && role !== 'professor' && role !== 'tutor') {
-      navigation.navigate('LiveSession', { coursId: notification.relatedEntityId, isHost: false });
-      return;
-    }
-    const tab = getNotificationTargetTab(notification, role);
-    if (tab) {
-      // The role Dashboard underneath is still mounted (this screen is stack-pushed on top of
-      // it) — request the tab switch, then reveal it by going back.
-      useUiStore.getState().requestTab(tab);
-      const cls = getNotificationClassTarget(notification, role);
-      if (cls) useUiStore.getState().requestClass(cls.classId, cls.tab);
-      navigation.goBack();
-    }
+    // Straight to the item itself; dashboard items are requested on the (still mounted) role
+    // Dashboard underneath and revealed by navigating back to it.
+    const auth = useAuthStore.getState();
+    openNotification(notification, {
+      role,
+      userId: (auth.user?.userId as string | undefined) ?? null,
+      navigation,
+      login: auth.login,
+    });
   };
 
   const handleMarkAllRead = async () => {

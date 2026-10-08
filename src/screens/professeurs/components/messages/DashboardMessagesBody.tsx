@@ -21,6 +21,8 @@ import { FontAwesome5 } from "@expo/vector-icons";
 import { messageService } from "../../../../services/messageService";
 import { subscribeMessagesStream, useMessagesStore } from "../../../../store/useMessagesStore";
 import { useUser } from "../../../../context/UserContext";
+import { useUiStore } from "../../../../store/useUiStore";
+import { translate } from "../../../../i18n";
 import { useThemeColors } from "../../../../styles/theme";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
@@ -261,6 +263,41 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
     () => allThreads.find((t) => t.key === selectedThreadKey) ?? null,
     [allThreads, selectedThreadKey]
   );
+
+  // Opened from a notification tap (useUiStore.requestConversation): the thread holding that
+  // message (else the one with its sender). Not found in the loaded lists → one silent reload,
+  // then a message instead of silently showing the inbox.
+  const pendingConversation = useUiStore((s) => s.pendingConversation);
+  const conversationRetriedRef = useRef(false);
+  const conversationReloadingRef = useRef(false);
+  const [conversationRetryTick, setConversationRetryTick] = useState(0);
+  useEffect(() => {
+    if (!pendingConversation || loading) return;
+    const { partnerId, messageId } = pendingConversation;
+    const thread =
+      (messageId ? allThreads.find((th) => th.messages.some((m) => m.id === messageId)) : undefined) ??
+      (partnerId ? allThreads.find((th) => th.key === partnerId) : undefined);
+    if (!thread && conversationReloadingRef.current) return; // wait for the reload below
+    if (!thread && !conversationRetriedRef.current) {
+      conversationRetriedRef.current = true;
+      conversationReloadingRef.current = true;
+      load(true).finally(() => {
+        conversationReloadingRef.current = false;
+        setConversationRetryTick((n) => n + 1);
+      });
+      return;
+    }
+    useUiStore.getState().clearPendingConversation();
+    conversationRetriedRef.current = false;
+    if (thread) {
+      setSearchTerm("");
+      if (filterType === "trash") setFilterType("inbox");
+      setSelectedThreadKey(thread.key);
+    } else {
+      Alert.alert(translate("notifications.unavailableTitle"), translate("notifications.conversationUnavailable"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingConversation, loading, allThreads, conversationRetryTick]);
 
   const patchMessage = useCallback((id: string, patch: Partial<MessageItem>) => {
     const apply = (list: MessageItem[]) => list.map((m) => (m.id === id ? { ...m, ...patch } : m));

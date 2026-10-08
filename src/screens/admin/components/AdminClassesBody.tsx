@@ -13,6 +13,8 @@ import CreateClassSheet from "./CreateClassSheet";
 import { PaymentInfo } from "../../../services/api/contratService";
 import { useUser } from "../../../context/UserContext";
 import { ClassEntity, Etablissement, Offre } from "../../../types";
+import { useUiStore } from "../../../store/useUiStore";
+import { useMountedRef } from "../../../hooks/useMountedRef";
 import { useT } from "../../../i18n";
 import { getClassActionTexts, useClassActionConfirm } from "../../../hooks/useClassActionConfirm";
 
@@ -83,6 +85,32 @@ const AdminClassesBody = ({ autoCreate }: AdminClassesBodyProps) => {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Opened from a notification tap (useUiStore.requestClass): straight into that class's details.
+  const pendingClass = useUiStore((st) => st.pendingClass);
+  const mountedRef = useMountedRef();
+  useEffect(() => {
+    if (!pendingClass) return;
+    const { classId, tab } = pendingClass;
+    useUiStore.getState().clearPendingClass();
+    const cls = classes.find((c) => String(c.id) === classId) ?? ({ id: classId } as ClassEntity);
+    setManagedClass(cls);
+    setActiveDetailTab(tab);
+    setManaging(true);
+    enrichClassForDetails(cls)
+      .then((ui) => {
+        if (mountedRef.current) setSelectedClass(ui);
+      })
+      .catch(() => {
+        if (!mountedRef.current) return;
+        setManagedClass(null);
+        Alert.alert(t("notifications.unavailableTitle"), t("notifications.classUnavailable"));
+      })
+      .finally(() => {
+        if (mountedRef.current) setManaging(false);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingClass]);
 
   const filtered = classes.filter((c) => (c.nom ?? "").toLowerCase().includes(searchTerm.toLowerCase()));
 
