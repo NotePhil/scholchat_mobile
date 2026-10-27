@@ -24,6 +24,7 @@ import { useUser } from "../../context/UserContext";
 import { useT } from "../../i18n";
 import { useUiStore } from "../../store/useUiStore";
 import { formatDate } from "../../utils/dates";
+import { useHardwareBack } from "../../hooks/useHardwareBack";
 
 /**
  * Student "Classes" tab — a phone-width port of web's StudentClassList.jsx
@@ -91,6 +92,8 @@ const StudentClassesBody = () => {
   const [pendingMsg, setPendingMsg] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [view, setView] = useState<View_>({ name: "list" });
+  // Android Back: join page → class list (the class detail page handles Back itself).
+  useHardwareBack(() => setView({ name: "list" }), view.name === "join");
 
   const fetchData = useCallback(async () => {
     if (!userId) return;

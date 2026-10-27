@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ClassCard from "./ClassCard";
 import AccessRequestModal, { AccessRequestRole } from "./AccessRequestModal";
 import ClassDetails from "./ClassDetails";
+import { useHardwareBack } from "../../../../hooks/useHardwareBack";
 import { classService } from "../../../../services/classService";
 import {
   accederService,
@@ -37,6 +38,7 @@ import { useThemeColors } from "../../../../styles/theme";
 import { useThemeStore } from "../../../../store/useThemeStore";
 import { formatDate } from "../../../../utils/dates";
 import { TranslationKey, translate, useT } from "../../../../i18n";
+import { NIVEAUX, NIVEAU_AUTRE } from "../../../../constants/niveaux";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -227,26 +229,6 @@ const fallbackUIClass = (cls: ClassEntity): UIClass => ({
   etablissementDetails: cls.etablissement,
 });
 
-// Web's constants/niveaux.js — single source of truth for class levels.
-const NIVEAUX = [
-  "CP",
-  "CE1",
-  "CE2",
-  "CM1",
-  "CM2",
-  "6ème",
-  "5ème",
-  "4ème",
-  "3ème",
-  "2nde",
-  "1ère",
-  "Terminale",
-  "Licence 1",
-  "Licence 2",
-  "Licence 3",
-  "Master 1",
-  "Master 2",
-];
 
 // Web OfferService.calculerReduction()
 const calculerReduction = (offre: Offre | null): number | null => {
@@ -383,6 +365,9 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
   const insets = useSafeAreaInsets();
 
   const [formData, setFormData] = useState({ nom: "", niveau: "", etablissement: "", codeUnique: "", accesMajeur: false });
+  // Niveau libre saisi quand l'option "Autre" est choisie (c'est ce texte qui est envoyé).
+  const [niveauAutre, setNiveauAutre] = useState("");
+  const niveauEffectif = (formData.niveau === NIVEAU_AUTRE ? niveauAutre : formData.niveau).trim();
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [loadingEstablishments, setLoadingEstablishments] = useState(true);
   const [offres, setOffres] = useState<Offre[]>([]);
@@ -460,7 +445,7 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
     const newErrors: Record<string, string> = {};
     if (!formData.nom.trim()) newErrors.nom = t("profClasses.create.errors.nameRequired");
     else if (formData.nom.trim().length < 2) newErrors.nom = t("profClasses.create.errors.nameMin");
-    if (!formData.niveau.trim()) newErrors.niveau = t("profClasses.create.errors.levelRequired");
+    if (!niveauEffectif) newErrors.niveau = t("profClasses.create.errors.levelRequired");
     if (formData.etablissement && selectedEstablishment?.optionTokenGeneral && !formData.codeUnique.trim()) {
       newErrors.codeUnique = t("profClasses.create.errors.codeRequired");
     }
@@ -475,7 +460,7 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
       // Same payload as web CreateClassContent.createClass() → POST /classes/nouvelle
       const classData: Parameters<typeof classService.createNewClass>[0] = {
         nom: formData.nom.trim(),
-        niveau: formData.niveau.trim(),
+        niveau: niveauEffectif,
         creatorId: userId as string,
         moderatorId: userId,
         accesMajeur: formData.accesMajeur,
@@ -602,7 +587,10 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
               <SelectField
                 icon="graduation-cap"
                 value={formData.niveau}
-                options={NIVEAUX.map((n) => ({ value: n, label: n }))}
+                options={[
+                  ...NIVEAUX.map((n) => ({ value: n, label: n })),
+                  { value: NIVEAU_AUTRE, label: t("profClasses.create.levelOther") },
+                ]}
                 placeholder={t("profClasses.create.levelPlaceholder")}
                 onChange={(v) => setField("niveau", v)}
                 title={t("profClasses.create.levelTitle")}
@@ -610,6 +598,22 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
                 styles={styles}
                 muted={p.muted}
               />
+              {formData.niveau === NIVEAU_AUTRE ? (
+                <View style={[styles.inputWrap, !!errors.niveau && styles.inputError, { marginTop: 8 }]}>
+                  <FontAwesome5 name="pen" size={14} color={p.muted} style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    value={niveauAutre}
+                    onChangeText={(v) => {
+                      setNiveauAutre(v);
+                      if (errors.niveau) setErrors((prev) => ({ ...prev, niveau: null }));
+                    }}
+                    placeholder={t("profClasses.create.levelOtherPlaceholder")}
+                    placeholderTextColor={p.muted}
+                    maxLength={60}
+                  />
+                </View>
+              ) : null}
               <FieldError message={errors.niveau} styles={styles} />
             </View>
 
@@ -668,32 +672,22 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
               </View>
             ) : null}
 
-            {/* Information panel */}
-            <View style={styles.infoBox}>
-              <FontAwesome5 name="exclamation-circle" size={16} color="#2563EB" style={{ marginTop: 2 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.infoTitle}>{t("profClasses.create.infoTitle")}</Text>
-                <Text style={styles.infoText}>{t("profClasses.create.infoRequired")}</Text>
+            {/* Notes spécifiques à l'établissement sélectionné */}
+            {selectedEstablishment?.optionEnvoiMailVersClasse ||
+            selectedEstablishment?.optionTokenGeneral ||
+            selectedEstablishment?.codeUnique ? (
+              <View style={{ gap: 2 }}>
                 {selectedEstablishment?.optionEnvoiMailVersClasse ? (
-                  <View style={styles.infoLine}>
-                    <FontAwesome5 name="envelope" size={11} color="#1D4ED8" />
-                    <Text style={styles.infoText}>{t("profClasses.create.infoMail")}</Text>
-                  </View>
+                  <Text style={styles.noteText}>{t("profClasses.create.infoMail")}</Text>
                 ) : null}
                 {selectedEstablishment?.optionTokenGeneral ? (
-                  <View style={styles.infoLine}>
-                    <FontAwesome5 name="key" size={11} color="#1D4ED8" />
-                    <Text style={styles.infoText}>{t("profClasses.create.infoToken")}</Text>
-                  </View>
+                  <Text style={styles.noteText}>{t("profClasses.create.infoToken")}</Text>
                 ) : null}
                 {selectedEstablishment?.codeUnique ? (
-                  <View style={styles.infoLine}>
-                    <FontAwesome5 name="bullseye" size={11} color="#1D4ED8" />
-                    <Text style={styles.infoText}>{t("profClasses.create.infoCode")}</Text>
-                  </View>
+                  <Text style={styles.noteText}>{t("profClasses.create.infoCode")}</Text>
                 ) : null}
               </View>
-            </View>
+            ) : null}
 
             {/* Offre / Forfait (classe sans établissement) */}
             {!formData.etablissement ? (
@@ -763,28 +757,31 @@ const CreateClassView = ({ userId, onBack, onDone }: CreateClassViewProps) => {
               </View>
             ) : null}
 
-            {/* Submit */}
-            <TouchableOpacity
-              onPress={handleSubmit}
-              disabled={busy || loadingEstablishments}
-              style={[{ marginTop: 24 }, (busy || loadingEstablishments) && { opacity: 0.5 }]}
-              activeOpacity={0.85}
-            >
-              <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.submitBtn}>
-                {busy ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <FontAwesome5 name={!formData.etablissement ? "credit-card" : "check"} size={14} color="#FFFFFF" />
-                )}
-                <Text style={styles.submitText}>
-                  {busy
-                    ? t("profClasses.create.processing")
-                    : !formData.etablissement
-                      ? t("profClasses.create.proceedPayment")
-                      : t("profClasses.create.submit")}
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
+            {/* Submit (précédé de la mention discrète des champs obligatoires) */}
+            <View style={{ marginTop: 24, gap: 6 }}>
+              <Text style={styles.requiredNote}>{t("profClasses.create.infoRequired")}</Text>
+              <TouchableOpacity
+                onPress={handleSubmit}
+                disabled={busy || loadingEstablishments}
+                style={(busy || loadingEstablishments) && { opacity: 0.5 }}
+                activeOpacity={0.85}
+              >
+                <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.submitBtn}>
+                  {busy ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <FontAwesome5 name={!formData.etablissement ? "credit-card" : "check"} size={14} color="#FFFFFF" />
+                  )}
+                  <Text style={styles.submitText}>
+                    {busy
+                      ? t("profClasses.create.processing")
+                      : !formData.etablissement
+                        ? t("profClasses.create.proceedPayment")
+                        : t("profClasses.create.submit")}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -832,7 +829,9 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
   /** Failure of the class list itself (error state + retry instead of the empty state). */
   const [loadError, setLoadError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [currentTab, setCurrentTab] = useState<StatusTab>("active");
+  // "Toutes" by default: a class just created in an établissement is EN_ATTENTE_APPROBATION and
+  // must show up in the list right away (the "Actives" default hid it).
+  const [currentTab, setCurrentTab] = useState<StatusTab>("all");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [programmationCounts, setProgrammationCounts] = useState<Record<string, number>>({});
 
@@ -942,6 +941,17 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
 
   const pendingCount = (c: UIClass) => (c.accessRequests || []).filter((r) => r.status === "EN_ATTENTE").length;
 
+  const isPendingEtat = (etat?: string) => etat === "EN_ATTENTE_APPROBATION" || etat === "EN_ATTENTE";
+  // Tab counts (role filter applied, search not) so a pending class is visible from the tabs.
+  const tabCounts = useMemo(() => {
+    const base = classes.filter((c) => roleFilter === "all" || c.classRole === roleFilter);
+    return {
+      all: base.length,
+      active: base.filter((c) => c.etat === "ACTIF").length,
+      pending: base.filter((c) => isPendingEtat(c.etat)).length,
+    } as Record<StatusTab, number>;
+  }, [classes, roleFilter]);
+
   const filteredClasses = useMemo(() => {
     const q = searchTerm.toLowerCase();
     return classes.filter((cls) => {
@@ -954,7 +964,7 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
       const status = cls.etat;
       if (roleFilter !== "all" && cls.classRole !== roleFilter) return false;
       if (currentTab === "active") return matchesSearch && status === "ACTIF";
-      if (currentTab === "pending") return matchesSearch && (status === "EN_ATTENTE_APPROBATION" || status === "EN_ATTENTE");
+      if (currentTab === "pending") return matchesSearch && isPendingEtat(status);
       return matchesSearch;
     });
   }, [classes, searchTerm, currentTab, roleFilter]);
@@ -1090,8 +1100,13 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
 
   const handleCreateDone = useCallback(() => {
     setCurrentView("list");
+    // Show every état so the new class (possibly awaiting validation) is in the list.
+    setCurrentTab("all");
     loadClasses();
   }, [loadClasses]);
+
+  // Android Back: class detail / creation form → class list (instead of leaving the app).
+  useHardwareBack(() => (currentView === "details" ? handleBackToList() : setCurrentView("list")), currentView !== "list");
 
   if (openingClass && currentView !== "details") {
     return <LoadingSpinner label={t("notifications.opening")} fullScreen />;
@@ -1201,7 +1216,10 @@ const DashboardClassesBody = ({ autoCreate }: DashboardClassesBodyProps = {}) =>
                 onPress={() => setCurrentTab(tab.id)}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>{t(tab.label)}</Text>
+                <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>
+                  {t(tab.label)}
+                  {!loading ? ` (${tabCounts[tab.id]})` : ""}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -1537,18 +1555,8 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, p: ReturnType<t
     checkboxOn: { backgroundColor: "#9333EA", borderColor: "#9333EA" },
     majeurTitle: { fontSize: 14, fontWeight: "700", color: p.isDark ? "#E9D5FF" : "#6B21A8" },
     majeurText: { fontSize: 14, color: p.isDark ? "#C084FC" : "#9333EA" },
-    infoBox: {
-      flexDirection: "row",
-      gap: 12,
-      backgroundColor: p.isDark ? "rgba(30,58,138,0.3)" : "#EFF6FF", // blue-50
-      borderWidth: 1,
-      borderColor: p.isDark ? "rgba(96,165,250,0.35)" : "#BFDBFE", // blue-200
-      borderRadius: 8,
-      padding: 16,
-    },
-    infoTitle: { fontSize: 14, fontWeight: "700", color: p.isDark ? "#BFDBFE" : "#1D4ED8", marginBottom: 4 },
-    infoText: { fontSize: 14, color: p.isDark ? "#93C5FD" : "#1D4ED8", flexShrink: 1 },
-    infoLine: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+    noteText: { fontSize: 12, color: p.sub },
+    requiredNote: { fontSize: 12, color: p.sub, textAlign: "right" },
     offreBox: {
       backgroundColor: p.isDark ? "rgba(120,53,15,0.25)" : "#FFFBEB", // amber-50
       borderWidth: 1,

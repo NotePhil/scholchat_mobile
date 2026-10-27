@@ -21,6 +21,8 @@ import { authService } from "../../services/home/authService";
 import { confirmLogout } from "../../utils/confirmLogout";
 import { toRelativePath } from "../../components/common/DocumentPreview";
 import MyProfilesCard from "./MyProfilesCard";
+import ParentLinkRequestsList from "../student/ParentLinkRequestsList";
+import { useNavigation } from "@react-navigation/native";
 import ProfessorDocumentsSection from "./ProfessorDocumentsSection";
 import LanguageSwitch from "../../components/common/LanguageSwitch";
 import { TranslationKey, translate, useT } from "../../i18n";
@@ -151,6 +153,7 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
   const updateUser = useAuthStore((s) => s.updateUser);
   const role = useAuthStore((s) => s.role);
   const isProfessor = role === "professor" || role === "tutor";
+  const navigation = useNavigation<any>();
 
   // Backend AuthResponse carries `userId` (not `id`) and no nom/prenom/email —
   // those come from GET /utilisateurs/{id} below.
@@ -494,6 +497,16 @@ const AccountSettingsBody = ({ onLogout, roleLabel }: AccountSettingsBodyProps) 
 
             {/* Multi-role: profiles of this account, switch / add a profile */}
             {role !== "admin" ? <MyProfilesCard /> : null}
+
+            {/* Student: parents who follow their schooling (read-only; validated / removed by a professor) */}
+            {role === "student" ? (
+              <SectionCard p={p} styles={styles} icon="user-friends" title={t("parentLinks.title")}>
+                <ParentLinkRequestsList compact />
+                <TouchableOpacity onPress={() => navigation.navigate("ParentLinkRequests")} accessibilityRole="button">
+                  <Text style={{ color: "#2563EB", fontWeight: "700", fontSize: 13, paddingVertical: 6 }}>{t("parentLinks.open")}</Text>
+                </TouchableOpacity>
+              </SectionCard>
+            ) : null}
 
             {isProfessor ? (
               <SectionCard p={p} styles={styles} icon="id-badge" title={t("settings.documents")}>

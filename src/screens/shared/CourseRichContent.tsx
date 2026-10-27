@@ -6,6 +6,8 @@ import { useThemeStore } from "../../store/useThemeStore";
 import { storageService } from "../../services/storageService";
 import { mediaService } from "../../services/api";
 import { environment } from "../../environment/environment";
+import { isLikelyStoredFile } from "../../hooks/useFileOpener";
+import { buildViewerDocument } from "../../components/common/richContentHtml";
 
 // ---------------------------------------------------------------------------
 // Chapter HTML helpers — DOM-less ports of web's CourseDetailsView.jsx
@@ -154,13 +156,17 @@ export const extractChapterFiles = (html: string, keyPrefix: string): ChapterFil
   while ((m = linkRe.exec(html))) {
     const href = attr(m[0], "href");
     if (!href || !href.startsWith("http")) continue;
-    const fileName = stripTags(m[1]) || href.split("/").pop()?.split("?")[0] || `File_${i}`;
+    const declaredName = attr(m[0], "data-file-name");
+    const fileName = declaredName || stripTags(m[1]) || href.split("/").pop()?.split("?")[0] || `File_${i}`;
+    // Plain web links (articles, videos on other sites…) are not course resources.
+    if (!declaredName && !isLikelyStoredFile(href, fileName)) continue;
+    const declaredType = attr(m[0], "data-file-type").toLowerCase();
     const ext = fileName.split(".").pop()?.toLowerCase() || "";
     let type: ChapterFileType = "document";
-    if (["mp4", "avi", "mov", "webm", "mkv"].includes(ext)) type = "video";
-    else if (["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) type = "image";
-    else if (ext === "pdf") type = "pdf";
-    else if (href.includes("/media/") && href.includes("/content")) type = "video";
+    if (declaredType.startsWith("video/") || ["mp4", "avi", "mov", "webm", "mkv"].includes(ext)) type = "video";
+    else if (declaredType.startsWith("image/") || ["jpg", "jpeg", "png", "gif", "webp"].includes(ext)) type = "image";
+    else if (declaredType === "application/pdf" || ext === "pdf") type = "pdf";
+    else if (!declaredType && href.includes("/media/") && href.includes("/content")) type = "video";
     files.push({ id: `${keyPrefix}_link_${i++}`, fileName, url: href, type });
   }
   return files;
@@ -200,64 +206,24 @@ const prepareForWebView = async (html: string): Promise<string> => {
   });
 };
 
-const buildDocument = (body: string, token: string | null, c: { text: string; textMuted: string; border: string; primary: string; surfaceElevated: string }) => `<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<style>
-html,body{margin:0;padding:0;background:transparent;}
-body{font-family:-apple-system,Roboto,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;color:${c.text};word-wrap:break-word;overflow-wrap:anywhere;}
-img{max-width:100%!important;height:auto!important;}
-video,iframe{max-width:100%!important;}
-a{color:${c.primary};}
-table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%;}
-td,th{border:1px solid ${c.border};padding:4px 8px;}
-pre,code{background:${c.surfaceElevated};border-radius:6px;white-space:pre-wrap;}
-pre{padding:8px;}
-blockquote{border-left:3px solid ${c.border};margin:8px 0;padding-left:10px;color:${c.textMuted};}
-h1,h2,h3,h4{line-height:1.3;}
-#sc-root>*:first-child{margin-top:0;}#sc-root>*:last-child{margin-bottom:0;}
-</style></head><body><div id="sc-root">${body}</div>
-<script>
-(function(){
-  var TOKEN=${JSON.stringify(token || "").replace(/</g, "\\u003c")};
-  function post(o){ if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(o)); }
-  var last=0;
-  function report(){ var h=Math.ceil(document.getElementById('sc-root').getBoundingClientRect().height); if(h!==last){ last=h; post({type:'height',h:h}); } }
-  function authBlob(url){
-    return fetch(url,{headers:TOKEN?{Authorization:'Bearer '+TOKEN}:{}}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.blob(); }).then(function(b){ return URL.createObjectURL(b); });
-  }
-  Array.prototype.forEach.call(document.querySelectorAll('img[data-sc-auth-src]'),function(img){
-    authBlob(img.getAttribute('data-sc-auth-src')).then(function(u){ img.src=u; }).catch(function(){});
-  });
-  Array.prototype.forEach.call(document.querySelectorAll('video[data-sc-auth-src],source[data-sc-auth-src]'),function(el){
-    var video=el.tagName==='VIDEO'?el:el.parentElement;
-    function fallback(){ authBlob(el.getAttribute('data-sc-auth-src')).then(function(u){ el.src=u; if(video&&video.load) video.load(); }).catch(function(){}); }
-    if(!el.getAttribute('src')) fallback(); else if(video) video.addEventListener('error',fallback,{once:true});
-  });
-  Array.prototype.forEach.call(document.querySelectorAll('video'),function(v){ v.setAttribute('playsinline',''); v.setAttribute('controls',''); v.addEventListener('loadedmetadata',report); });
-  Array.prototype.forEach.call(document.images,function(img){ img.addEventListener('load',report); img.addEventListener('error',report); });
-  document.addEventListener('click',function(e){
-    var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;
-    if(a){ e.preventDefault(); post({type:'link',url:a.getAttribute('href')}); }
-  },true);
-  if(window.ResizeObserver){ new ResizeObserver(report).observe(document.getElementById('sc-root')); }
-  window.addEventListener('load',report);
-  setTimeout(report,50); setTimeout(report,500); setTimeout(report,1500);
-})();
-</script></body></html>`;
-
 interface CourseRichContentProps {
   /** Chapter HTML already passed through resolveChapterHtml. */
   html: string;
-  /** Called when the reader taps a link inside the content. */
-  onOpenLink: (url: string) => void;
+  /** Called when the reader taps a link, an attached file or an image inside the content. */
+  onOpenLink: (url: string, meta?: { fileName?: string; contentType?: string }) => void;
+  /** Accept local file:/content: sources (preview of files not uploaded yet). */
+  allowLocal?: boolean;
 }
 
 /**
- * Renders a chapter's rich HTML (what the course editor stores) the way web's
- * `dangerouslySetInnerHTML` does: an auto-height, non-scrolling WebView whose
- * origin is the API base URL, so authenticated media fetches stay same-origin.
+ * Renders a chapter's rich HTML (what the course editor stores) exactly like
+ * web's RichContent: same allowlist sanitizer (run inside the WebView) and the
+ * same typography (alignment, sizes, colours, lists, tables, figures, attachment
+ * chips, dark mode). Auto-height, non-scrolling WebView whose origin is the API
+ * base URL, so authenticated media fetches stay same-origin. Taps on links,
+ * attached files and images are reported through onOpenLink (in-app viewers).
  */
-const CourseRichContent = ({ html, onOpenLink }: CourseRichContentProps) => {
+const CourseRichContent = ({ html, onOpenLink, allowLocal = false }: CourseRichContentProps) => {
   const colors = useThemeColors();
   const isDark = useThemeStore((s) => s.mode) === "dark";
   const [token, setToken] = useState<string | null | undefined>(undefined);
@@ -290,17 +256,22 @@ const CourseRichContent = ({ html, onOpenLink }: CourseRichContentProps) => {
     () =>
       token === undefined || body === null
         ? null
-        : { html: buildDocument(body, token, colors), baseUrl: `${BASE}/` },
+        : { html: buildViewerDocument(BASE, body, token, colors, isDark, allowLocal), baseUrl: `${BASE}/` },
     // isDark drives `colors`; listed so a theme switch rebuilds the document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [token, body, colors, isDark]
+    [token, body, colors, isDark, allowLocal]
   );
 
   const onMessage = (e: WebViewMessageEvent) => {
     try {
       const msg = JSON.parse(e.nativeEvent.data);
       if (msg?.type === "height" && typeof msg.h === "number" && msg.h > 0) setHeight(msg.h + 4);
-      else if (msg?.type === "link" && typeof msg.url === "string" && msg.url) onOpenLink(msg.url);
+      else if (msg?.type === "link" && typeof msg.url === "string" && msg.url) {
+        onOpenLink(msg.url, {
+          fileName: typeof msg.fileName === "string" && msg.fileName ? msg.fileName : undefined,
+          contentType: typeof msg.contentType === "string" && msg.contentType ? msg.contentType : undefined,
+        });
+      }
     } catch {
       /* ignore */
     }

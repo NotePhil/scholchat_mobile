@@ -29,6 +29,7 @@ import ExerciseDetailView from "./ExerciseDetailView";
 import ProgrammedExercisesOverview from "./ProgrammedExercisesOverview";
 import { useT } from "../../../../i18n";
 import { formatDate } from "../../../../utils/dates";
+import { useHardwareBack } from "../../../../hooks/useHardwareBack";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -336,6 +337,9 @@ const DashboardExercisesBody = () => {
     setEditingExercise(null);
     setViewMode("list");
   };
+
+  // Android Back: detail / form / corrections → exercise list (ScheduleExerciseView handles its own).
+  useHardwareBack(backToList, viewMode !== "list" && viewMode !== "schedule");
 
   // ── Sub-views ─────────────────────────────────────────────────────────────
   if (viewMode === "create" || viewMode === "edit") {

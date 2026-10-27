@@ -1,5 +1,6 @@
 import { apiClient, extractErrorMessage } from './client';
 import { ActivityEvent, ApiSuccess, Interaction } from '../../types';
+import { translate } from '../../i18n';
 import { withServerDateTimes } from '../../utils/dates';
 
 const EVENT_DATES = ['heureDebut', 'heureFin'] as const;
@@ -12,22 +13,32 @@ const EVENT_DATES = ['heureDebut', 'heureFin'] as const;
  * separate arrays. Comment body is `{ content }`, not `{ contenu }`.
  */
 export const activityFeedService = {
-  getAll: async (): Promise<ActivityEvent[]> => {
+  /** `eleveId`: feed seen for that student (the student, or a parent's selected child). */
+  getAll: async (eleveId?: string | null): Promise<ActivityEvent[]> => {
     try {
-      const { data } = await apiClient.get<ActivityEvent[]>('/evenements');
+      const { data } = await apiClient.get<ActivityEvent[]>('/evenements', {
+        params: eleveId ? { eleveId } : undefined,
+      });
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du chargement des activités.'));
     }
   },
 
-  /** Paginated fetch — mirrors web's ActivityFeedService.js getActivitiesPaged(). */
+  /**
+   * Paginated fetch — mirrors web's ActivityFeedService.js getActivitiesPaged().
+   * `eleveId`: feed seen for that student (the student, or a parent's selected child) — the
+   * backend then returns only public events and those targeted at that student's classes.
+   */
   getPaged: async (
     page = 0,
-    size = 10
+    size = 10,
+    eleveId?: string | null
   ): Promise<{ content: ActivityEvent[]; totalElements: number; totalPages: number; last: boolean }> => {
     try {
-      const { data } = await apiClient.get('/evenements/pagines', { params: { page, size } });
+      const { data } = await apiClient.get('/evenements/pagines', {
+        params: eleveId ? { page, size, eleveId } : { page, size },
+      });
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec du chargement des activités.'));
@@ -120,6 +131,19 @@ export const activityFeedService = {
       return data;
     } catch (error) {
       throw new Error(extractErrorMessage(error, "Échec de l'ajout du commentaire."));
+    }
+  },
+
+  /**
+   * DELETE /evenements/{id}/comment/{commentId} — allowed for the comment's author, the publication's
+   * author, admins and managers of a targeted class (403 otherwise).
+   */
+  removeComment: async (id: string, commentId: string): Promise<ApiSuccess> => {
+    try {
+      await apiClient.delete(`/evenements/${id}/comment/${commentId}`);
+      return { success: true };
+    } catch (error) {
+      throw new Error(extractErrorMessage(error, translate('comments.deleteError')));
     }
   },
 

@@ -40,6 +40,7 @@ import { translate, useT } from '../../../../i18n';
 import { useUser } from '../../../../context/UserContext';
 import { ClassEntity, ExerciseProgramme } from '../../../../types';
 import { formatDateTime, formatTime, parseServerDate, serverDateMs, toServerDateTime } from '../../../../utils/dates';
+import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -725,6 +726,8 @@ export const ScheduleExerciseView = ({
     setErrors({});
     setSubmitError('');
   };
+  // Android Back: form → programmed list (or back where it was opened from) → leave the view.
+  useHardwareBack(() => (view === 'form' ? closeForm() : onBack()));
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: '' }));
@@ -759,6 +762,10 @@ export const ScheduleExerciseView = ({
           ? `Exercice programmé et diffusé : ${t('learning.schedule.createdMany', { count: n })}`
           : 'Exercice programmé et diffusé avec succès !'
       );
+      // Land on the class the exercise was just programmed for (or all classes when it went to
+      // several), not on the class that was preselected when the view opened.
+      const programmedClassIds = form.classeIds.map(String);
+      setFilterClassId(programmedClassIds.length === 1 ? programmedClassIds[0] : '');
       setForm(EMPTY_FORM);
       await loadProgs();
       setView('list');

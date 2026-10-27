@@ -1,6 +1,6 @@
+import { pickImageFromCameraOrFiles } from "../../utils/cameraCapture";
 import React, { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { BottomSheet, Button, Input } from "../../components/ui";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
@@ -112,9 +112,8 @@ const AddRoleSheet = ({ visible, onClose, initialType, onDone }: AddRoleSheetPro
 
   const pickFile = async (field: DocField) => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ["image/*"], copyToCacheDirectory: true });
-      if (!result.canceled && result.assets?.length) {
-        const a = result.assets[0];
+      const a = await pickImageFromCameraOrFiles();
+      if (a) {
         setFiles((prev) => ({ ...prev, [field]: { uri: a.uri, name: a.name, mimeType: a.mimeType || "image/jpeg" } }));
         setError("");
       }

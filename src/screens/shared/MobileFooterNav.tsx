@@ -12,7 +12,7 @@ interface MobileFooterNavProps {
   onOpenQuickActions: () => void;
   quickActionsOpen: boolean;
   accentColor?: string;
-  /** Parent in limited mode (no approved child yet): only "Mes enfants" and the profile. */
+  /** Parent in limited mode (no approved child yet): "Mes enfants", Activités (general news) and the profile. */
   parentLimited?: boolean;
 }
 
@@ -56,7 +56,7 @@ const MobileFooterNav = ({
     { icon: 'envelope', label: t('nav.messages'), tab: 'messages', badgeCount: unreadCount },
   ];
   const trailingItems: { icon: React.ComponentProps<typeof FontAwesome5>['name']; label: string; tab: string }[] = [
-    { icon: 'heartbeat', label: t('nav.activities'), tab: 'activities' },
+    { icon: 'newspaper', label: t('nav.activities'), tab: 'activities' },
     { icon: 'user', label: t('nav.profile'), tab: 'settings' },
   ];
 
@@ -88,6 +88,7 @@ const MobileFooterNav = ({
     return (
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 12), paddingTop: 8 }]}>
         {renderItem({ icon: 'child', label: t('header.myChildren'), tab: 'children' })}
+        {renderItem({ icon: 'newspaper', label: t('nav.activities'), tab: 'activities' })}
         {renderItem({ icon: 'user', label: t('nav.profile'), tab: 'settings' })}
       </View>
     );

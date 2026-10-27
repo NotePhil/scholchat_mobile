@@ -13,7 +13,25 @@ import { formatDate, formatDateTime } from '../../utils/dates';
 interface OffreInfoPanelProps {
   type: 'CLASSE' | 'ETABLISSEMENT';
   entityId: string;
+  /** Called after a successful renewal / offer change (e.g. to refresh the class capacity). */
+  onContratChange?: () => void;
 }
+
+/**
+ * Behaviour of POST /contrats/.../changer-offre (ContratBusiness#appliquerRenouvellement): the new contract
+ * starts NOW and ends at (current end date if the current contract is still running, otherwise now) + the
+ * new offer's duration — the remaining time of the current offer is carried over, not lost.
+ */
+const contratEnCours = (contrat: Contrat | null): boolean =>
+  contrat?.statut === 'ACTIF' && !!contrat.dateFin && new Date(contrat.dateFin).getTime() > Date.now();
+
+const finPrevueApresChangement = (contrat: Contrat | null, offre: Offre | null, periodicite: 'MENSUEL' | 'ANNUEL'): Date | null => {
+  if (!offre) return null;
+  const minutes = periodicite === 'ANNUEL' ? offre.dureeAnnuelleMinutes : offre.dureeMensuelleMinutes;
+  if (minutes == null || Number.isNaN(Number(minutes))) return null;
+  const base = contratEnCours(contrat) ? new Date(contrat!.dateFin as string).getTime() : Date.now();
+  return new Date(base + Number(minutes) * 60000);
+};
 
 type ActionMode = 'prolonger' | 'changer' | 'admin' | null;
 
@@ -24,7 +42,7 @@ type ActionMode = 'prolonger' | 'changer' | 'admin' | null;
  * the class "Aperçu" tab and the establishment "Forfait" tab, matching web
  * using the exact same component in both places.
  */
-const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
+const OffreInfoPanel = ({ type, entityId, onContratChange }: OffreInfoPanelProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const role = useAuthStore((s) => s.role);
@@ -136,9 +154,12 @@ const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
       } else {
         await contratService.extendClassContract(entityId, { periodicite, paymentInfo });
       }
+      const changement = actionMode === 'changer';
       setShowPayment(false);
       closeAction();
       await chargerContrat();
+      onContratChange?.();
+      if (changement) Alert.alert('Offre modifiée', 'Offre modifiée — effective immédiatement.');
     } catch (err) {
       setShowPayment(false);
       setActionError(err instanceof Error ? err.message : 'Une erreur est survenue.');
@@ -298,7 +319,26 @@ const OffreInfoPanel = ({ type, entityId }: OffreInfoPanelProps) => {
                 return;
               }
               setActionError('');
-              setShowPayment(true);
+              if (actionMode !== 'changer') {
+                setShowPayment(true);
+                return;
+              }
+              const fin = finPrevueApresChangement(contrat, offreCible, periodicite);
+              const reste = contratEnCours(contrat)
+                ? "Le temps restant de l'offre actuelle est reporté : il s'ajoute à la durée de la nouvelle offre"
+                : "L'offre actuelle n'est plus en cours : la nouvelle offre démarre maintenant";
+              Alert.alert(
+                "Changer d'offre ?",
+                `La nouvelle offre « ${offreCible?.nom || 'Nouvelle offre'} » (${montant.toLocaleString('fr-FR')} FCFA, ${
+                  periodicite === 'ANNUEL' ? 'annuelle' : 'mensuelle'
+                }) prendra effet immédiatement après le paiement et remplacera l'offre actuelle « ${contrat?.offreNom || '—'} »${
+                  contrat?.dateFin ? ` (fin prévue le ${formatDate(contrat.dateFin)})` : ''
+                }.\n\n${reste}${fin ? ` (nouvelle fin prévue le ${formatDate(fin.toISOString())})` : ''}.\n\nConfirmer ?`,
+                [
+                  { text: 'Annuler', style: 'cancel' },
+                  { text: 'Confirmer', onPress: () => setShowPayment(true) },
+                ]
+              );
             }}
             disabled={montant <= 0}
             fullWidth

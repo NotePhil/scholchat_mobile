@@ -13,18 +13,25 @@ import {
   View,
 } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { WebView, WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as ImagePicker from "expo-image-picker";
-import * as DocumentPicker from "expo-document-picker";
 import { Chapitre, ChapitreImage, Cours } from "./DashboardCoursBody";
 import { useUser } from "../../../../context/UserContext";
 import { coursService, matiereService, mediaService } from "../../../../services/api";
-import { BottomSheet, LoadingSpinner } from "../../../../components/ui";
+import { LoadingSpinner } from "../../../../components/ui";
+import ChapterRichEditor, {
+  ChapterEditorScrollApi,
+  ChapterEditorScrollContext,
+  ChapterToolbarDock,
+  PendingFile,
+  UploadedFileInfo,
+  isRichHtmlEmpty,
+  updateContentWithUploadedFiles,
+} from "./ChapterRichEditor";
 import { useThemeColors } from "../../../../styles/theme";
 import { useThemeStore } from "../../../../store/useThemeStore";
 import { environment } from "../../../../environment/environment";
 import { Matiere } from "../../../../types";
+import { TranslationKey, translate, useT } from "../../../../i18n";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -45,7 +52,8 @@ try {
  *     matieres: [{ id }], chapitres: [{ titre, description, ordre, contenu }] }
  * `etat` is never a form field: "BROUILLON" on create, the course's current
  * state on edit. Chapter `contenu` is HTML (web uses a contentEditable rich
- * editor), so the mobile chapter editor is a WebView contentEditable too.
+ * editor), so the mobile chapter editor (ChapterRichEditor) is a WebView
+ * contentEditable producing web's exact markup.
  */
 
 type RestrictionValue = "PRIVE" | "PUBLIC";
@@ -53,9 +61,10 @@ type RestrictionValue = "PRIVE" | "PUBLIC";
 // Backend: PUBLIC courses show up in every user's accessible list
 // (CoursRepository: restriction = 'PUBLIC' OR redacteur = user), PRIVE only
 // in the author's.
-const RESTRICTION_OPTIONS: { value: RestrictionValue; label: string; hint: string; icon: string }[] = [
-  { value: "PRIVE", label: "Privé", hint: "Réservé à vous et à vos séances programmées", icon: "lock" },
-  { value: "PUBLIC", label: "Public", hint: "Visible par tous les utilisateurs", icon: "globe-africa" },
+// Labels/hints are i18n keys, translated at render time.
+const RESTRICTION_OPTIONS: { value: RestrictionValue; labelKey: TranslationKey; hintKey: TranslationKey; icon: string }[] = [
+  { value: "PRIVE", labelKey: "courseForm.restriction.priveLabel", hintKey: "courseForm.restriction.priveHint", icon: "lock" },
+  { value: "PUBLIC", labelKey: "courseForm.restriction.publicLabel", hintKey: "courseForm.restriction.publicHint", icon: "globe-africa" },
 ];
 
 /** Two side-by-side option cards with a radio dot, instead of a dropdown. */
@@ -69,7 +78,9 @@ const RestrictionPicker = ({
   onChange: (v: RestrictionValue) => void;
   styles: ReturnType<typeof createStyles>;
   palette: Palette;
-}) => (
+}) => {
+  const { t } = useT();
+  return (
   <View style={styles.restrictionRow}>
     {RESTRICTION_OPTIONS.map((opt) => {
       const active = value === opt.value;
@@ -90,13 +101,14 @@ const RestrictionPicker = ({
               {active ? <View style={styles.radioInner} /> : null}
             </View>
           </View>
-          <Text style={[styles.restrictionLabel, active && styles.restrictionLabelActive]}>{opt.label}</Text>
-          <Text style={styles.restrictionHint}>{opt.hint}</Text>
+          <Text style={[styles.restrictionLabel, active && styles.restrictionLabelActive]}>{t(opt.labelKey)}</Text>
+          <Text style={styles.restrictionHint}>{t(opt.hintKey)}</Text>
         </TouchableOpacity>
       );
     })}
   </View>
-);
+  );
+};
 
 /** Chapter as held in the form (web's savedChapters entries). */
 interface FormChapter {
@@ -110,17 +122,6 @@ interface FormChapter {
 
 type ChapterDraft = Omit<FormChapter, "key" | "id">;
 
-type PendingKind = "image" | "video" | "document";
-
-/** A file inserted in a chapter editor, uploaded only on final submit (like web). */
-interface PendingFile {
-  id: string;
-  uri: string;
-  mimeType: string;
-  name: string;
-  kind: PendingKind;
-}
-
 interface CreateCoursBodyProps {
   onBack: () => void;
   onCreateCours: (cours: Cours) => void;
@@ -130,7 +131,6 @@ interface CreateCoursBodyProps {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const newKey = () => `${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
-const newFileId = () => `file_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -201,117 +201,6 @@ const refreshChapterContentUrls = async (html: string): Promise<string> => {
   return html.replace(re, (full, prefix: string, url: string) =>
     refreshed.has(url) ? `${prefix}${refreshed.get(url)}"` : full
   );
-};
-
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-const setSrc = (tag: string, url: string) => {
-  const re = /\ssrc="[^"]*"/i;
-  return re.test(tag) ? tag.replace(re, ` src="${url}"`) : tag.replace(/^<(\w+)/, `<$1 src="${url}"`);
-};
-
-/** Web's updateContentWithUploadedFiles: swap local previews for uploaded URLs. */
-const updateContentWithUploadedFiles = (content: string, fileUrlMap: Map<string, string>) => {
-  let html = content;
-  fileUrlMap.forEach((rawUrl, fileId) => {
-    const url = escapeHtml(rawUrl);
-    const id = escapeRe(fileId);
-    html = html.replace(new RegExp(`<(?:img|video)\\b[^>]*data-file-id="${id}"[^>]*>`, "gi"), (tag) => setSrc(tag, url));
-    html = html.replace(
-      new RegExp(`<span\\b[^>]*data-file-name-for="${id}"[^>]*>([\\s\\S]*?)</span>`, "gi"),
-      (_m, name: string) =>
-        `<a href="${url}" target="_blank" style="color: #3b82f6; text-decoration: underline; font-weight: 500;">${name}</a>`
-    );
-  });
-  return html;
-};
-
-/** Same inline markup web's RichTextEditor inserts for each kind of file. */
-const buildFileSnippet = (file: PendingFile, previewUri?: string) => {
-  const name = escapeHtml(file.name);
-  if (file.kind === "image") {
-    return (
-      `<div data-file-id="${file.id}" style="position: relative; display: inline-block; margin: 8px;">` +
-      `<img src="${previewUri ?? ""}" alt="${name}" data-file-id="${file.id}" style="max-width: 250px; max-height: 200px; width: auto; height: auto; object-fit: contain; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); display: block;">` +
-      `</div><br>`
-    );
-  }
-  if (file.kind === "video") {
-    return (
-      `<div data-file-id="${file.id}" style="margin: 8px 0; display: inline-block; max-width: 100%;">` +
-      `<video controls data-file-id="${file.id}" style="max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #e2e8f0; display: block;"></video>` +
-      `<div style="font-size: 11px; color: #6b7280; margin-top: 4px; text-align: center;">${name}</div>` +
-      `</div><br>`
-    );
-  }
-  return (
-    `<div data-file-id="${file.id}" style="margin: 8px 0; padding: 8px 12px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; display: flex; align-items: center; gap: 8px;">` +
-    `<span style="font-size: 16px;">📄</span>` +
-    `<span data-file-name-for="${file.id}" style="color: #3b82f6; font-weight: 500;">${name}</span>` +
-    `</div><br>`
-  );
-};
-
-const buildEditorHtml = (initial: string, placeholder: string, isDark: boolean) => {
-  const bg = isDark ? "#0F172A" : "#FFFFFF";
-  const text = isDark ? "#F1F5F9" : "#0F172A";
-  const border = isDark ? "#334155" : "#E2E8F0";
-  const initialJs = JSON.stringify(initial || "").replace(/</g, "\\u003c");
-  return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<style>
-html,body{margin:0;padding:0;background:${bg};}
-#editor{min-height:100vh;box-sizing:border-box;padding:12px;outline:none;color:${text};font-family:-apple-system,Roboto,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;word-wrap:break-word;overflow-wrap:break-word;}
-#editor:empty:before{content:attr(data-placeholder);color:#9ca3af;font-style:italic;}
-#editor p{margin:0.5em 0;}#editor div{margin:0.25em 0;}
-#editor ul,#editor ol{margin:0.5em 0;padding-left:2em;}#editor li{margin:0.25em 0;}
-#editor img{max-width:min(250px,100%);max-height:200px;width:auto;height:auto;object-fit:contain;border-radius:8px;border:1px solid ${border};display:block;}
-#editor video{width:100%;max-width:100%;min-height:120px;max-height:300px;background:#000;border-radius:8px;display:block;}
-#editor a{color:#3b82f6;text-decoration:underline;}
-</style></head><body>
-<div id="editor" contenteditable="true" data-placeholder="${escapeHtml(placeholder)}"></div>
-<script>
-(function(){
-  var ed = document.getElementById('editor');
-  ed.innerHTML = ${initialJs};
-  var saved = null;
-  function post(o){ if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(o)); }
-  function emit(){ post({ type: 'change', html: ed.innerHTML }); }
-  document.addEventListener('selectionchange', function(){
-    var s = window.getSelection();
-    if (s && s.rangeCount > 0) {
-      var r = s.getRangeAt(0);
-      if (ed.contains(r.commonAncestorContainer)) saved = r.cloneRange();
-    }
-  });
-  function restore(){
-    ed.focus();
-    if (saved) { var s = window.getSelection(); s.removeAllRanges(); s.addRange(saved); return true; }
-    return false;
-  }
-  window.__scCmd = function(c){ restore(); document.execCommand(c, false, null); emit(); };
-  window.__scInsert = function(html){
-    if (restore()) { document.execCommand('insertHTML', false, html); }
-    else { ed.insertAdjacentHTML('beforeend', html); }
-    emit();
-  };
-  window.__scRemove = function(id){
-    var els = ed.querySelectorAll('[data-file-id="' + id + '"]');
-    for (var i = 0; i < els.length; i++) { els[i].parentNode && els[i].parentNode.removeChild(els[i]); }
-    emit();
-  };
-  ed.addEventListener('input', emit);
-  ed.addEventListener('blur', emit);
-  ed.addEventListener('paste', function(e){
-    e.preventDefault();
-    var t = (e.clipboardData || window.clipboardData).getData('text/plain') || '';
-    var h = t.split('\\n').map(function(l){ return l.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }).join('<br>');
-    document.execCommand('insertHTML', false, h);
-    setTimeout(emit, 10);
-  });
-})();
-true;
-</script></body></html>`;
 };
 
 // ── Theme ───────────────────────────────────────────────────────────────────
@@ -395,6 +284,7 @@ const MatieresMultiSelect = ({
   styles: Styles;
   palette: Palette;
 }) => {
+  const { t } = useT();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -419,8 +309,8 @@ const MatieresMultiSelect = ({
         palette={palette}
         error={error}
         value={query}
-        onChangeText={(t) => {
-          setQuery(t);
+        onChangeText={(text) => {
+          setQuery(text);
           setIsOpen(true);
         }}
         onFocus={() => {
@@ -430,16 +320,16 @@ const MatieresMultiSelect = ({
         onBlur={() => {
           blurTimer.current = setTimeout(() => setIsOpen(false), 150);
         }}
-        placeholder={selected.length === 0 ? placeholder : "Ajouter une matière..."}
+        placeholder={selected.length === 0 ? placeholder : t("courseForm.matieres.addPlaceholder")}
       />
 
       {isOpen && (
         <View style={styles.dropdown}>
           {q === "" ? (
-            <Text style={styles.dropdownHint}>Tapez pour rechercher une matière...</Text>
+            <Text style={styles.dropdownHint}>{t("courseForm.matieres.searchHint")}</Text>
           ) : filtered.length === 0 ? (
             <Text style={styles.dropdownEmpty}>
-              {options.length === 0 ? "Aucune matière disponible" : "Aucun résultat"}
+              {options.length === 0 ? t("courseForm.matieres.noneAvailable") : t("courseForm.matieres.noResults")}
             </Text>
           ) : (
             <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
@@ -484,218 +374,6 @@ const MatieresMultiSelect = ({
   );
 };
 
-// ── Rich text editor (web's RichTextEditor) ─────────────────────────────────
-
-const RichTextEditor = ({
-  value,
-  onChange,
-  placeholder,
-  onFileAdd,
-  styles,
-  palette,
-  isDark,
-  error,
-}: {
-  value: string;
-  onChange: (html: string) => void;
-  placeholder: string;
-  onFileAdd: (file: PendingFile) => void;
-  styles: Styles;
-  palette: Palette;
-  isDark: boolean;
-  error?: boolean;
-}) => {
-  const webRef = useRef<WebView>(null);
-  const latestValue = useRef(value);
-  latestValue.current = value;
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const [showPicker, setShowPicker] = useState(false);
-
-  // Built once per theme: the editor owns its content afterwards and reports
-  // every change back, so re-rendering must not reset it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const source = useMemo(() => ({ html: buildEditorHtml(latestValue.current, placeholder, isDark) }), [isDark]);
-
-  const exec = (command: string) => webRef.current?.injectJavaScript(`window.__scCmd(${JSON.stringify(command)});true;`);
-
-  const insertFile = (file: PendingFile, previewUri?: string) => {
-    const html = buildFileSnippet(file, previewUri);
-    webRef.current?.injectJavaScript(`window.__scInsert(${JSON.stringify(html)});true;`);
-    setPendingFiles((prev) => [...prev, file]);
-    onFileAdd(file);
-  };
-
-  const removePendingFile = (fileId: string) => {
-    webRef.current?.injectJavaScript(`window.__scRemove(${JSON.stringify(fileId)});true;`);
-    setPendingFiles((prev) => prev.filter((f) => f.id !== fileId));
-  };
-
-  const pickImages = async () => {
-    setShowPicker(false);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert("Permission requise", "Autorisez l'accès à vos photos pour ajouter une image.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      quality: 0.7,
-      base64: true,
-    });
-    if (result.canceled || !result.assets?.length) return;
-    result.assets.forEach((asset) => {
-      const mimeType = asset.mimeType ?? "image/jpeg";
-      const file: PendingFile = {
-        id: newFileId(),
-        uri: asset.uri,
-        mimeType,
-        name: asset.fileName ?? `image_${Date.now()}.jpg`,
-        kind: "image",
-      };
-      insertFile(file, asset.base64 ? `data:${mimeType};base64,${asset.base64}` : asset.uri);
-    });
-  };
-
-  const pickDocuments = async () => {
-    setShowPicker(false);
-    const result = await DocumentPicker.getDocumentAsync({
-      type: [
-        "video/*",
-        "application/pdf",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "text/plain",
-        "application/vnd.ms-powerpoint",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      ],
-      multiple: true,
-      copyToCacheDirectory: true,
-    });
-    if (result.canceled || !result.assets?.length) return;
-    result.assets.forEach((asset) => {
-      const mimeType = asset.mimeType ?? "application/octet-stream";
-      insertFile({
-        id: newFileId(),
-        uri: asset.uri,
-        mimeType,
-        name: asset.name,
-        kind: mimeType.startsWith("video/") ? "video" : "document",
-      });
-    });
-  };
-
-  const onMessage = (e: WebViewMessageEvent) => {
-    try {
-      const msg = JSON.parse(e.nativeEvent.data);
-      if (msg?.type === "change" && typeof msg.html === "string") onChange(msg.html);
-    } catch {
-      // ignore non-JSON messages
-    }
-  };
-
-  const ToolBtn = ({ onPress, children, label }: { onPress: () => void; children: React.ReactNode; label: string }) => (
-    <TouchableOpacity style={styles.toolBtn} onPress={onPress} accessibilityLabel={label}>
-      {children}
-    </TouchableOpacity>
-  );
-
-  return (
-    <View style={[styles.editorBox, error && { borderColor: palette.errorInputBorder }]}>
-      {pendingFiles.length > 0 && (
-        <View style={styles.pendingBox}>
-          <View style={styles.pendingHeader}>
-            <FontAwesome5 name="paperclip" size={13} color="#2563EB" />
-            <Text style={styles.pendingTitle}>Fichiers en attente:</Text>
-          </View>
-          {pendingFiles.map((f) => (
-            <View key={f.id} style={styles.pendingRow}>
-              <View style={styles.pendingNameRow}>
-                <FontAwesome5 name={f.kind === "image" ? "image" : "file-alt"} size={12} color={palette.sub} />
-                <Text style={styles.pendingName} numberOfLines={1}>{f.name}</Text>
-              </View>
-              <TouchableOpacity onPress={() => removePendingFile(f.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <FontAwesome5 name="times" size={13} color="#EF4444" />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={styles.toolbar}>
-        <ToolBtn label="Gras" onPress={() => exec("bold")}>
-          <Text style={[styles.toolText, { fontWeight: "800" }]}>B</Text>
-        </ToolBtn>
-        <ToolBtn label="Italique" onPress={() => exec("italic")}>
-          <Text style={[styles.toolText, { fontStyle: "italic" }]}>I</Text>
-        </ToolBtn>
-        <ToolBtn label="Souligné" onPress={() => exec("underline")}>
-          <Text style={[styles.toolText, { textDecorationLine: "underline" }]}>U</Text>
-        </ToolBtn>
-        <View style={styles.toolDivider} />
-        <ToolBtn label="Liste à puces" onPress={() => exec("insertUnorderedList")}>
-          <FontAwesome5 name="list-ul" size={13} color={palette.body} />
-        </ToolBtn>
-        <ToolBtn label="Liste numérotée" onPress={() => exec("insertOrderedList")}>
-          <FontAwesome5 name="list-ol" size={13} color={palette.body} />
-        </ToolBtn>
-        <View style={styles.toolDivider} />
-        <ToolBtn label="Aligner à gauche" onPress={() => exec("justifyLeft")}>
-          <FontAwesome5 name="align-left" size={13} color={palette.body} />
-        </ToolBtn>
-        <ToolBtn label="Centrer" onPress={() => exec("justifyCenter")}>
-          <FontAwesome5 name="align-center" size={13} color={palette.body} />
-        </ToolBtn>
-        <ToolBtn label="Aligner à droite" onPress={() => exec("justifyRight")}>
-          <FontAwesome5 name="align-right" size={13} color={palette.body} />
-        </ToolBtn>
-        <View style={styles.toolDivider} />
-        <ToolBtn label="Insérer fichier/image" onPress={() => setShowPicker(true)}>
-          <View style={styles.toolRow}>
-            <FontAwesome5 name="paperclip" size={13} color={palette.body} />
-            <Text style={styles.toolSmall}>Fichiers</Text>
-          </View>
-        </ToolBtn>
-        <ToolBtn label="Supprimer le formatage" onPress={() => exec("removeFormat")}>
-          <Text style={styles.toolSmall}>Clear</Text>
-        </ToolBtn>
-      </View>
-
-      <WebView
-        ref={webRef}
-        originWhitelist={["*"]}
-        source={source}
-        onMessage={onMessage}
-        style={styles.webview}
-        containerStyle={{ backgroundColor: palette.input }}
-        nestedScrollEnabled
-        hideKeyboardAccessoryView
-        keyboardDisplayRequiresUserAction={false}
-        scrollEnabled
-        javaScriptEnabled
-        setSupportMultipleWindows={false}
-      />
-
-      <BottomSheet visible={showPicker} onClose={() => setShowPicker(false)} title="Insérer un fichier">
-        <TouchableOpacity style={styles.sheetOption} onPress={pickImages}>
-          <View style={styles.toolRow}>
-            <FontAwesome5 name="image" size={15} color="#4F46E5" />
-            <Text style={styles.sheetOptionText}>Image(s) de la galerie</Text>
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.sheetOption} onPress={pickDocuments}>
-          <View style={styles.toolRow}>
-            <FontAwesome5 name="file-alt" size={15} color="#4F46E5" />
-            <Text style={styles.sheetOptionText}>Vidéo ou document (PDF, Word, PowerPoint...)</Text>
-          </View>
-        </TouchableOpacity>
-      </BottomSheet>
-    </View>
-  );
-};
-
 // ── Chapter card / editor ───────────────────────────────────────────────────
 
 const ChapterCard = ({
@@ -722,12 +400,14 @@ const ChapterCard = ({
   loading: boolean;
   styles: Styles;
   palette: Palette;
-}) => (
+}) => {
+  const { t } = useT();
+  return (
   <View style={[styles.chapterCard, loading && { opacity: 0.5 }]} pointerEvents={loading ? "none" : "auto"}>
     <View style={styles.chapterCardRow}>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={styles.chapterBadge}>
-          <Text style={styles.chapterBadgeText}>Chapitre {index + 1}</Text>
+          <Text style={styles.chapterBadgeText}>{t("courseForm.chapterCard.badge", { number: index + 1 })}</Text>
         </View>
         <Text style={styles.chapterTitle} numberOfLines={1}>
           {truncateText(chapter.titre, 40)}
@@ -741,25 +421,25 @@ const ChapterCard = ({
       </View>
       <View style={styles.chapterActions}>
         {canMoveUp && (
-          <TouchableOpacity style={styles.iconBtn} onPress={onMoveUp} accessibilityLabel="Déplacer vers le haut">
+          <TouchableOpacity style={styles.iconBtn} onPress={onMoveUp} accessibilityLabel={t("courseForm.chapterCard.moveUp")}>
             <FontAwesome5 name="chevron-up" size={13} color={palette.muted} />
           </TouchableOpacity>
         )}
         {canMoveDown && (
-          <TouchableOpacity style={styles.iconBtn} onPress={onMoveDown} accessibilityLabel="Déplacer vers le bas">
+          <TouchableOpacity style={styles.iconBtn} onPress={onMoveDown} accessibilityLabel={t("courseForm.chapterCard.moveDown")}>
             <FontAwesome5 name="chevron-down" size={13} color={palette.muted} />
           </TouchableOpacity>
         )}
-        <TouchableOpacity style={styles.iconBtn} onPress={onEdit} accessibilityLabel="Modifier">
+        <TouchableOpacity style={styles.iconBtn} onPress={onEdit} accessibilityLabel={t("courseForm.chapterCard.edit")}>
           <FontAwesome5 name="pen" size={12} color={palette.muted} />
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.iconBtn}
-          accessibilityLabel="Supprimer"
+          accessibilityLabel={t("courseForm.chapterCard.delete")}
           onPress={() =>
-            Alert.alert("Supprimer", "Êtes-vous sûr de vouloir supprimer ce chapitre ?", [
-              { text: "Annuler", style: "cancel" },
-              { text: "Supprimer", style: "destructive", onPress: onDelete },
+            Alert.alert(t("courseForm.chapterCard.deleteConfirmTitle"), t("courseForm.chapterCard.deleteConfirmMessage"), [
+              { text: t("courseForm.chapterCard.cancel"), style: "cancel" },
+              { text: t("courseForm.chapterCard.delete"), style: "destructive", onPress: onDelete },
             ])
           }
         >
@@ -773,7 +453,8 @@ const ChapterCard = ({
       </View>
     )}
   </View>
-);
+  );
+};
 
 const ChapterEditor = ({
   mode,
@@ -782,6 +463,7 @@ const ChapterEditor = ({
   onSave,
   onCancel,
   onFileAdd,
+  pendingFiles,
   styles,
   palette,
   isDark,
@@ -792,10 +474,12 @@ const ChapterEditor = ({
   onSave: (data: ChapterDraft) => void;
   onCancel: () => void;
   onFileAdd: (file: PendingFile) => void;
+  pendingFiles: Map<string, PendingFile>;
   styles: Styles;
   palette: Palette;
   isDark: boolean;
 }) => {
+  const { t } = useT();
   const [formData, setFormData] = useState<ChapterDraft>(() => ({
     titre: initialData?.titre ?? "",
     description: initialData?.description ?? "",
@@ -806,8 +490,8 @@ const ChapterEditor = ({
 
   const validateForm = () => {
     const next: { titre?: string; contenu?: string } = {};
-    if (!formData.titre.trim()) next.titre = "Le titre est requis";
-    if (!formData.contenu.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim()) next.contenu = "Le contenu est requis";
+    if (!formData.titre.trim()) next.titre = t("courseForm.validation.titleRequired");
+    if (isRichHtmlEmpty(formData.contenu)) next.contenu = t("courseForm.validation.contentRequired");
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -825,35 +509,37 @@ const ChapterEditor = ({
         <View style={styles.rowCenter}>
           <FontAwesome5 name="file-alt" size={17} color="#4F46E5" />
           <Text style={styles.chapterEditorTitle}>
-            {mode === "create" ? `Nouveau Chapitre ${chapterNumber}` : `Modifier Chapitre ${chapterNumber}`}
+            {mode === "create"
+              ? t("courseForm.chapterEditor.titleCreate", { number: chapterNumber })
+              : t("courseForm.chapterEditor.titleEdit", { number: chapterNumber })}
           </Text>
         </View>
-        <TouchableOpacity onPress={onCancel} style={styles.iconBtn} accessibilityLabel="Annuler">
+        <TouchableOpacity onPress={onCancel} style={styles.iconBtn} accessibilityLabel={t("courseForm.chapterEditor.cancel")}>
           <FontAwesome5 name="times-circle" size={17} color={palette.muted} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.field}>
-        <Text style={styles.labelMd}>Titre du chapitre *</Text>
+        <Text style={styles.labelMd}>{t("courseForm.chapterEditor.titleLabel")}</Text>
         <FormInput
           styles={styles}
           palette={palette}
           error={!!errors.titre}
           value={formData.titre}
-          onChangeText={(t) => setFormData((p) => ({ ...p, titre: t }))}
-          placeholder="Titre du chapitre"
+          onChangeText={(text) => setFormData((p) => ({ ...p, titre: text }))}
+          placeholder={t("courseForm.chapterEditor.titlePlaceholder")}
         />
         <FieldError message={errors.titre} styles={styles} color={palette.errorText} />
       </View>
 
       <View style={styles.field}>
-        <Text style={styles.labelMd}>Description du chapitre</Text>
+        <Text style={styles.labelMd}>{t("courseForm.chapterEditor.descriptionLabel")}</Text>
         <FormInput
           styles={styles}
           palette={palette}
           value={formData.description}
-          onChangeText={(t) => setFormData((p) => ({ ...p, description: t }))}
-          placeholder="Description du chapitre"
+          onChangeText={(text) => setFormData((p) => ({ ...p, description: text }))}
+          placeholder={t("courseForm.chapterEditor.descriptionPlaceholder")}
           multiline
           numberOfLines={2}
           textAlignVertical="top"
@@ -862,14 +548,13 @@ const ChapterEditor = ({
       </View>
 
       <View style={styles.field}>
-        <Text style={styles.labelMd}>Contenu du chapitre *</Text>
-        <RichTextEditor
+        <Text style={styles.labelMd}>{t("courseForm.chapterEditor.contentLabel")}</Text>
+        <ChapterRichEditor
           value={formData.contenu}
           onChange={(html) => setFormData((p) => ({ ...p, contenu: html }))}
-          placeholder="Contenu détaillé du chapitre..."
+          placeholder={t("courseForm.chapterEditor.contentPlaceholder")}
           onFileAdd={onFileAdd}
-          styles={styles}
-          palette={palette}
+          pendingFiles={pendingFiles}
           isDark={isDark}
           error={!!errors.contenu}
         />
@@ -878,11 +563,11 @@ const ChapterEditor = ({
 
       <View style={styles.chapterEditorActions}>
         <TouchableOpacity style={styles.editorCancelBtn} onPress={onCancel}>
-          <Text style={styles.editorCancelText}>Annuler</Text>
+          <Text style={styles.editorCancelText}>{t("courseForm.chapterEditor.cancel")}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.editorSaveBtn} onPress={handleSave}>
           <FontAwesome5 name="save" size={14} color="#FFFFFF" />
-          <Text style={styles.editorSaveText}>{mode === "create" ? "Ajouter" : "Sauvegarder"}</Text>
+          <Text style={styles.editorSaveText}>{mode === "create" ? t("courseForm.chapterEditor.add") : t("courseForm.chapterEditor.save")}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -893,6 +578,7 @@ const ChapterEditor = ({
 
 const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBodyProps) => {
   const { user } = useUser();
+  const { t } = useT();
   const colors = useThemeColors();
   const isDark = useThemeStore((s) => s.mode === "dark");
   const palette = useMemo(() => makePalette(isDark), [isDark]);
@@ -914,11 +600,27 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
   const [activeEditor, setActiveEditor] = useState<"create" | "edit" | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number; percent: number; name: string } | null>(null);
   const [submitError, setSubmitError] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
   const pendingFiles = useRef(new Map<string, PendingFile>());
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // Lets the chapter editor keep its caret visible above the docked toolbar.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
+  const scrollTop = useRef(0);
+  const scrollApi = useMemo<ChapterEditorScrollApi>(
+    () => ({
+      scrollBy: (dy) => {
+        const y = Math.max(0, scrollY.current + dy);
+        scrollY.current = y;
+        scrollRef.current?.scrollTo({ y, animated: true });
+      },
+      getViewportTop: () => scrollTop.current,
+    }),
+    []
+  );
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
@@ -966,7 +668,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
         if (!cancelled) setSavedChapters(chapters);
       })
       .catch((err) => {
-        if (!cancelled) setSubmitError(err instanceof Error ? err.message : "Échec du chargement du cours.");
+        if (!cancelled) setSubmitError(err instanceof Error ? err.message : translate("courseForm.errors.loadFailed"));
       })
       .finally(() => {
         if (!cancelled) setLoadingExisting(false);
@@ -980,11 +682,11 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
   const errors = useMemo(() => {
     if (!submitted) return {} as Record<string, string>;
     const e: Record<string, string> = {};
-    if (!titre.trim()) e.titre = "Le titre est requis";
-    if (!description.trim()) e.description = "La description est requise";
-    if (selectedMatiereIds.length === 0) e.matieres = "Au moins une matière est requise";
+    if (!titre.trim()) e.titre = t("courseForm.validation.titleRequired");
+    if (!description.trim()) e.description = t("courseForm.validation.descriptionRequired");
+    if (selectedMatiereIds.length === 0) e.matieres = t("courseForm.validation.matiereRequired");
     return e;
-  }, [submitted, titre, description, selectedMatiereIds]);
+  }, [submitted, titre, description, selectedMatiereIds, t]);
 
   const handleFileAdd = useCallback((file: PendingFile) => {
     pendingFiles.current.set(file.id, file);
@@ -1024,12 +726,29 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
     setEditingIndex(null);
   };
 
-  /** Web's uploadPendingFiles — only for files still present in a chapter. */
+  /**
+   * Web's uploadPendingFiles — only the files still present in a chapter, in
+   * parallel, through XMLHttpRequest (Expo's fetch can't send RN files) with a
+   * byte-weighted overall progress.
+   */
   const uploadPendingFiles = async (userId: string, contents: string[]) => {
-    const fileMap = new Map<string, string>();
+    const fileMap = new Map<string, UploadedFileInfo>();
     const used = Array.from(pendingFiles.current.values()).filter((f) =>
       contents.some((c) => c.includes(`data-file-id="${f.id}"`))
     );
+    if (used.length === 0) return fileMap;
+    const sizeOf = (f: PendingFile) => (f.size && f.size > 0 ? f.size : 1);
+    const totalBytes = used.reduce((n, f) => n + sizeOf(f), 0) || 1;
+    const loaded = new Map<string, number>();
+    let done = 0;
+    const report = (name: string) =>
+      setUploadProgress({
+        done,
+        total: used.length,
+        name,
+        percent: Math.min(100, Math.round((Array.from(loaded.values()).reduce((n, v) => n + v, 0) / totalBytes) * 100)),
+      });
+    report(used[0].name);
     await Promise.all(
       used.map(async (file) => {
         let documentType = "documents";
@@ -1041,26 +760,36 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
           documentType = "videos";
           mediaType = "VIDEO";
         }
-        const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-        const uniqueFileName = `${Date.now()}_${cleanFileName}`;
-        const storedUrl = await mediaService.uploadFile(
-          { uri: file.uri, mimeType: file.mimeType, name: uniqueFileName },
-          userId,
-          mediaType,
-          documentType
-        );
-        const relative = toRelativePath(storedUrl);
-        const filePath =
-          relative && relative.startsWith("users/")
-            ? relative
-            : `users/${userId}/${mediaType.toLowerCase()}/${documentType}/${uniqueFileName}`;
-        let url = "";
         try {
-          url = await mediaService.getContentUrlByPath(filePath);
-        } catch {
-          url = "";
+          const ref = await mediaService.uploadFileWithPath(
+            { uri: file.uri, mimeType: file.mimeType, name: file.name },
+            userId,
+            mediaType,
+            documentType,
+            (fraction) => {
+              loaded.set(file.id, fraction * sizeOf(file));
+              report(file.name);
+            }
+          );
+          loaded.set(file.id, sizeOf(file));
+          done += 1;
+          report(file.name);
+          const filePath = ref.filePath || toRelativePath(ref.url);
+          let url = "";
+          try {
+            url = await mediaService.getContentUrlByPath(filePath);
+          } catch {
+            url = "";
+          }
+          fileMap.set(file.id, { url: url || ref.url, name: file.name, type: file.mimeType, size: file.size });
+        } catch (err) {
+          throw new Error(
+            t("courseForm.errors.uploadFailed", {
+              name: file.name,
+              reason: err instanceof Error && err.message ? err.message : t("courseForm.errors.networkError"),
+            })
+          );
         }
-        fileMap.set(file.id, url || storedUrl);
       })
     );
     return fileMap;
@@ -1073,13 +802,13 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
 
     setIsSubmitting(true);
     try {
-      if (savedChapters.length === 0) throw new Error("Au moins un chapitre est requis");
-      if (selectedMatiereIds.length === 0) throw new Error("Au moins une matière est requise");
+      if (savedChapters.length === 0) throw new Error(t("courseForm.validation.chapterRequired"));
+      if (selectedMatiereIds.length === 0) throw new Error(t("courseForm.validation.matiereRequired"));
       const professorId = user?.userId;
-      if (!professorId) throw new Error("ID du professeur non trouvé");
+      if (!professorId) throw new Error(t("courseForm.errors.professorNotFound"));
 
       // Upload all pending files first
-      let fileUrlMap = new Map<string, string>();
+      let fileUrlMap = new Map<string, UploadedFileInfo>();
       if (pendingFiles.current.size > 0) {
         fileUrlMap = await uploadPendingFiles(
           String(professorId),
@@ -1088,6 +817,8 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
       }
 
       const chapitres = savedChapters.map((chapitre, index) => ({
+        // Keep the id so the backend updates the chapter in place (students' progress survives edits)
+        id: chapitre.id ?? undefined,
         titre: chapitre.titre,
         description: chapitre.description || "",
         ordre: index + 1,
@@ -1138,16 +869,17 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
       };
       timers.current.push(setTimeout(() => onCreateCours(uiCours), 2000));
     } catch (err) {
-      setSubmitError(err instanceof Error && err.message ? err.message : "Erreur lors de l'enregistrement");
+      setSubmitError(err instanceof Error && err.message ? err.message : t("courseForm.errors.saveFailed"));
     } finally {
       setIsSubmitting(false);
+      setUploadProgress(null);
     }
   };
 
   useEffect(() => {
     if (!showSuccess) return;
-    const t = setTimeout(() => setShowSuccess(false), 3000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setShowSuccess(false), 3000);
+    return () => clearTimeout(timer);
   }, [showSuccess]);
 
   const submitDisabled = savedChapters.length === 0 || isSubmitting;
@@ -1155,7 +887,19 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
   return (
     <View style={styles.container}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ChapterEditorScrollContext.Provider value={scrollApi}>
         <ScrollView
+          ref={scrollRef}
+          onScroll={(e) => {
+            scrollY.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={32}
+          onLayout={(e) => {
+            const target = e.currentTarget as unknown as View;
+            target?.measureInWindow?.((_x: number, y: number) => {
+              scrollTop.current = y;
+            });
+          }}
           style={styles.flex}
           // The footer nav floats over the page (≈70px bar + raised centre
           // button + the system nav inset), so clear it plus some breathing room.
@@ -1167,14 +911,14 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
           <View style={styles.header}>
             <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.8}>
               <FontAwesome5 name="arrow-left" size={13} color={palette.indigoText} />
-              <Text style={styles.backBtnText}>Retour</Text>
+              <Text style={styles.backBtnText}>{t("courseForm.header.back")}</Text>
             </TouchableOpacity>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.pageTitle}>{editMode ? "Modifier le cours" : "Créer un nouveau cours"}</Text>
+              <Text style={styles.pageTitle}>{editMode ? t("courseForm.header.titleEdit") : t("courseForm.header.titleCreate")}</Text>
               <Text style={styles.pageSubtitle}>
                 {editMode
-                  ? "Modifiez et organisez votre contenu pédagogique"
-                  : "Créez et organisez votre contenu pédagogique"}
+                  ? t("courseForm.header.subtitleEdit")
+                  : t("courseForm.header.subtitleCreate")}
               </Text>
             </View>
           </View>
@@ -1187,43 +931,43 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
           ) : null}
 
           {loadingExisting ? (
-            <LoadingSpinner label="Chargement du cours..." />
+            <LoadingSpinner label={t("courseForm.loading")} />
           ) : (
             <>
               {/* General Information */}
               <View style={styles.card}>
                 <View style={styles.cardTitleRow}>
                   <FontAwesome5 name="book-open" size={16} color="#4F46E5" />
-                  <Text style={styles.cardTitle}>Informations générales</Text>
+                  <Text style={styles.cardTitle}>{t("courseForm.general.title")}</Text>
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={styles.label}>Titre du cours *</Text>
+                  <Text style={styles.label}>{t("courseForm.general.titleLabel")}</Text>
                   <FormInput
                     styles={styles}
                     palette={palette}
                     error={!!errors.titre}
                     value={titre}
                     onChangeText={setTitre}
-                    placeholder="Introduction à la programmation"
+                    placeholder={t("courseForm.general.titlePlaceholder")}
                   />
                   <FieldError message={errors.titre} styles={styles} color={palette.errorText} />
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={styles.label}>Visibilité *</Text>
+                  <Text style={styles.label}>{t("courseForm.general.visibilityLabel")}</Text>
                   <RestrictionPicker value={restriction} onChange={setRestriction} styles={styles} palette={palette} />
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={styles.label}>Description du cours *</Text>
+                  <Text style={styles.label}>{t("courseForm.general.descriptionLabel")}</Text>
                   <FormInput
                     styles={styles}
                     palette={palette}
                     error={!!errors.description}
                     value={description}
                     onChangeText={setDescription}
-                    placeholder="Décrivez le contenu général de ce cours..."
+                    placeholder={t("courseForm.general.descriptionPlaceholder")}
                     multiline
                     numberOfLines={3}
                     textAlignVertical="top"
@@ -1235,13 +979,13 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                 <View style={styles.field}>
                   <View style={styles.labelRow}>
                     <FontAwesome5 name="user-friends" size={13} color="#4F46E5" />
-                    <Text style={[styles.label, styles.labelInRow]}>Matières associées *</Text>
+                    <Text style={[styles.label, styles.labelInRow]}>{t("courseForm.general.matieresLabel")}</Text>
                   </View>
                   <MatieresMultiSelect
                     options={subjects}
                     selected={selectedMatiereIds}
                     onChange={setSelectedMatiereIds}
-                    placeholder="Sélectionnez les matières..."
+                    placeholder={t("courseForm.general.matieresPlaceholder")}
                     error={!!errors.matieres}
                     styles={styles}
                     palette={palette}
@@ -1252,14 +996,14 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                 <View style={[styles.field, { marginBottom: 0 }]}>
                   <View style={styles.labelRow}>
                     <FontAwesome5 name="file-alt" size={13} color="#4F46E5" />
-                    <Text style={[styles.label, styles.labelInRow]}>Références</Text>
+                    <Text style={[styles.label, styles.labelInRow]}>{t("courseForm.general.referencesLabel")}</Text>
                   </View>
                   <FormInput
                     styles={styles}
                     palette={palette}
                     value={references}
                     onChangeText={setReferences}
-                    placeholder="Livres, articles, liens utiles..."
+                    placeholder={t("courseForm.general.referencesPlaceholder")}
                     multiline
                     numberOfLines={2}
                     textAlignVertical="top"
@@ -1272,12 +1016,12 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
               <View style={styles.card}>
                 <View style={styles.cardTitleRow}>
                   <FontAwesome5 name="file-alt" size={16} color="#4F46E5" />
-                  <Text style={styles.cardTitle}>Chapitres du cours * ({savedChapters.length})</Text>
+                  <Text style={styles.cardTitle}>{t("courseForm.chapters.sectionTitle", { count: savedChapters.length })}</Text>
                 </View>
                 {!activeEditor && (
                   <TouchableOpacity style={styles.newChapterBtn} onPress={() => setActiveEditor("create")} activeOpacity={0.85}>
                     <FontAwesome5 name="plus" size={13} color="#FFFFFF" />
-                    <Text style={styles.newChapterText}>Nouveau chapitre</Text>
+                    <Text style={styles.newChapterText}>{t("courseForm.chapters.newChapter")}</Text>
                   </TouchableOpacity>
                 )}
 
@@ -1290,6 +1034,7 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                     onSave={handleSaveChapter}
                     onCancel={handleCancelEditor}
                     onFileAdd={handleFileAdd}
+                    pendingFiles={pendingFiles.current}
                     styles={styles}
                     palette={palette}
                     isDark={isDark}
@@ -1318,19 +1063,37 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                 {savedChapters.length === 0 && !activeEditor && (
                   <View style={styles.emptyChapters}>
                     <FontAwesome5 name="file-alt" size={44} color={palette.muted} />
-                    <Text style={styles.emptyText}>Aucun chapitre ajouté</Text>
+                    <Text style={styles.emptyText}>{t("courseForm.chapters.empty")}</Text>
                     <TouchableOpacity onPress={() => setActiveEditor("create")}>
-                      <Text style={styles.emptyLink}>Créer votre premier chapitre</Text>
+                      <Text style={styles.emptyLink}>{t("courseForm.chapters.createFirst")}</Text>
                     </TouchableOpacity>
                   </View>
                 )}
               </View>
 
+              {uploadProgress && isSubmitting ? (
+                <View style={styles.uploadBox} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: 100, now: uploadProgress.percent }}>
+                  <View style={styles.uploadHead}>
+                    <Text style={styles.uploadText} numberOfLines={1}>
+                      {t("courseForm.upload.progress", {
+                        done: uploadProgress.done,
+                        total: uploadProgress.total,
+                        name: uploadProgress.name,
+                      })}
+                    </Text>
+                    <Text style={styles.uploadPct}>{uploadProgress.percent}%</Text>
+                  </View>
+                  <View style={styles.uploadTrack}>
+                    <View style={[styles.uploadFill, { width: `${uploadProgress.percent}%` }]} />
+                  </View>
+                </View>
+              ) : null}
+
               {/* Action Buttons */}
               <View style={styles.actions}>
                 <TouchableOpacity style={styles.cancelBtn} onPress={onBack} activeOpacity={0.85}>
                   <FontAwesome5 name="arrow-left" size={14} color={palette.indigoText} />
-                  <Text style={styles.cancelBtnText}>Annuler</Text>
+                  <Text style={styles.cancelBtnText}>{t("courseForm.actions.cancel")}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={onSubmit}
@@ -1342,12 +1105,14 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
                     {isSubmitting ? (
                       <>
                         <ActivityIndicator size="small" color="#FFFFFF" />
-                        <Text style={styles.submitText}>Traitement...</Text>
+                        <Text style={styles.submitText}>
+                          {uploadProgress && uploadProgress.done < uploadProgress.total ? t("courseForm.actions.sending", { percent: uploadProgress.percent }) : t("courseForm.actions.processing")}
+                        </Text>
                       </>
                     ) : (
                       <>
                         <FontAwesome5 name="save" size={14} color="#FFFFFF" />
-                        <Text style={styles.submitText}>{editMode ? "Modifier le cours" : "Créer le cours"}</Text>
+                        <Text style={styles.submitText}>{editMode ? t("courseForm.actions.submitEdit") : t("courseForm.actions.submitCreate")}</Text>
                       </>
                     )}
                   </LinearGradient>
@@ -1356,13 +1121,16 @@ const CreateCoursBody = ({ onBack, onCreateCours, editingCours }: CreateCoursBod
             </>
           )}
         </ScrollView>
+        </ChapterEditorScrollContext.Provider>
+        {/* Formatting bar of the focused chapter editor, pinned above the keyboard. */}
+        <ChapterToolbarDock />
       </KeyboardAvoidingView>
 
       {/* Success toast (web's SuccessModal) */}
       {showSuccess && (
         <View style={styles.toast}>
           <View style={styles.toastDot} />
-          <Text style={styles.toastText}>{editMode ? "Cours modifié avec succès !" : "Cours créé avec succès !"}</Text>
+          <Text style={styles.toastText}>{editMode ? t("courseForm.toast.updated") : t("courseForm.toast.created")}</Text>
           <TouchableOpacity onPress={() => setShowSuccess(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <FontAwesome5 name="times" size={14} color="#FFFFFF" />
           </TouchableOpacity>
@@ -1581,6 +1349,22 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, p: Palette) =>
       backgroundColor: "#4F46E5",
     },
     editorSaveText: { fontSize: 14, fontWeight: "600", color: "#FFFFFF" },
+
+    // File upload progress (submit)
+    uploadBox: {
+      marginBottom: 12,
+      padding: 12,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: p.indigoSoftBorder,
+      backgroundColor: p.indigoSoft,
+      gap: 8,
+    },
+    uploadHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+    uploadText: { flex: 1, fontSize: 12, color: p.indigoText },
+    uploadPct: { fontSize: 12, fontWeight: "700", color: p.indigoText },
+    uploadTrack: { height: 6, borderRadius: 3, backgroundColor: p.cardBorder, overflow: "hidden" },
+    uploadFill: { height: 6, borderRadius: 3, backgroundColor: "#4F46E5" },
 
     // Rich text editor
     editorBox: { borderWidth: 1, borderColor: p.inputBorder, borderRadius: 10, overflow: "hidden", backgroundColor: p.input },

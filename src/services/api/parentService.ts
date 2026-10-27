@@ -11,6 +11,8 @@ export interface ChildClassStatus {
   statut: ChildClassStatut | string;
   motifRejet?: string | null;
   dateDemande?: string | null;
+  /** Adult child: follow request of that class (to cancel it while EN_ATTENTE). */
+  demandeSuiviId?: string | null;
 }
 
 /** One child of the parent with the state of each of its class requests. */
@@ -20,6 +22,38 @@ export interface ChildStatus {
   nom?: string | null;
   niveau?: string | null;
   classes: ChildClassStatus[];
+  /** Adult child with their own account (e-mail): the parent only reads their data. */
+  majeur?: boolean;
+  email?: string | null;
+  /** Parent ↔ child link: LIE (active) or a pending / refused follow-up request. */
+  lienStatut?: ChildLinkStatut;
+  demandeLienId?: string | null;
+  /** REFUSE: reason given by the professor (optional). */
+  motifRefusLien?: string | null;
+}
+
+/** LIE (active) | EN_ATTENTE_VALIDATION_PROFESSEUR (follow request awaiting the professor) | REFUSE. */
+export type ChildLinkStatut = 'LIE' | 'EN_ATTENTE_VALIDATION_PROFESSEUR' | 'REFUSE';
+
+/** The parent may open / select this child (active link; older backends send no lienStatut). */
+export const isLinkedChild = (s?: ChildStatus | null) => !s || !s.lienStatut || s.lienStatut === 'LIE';
+
+/** Kind of child card: minor without account (default) or adult with their own account (e-mail). */
+export type ChildKind = 'MINEUR' | 'MAJEUR';
+
+/** A child added by a parent (sign-up or "Ajouter un enfant"). */
+export interface ChildEnrollResult {
+  id?: string;
+  type?: ChildKind | string;
+  prenom?: string;
+  nom?: string;
+  email?: string;
+  classeId?: string;
+  classeNom?: string;
+  statut?: string;
+  lienStatut?: ChildLinkStatut | string;
+  /** Adult child: one follow request per class code. */
+  classesSuivi?: { classeId?: string; classeNom?: string; statut?: string; demandeSuiviId?: string }[];
 }
 
 /** Error codes of a child inscription (sign-up child cards and POST /parents/{id}/enfants/inscription). */
@@ -34,10 +68,30 @@ export const CHILD_ERROR_KEYS: Record<string, TranslationKey> = {
   DUPLICATE_RESOURCE: 'parentChildren.errors.duplicate',
   ENFANTS_REQUIS: 'parentChildren.errors.childrenRequired',
   TROP_DE_TENTATIVES: 'classPreview.errors.tooMany',
+  ELEVE_EXISTE_AVEC_COMPTE: 'adultChild.existsWithAccount',
+  COMPTE_NON_ELEVE: 'adultChild.notStudent',
+  LIEN_PARENT_DEJA_DEMANDE: 'adultChild.alreadyRequested',
+  ELEVE_INTROUVABLE: 'adultChild.notFound',
+  ELEVE_PAS_DANS_CLASSE: 'adultChild.notInClass',
+  CLASSE_RESERVEE_MINEURS: 'auth.signup.errors.classMinorsOnly',
 };
+
+/** Same-name student with their own account in the class: offer to add the child by e-mail instead. */
+export const CHILD_EXISTS_WITH_ACCOUNT = 'ELEVE_EXISTE_AVEC_COMPTE';
+
+/** Errors about an adult child's e-mail (shown under the e-mail field). */
+export const isChildEmailError = (code?: string) =>
+  code === 'COMPTE_NON_ELEVE' || code === 'LIEN_PARENT_DEJA_DEMANDE' || code === 'ELEVE_INTROUVABLE';
 
 /** A class-code problem (to show under the code field) rather than a name / general one. */
 export const isClassCodeError = (code?: string) => !!code && /CODE_CLASSE|CLASSE_/.test(code);
+
+/** Adult child: the student is not a member of (one of) the given classes, or the code is wrong. */
+export const ADULT_NOT_IN_CLASS = 'ELEVE_PAS_DANS_CLASSE';
+
+/** Normalized, de-duplicated, non-empty class codes. */
+export const cleanCodes = (codes: string[]) =>
+  Array.from(new Set(codes.map((c) => c.trim().toUpperCase()).filter(Boolean)));
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
@@ -51,6 +105,11 @@ const normalizeChildStatus = (raw: Record<string, any>): ChildStatus | null => {
     prenom: str(raw.prenom),
     nom: str(raw.nom),
     niveau: str(raw.niveau),
+    majeur: raw.majeur === true,
+    email: str(raw.email),
+    lienStatut: str(raw.lienStatut)?.toUpperCase() as ChildLinkStatut | undefined,
+    demandeLienId: str(raw.demandeLienId),
+    motifRefusLien: str(raw.motifRefusLien),
     classes: classes
       .filter((c: any) => c && typeof c === 'object')
       .map((c: Record<string, any>) => ({
@@ -59,6 +118,7 @@ const normalizeChildStatus = (raw: Record<string, any>): ChildStatus | null => {
         statut: String(c.statut ?? c.etat ?? 'EN_ATTENTE').toUpperCase(),
         motifRejet: str(c.motifRejet),
         dateDemande: str(c.dateDemande),
+        demandeSuiviId: str(c.demandeSuiviId),
       })),
   };
 };
@@ -239,6 +299,26 @@ export const parentService = {
         codeClasse: payload.codeClasse.trim().toUpperCase(),
       });
       return (data ?? {}) as Record<string, unknown>;
+    } catch (error) {
+      const code = getErrorCode(error);
+      const message = extractErrorMessage(error, translate('parentChildren.add.failed'));
+      const err = new Error(localizedServerMessage(message, code ? CHILD_ERROR_KEYS[code] : undefined)) as Error & { code?: string };
+      if (code) err.code = code;
+      throw err;
+    }
+  },
+
+  /**
+   * POST /parents/{id}/enfants/majeur {email, codesClasse} — adult child who already has their own student
+   * account and is a member of each class: one follow request per class, validated by that class's professor.
+   * Errors: 404 ELEVE_INTROUVABLE (no student account), 400 ELEVE_PAS_DANS_CLASSE (wrong code / not a member),
+   * 409 LIEN_PARENT_DEJA_DEMANDE. Throws an Error with `code`.
+   */
+  enrollAdultChild: async (parentId: string, payload: { email: string; codesClasse: string[] }): Promise<ChildEnrollResult> => {
+    try {
+      const body = { email: payload.email.trim(), codesClasse: cleanCodes(payload.codesClasse) };
+      const { data } = await apiClient.post(`/parents/${parentId}/enfants/majeur`, body);
+      return (data ?? {}) as ChildEnrollResult;
     } catch (error) {
       const code = getErrorCode(error);
       const message = extractErrorMessage(error, translate('parentChildren.add.failed'));

@@ -31,6 +31,7 @@ import ExerciseAttemptScreen from '../screens/student/ExerciseAttemptScreen';
 import ExerciseResultScreen from '../screens/student/ExerciseResultScreen';
 import CourseViewerScreen from '../screens/shared/CourseViewerScreen';
 import PdfViewerScreen from '../screens/shared/PdfViewerScreen';
+import ParentLinkRequestsScreen from '../screens/student/ParentLinkRequestsScreen';
 
 const Stack = createStackNavigator();
 
@@ -100,6 +101,8 @@ const linking: LinkingOptions<Record<string, unknown>> = {
         alias: ['schoolchat/class-rejection/:classeId/:etablissementId'],
       },
       Renewal: 'schoolchat/renouveler-offre',
+      // E-mailed to a student when a parent asks to follow their schooling (adult child added by e-mail).
+      ParentLinkRequests: 'schoolchat/demandes-suivi-parental',
     },
   },
 };
@@ -170,6 +173,7 @@ const RootNavigator = () => {
           <Stack.Screen name="ExerciseResult" component={ExerciseResultScreen} />
           <Stack.Screen name="CourseViewer" component={CourseViewerScreen} />
           <Stack.Screen name="PdfViewer" component={PdfViewerScreen} />
+          <Stack.Screen name="ParentLinkRequests" component={ParentLinkRequestsScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </BootContext.Provider>

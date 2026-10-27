@@ -7,6 +7,7 @@ import { fmtNote, pct } from "../../services/api";
 import type { EleveProgression } from "../../services/api";
 import { formatDate } from "../../utils/dates";
 import { useT } from "../../i18n";
+import { formatDuration } from "../../utils/duration";
 
 const fmtDay = (d?: string | null) => (d ? formatDate(d, { day: "2-digit", month: "short" }, "—") : "—");
 
@@ -79,6 +80,9 @@ const ProgressionContent = ({ data, onOpenCourse, onOpenDevoirs }: Props) => {
                       : t("dashboardProgress.noChapters")}
                   </Text>
                   <Text style={styles.muted}>{t("learning.progress.exercisesDone", { done: c.exercicesFaits, total: c.exercicesTotal })}</Text>
+                  {c.tempsLectureSecondes > 0 ? (
+                    <Text style={styles.muted}>{t("learning.stats.readingTime", { time: formatDuration(c.tempsLectureSecondes) })}</Text>
+                  ) : null}
                   <Text style={[styles.muted, c.moyenne != null && { color: scoreColor(c.moyenne / 20, colors), fontWeight: "700" }]}>
                     {t("learning.prof.average", { avg: c.moyenne == null ? "—" : `${fmtNote(c.moyenne)}/20` })}
                   </Text>

@@ -74,6 +74,9 @@ export const CreateClassSheet = ({
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [nom, setNom] = useState("");
   const [niveau, setNiveau] = useState("");
+  // Niveau libre saisi quand "Autre" est choisi : c'est ce texte qui est envoyé comme niveau.
+  const [niveauAutre, setNiveauAutre] = useState("");
+  const niveauEffectif = (niveau === "Autre" ? niveauAutre : niveau).trim();
   const [accesMajeur, setAccesMajeur] = useState(false);
   const [establishments, setEstablishments] = useState<Etablissement[]>([]);
   const [etablissementId, setEtablissementId] = useState<string | null>(defaultEstablishmentId || null);
@@ -96,6 +99,7 @@ export const CreateClassSheet = ({
     if (!visible) return;
     setNom("");
     setNiveau("");
+    setNiveauAutre("");
     setAccesMajeur(false);
     setEtablissementId(defaultEstablishmentId || null);
     setCodeUnique("");
@@ -109,7 +113,7 @@ export const CreateClassSheet = ({
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!nom.trim()) errs.nom = "Le nom de la classe est requis";
-    if (!niveau) errs.niveau = "Le niveau est requis";
+    if (!niveauEffectif) errs.niveau = "Le niveau est requis";
     if (etablissementId && selectedEstablishment?.optionTokenGeneral && !codeUnique.trim()) {
       errs.codeUnique = "Le code unique de l'établissement est requis";
     }
@@ -122,7 +126,7 @@ export const CreateClassSheet = ({
     try {
       const payload: Record<string, unknown> = {
         nom: nom.trim(),
-        niveau,
+        niveau: niveauEffectif,
         accesMajeur,
       };
       if (creatorId) {
@@ -171,6 +175,15 @@ export const CreateClassSheet = ({
           onChange={setNiveau}
           error={errors.niveau}
         />
+        {niveau === "Autre" ? (
+          <Input
+            label="Précisez le niveau *"
+            value={niveauAutre}
+            onChangeText={setNiveauAutre}
+            placeholder="Ex: BTS 1, Formation adulte…"
+            maxLength={60}
+          />
+        ) : null}
 
         <TouchableOpacity style={styles.accesMajeurBox} onPress={() => setAccesMajeur((v) => !v)}>
           <FontAwesome5

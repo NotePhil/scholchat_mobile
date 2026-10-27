@@ -35,12 +35,15 @@ import { useAuthStore } from "../../../../store/useAuthStore";
 import { useUiStore } from "../../../../store/useUiStore";
 import OffreInfoPanel from "../../../../components/common/OffreInfoPanel";
 import { CoursProgramme, ExerciseProgramme, RejectionMotif } from "../../../../types";
-import { programmeCoursId, programmeCoursTitre } from "../../../../services/api";
+import { parentLinkService, programmeCoursId, programmeCoursTitre } from "../../../../services/api";
 import ClassCoursesTab from "./ClassCoursesTab";
 import ClassStatsTab from "./ClassStatsTab";
+import ParentFollowSection from "./ParentFollowSection";
 import { formatDate, formatDateTime } from "../../../../utils/dates";
+import { computeEventStatus } from "../../../../utils/eventStatus";
 import { TranslationKey, useT } from "../../../../i18n";
 import { getClassActionTexts } from "../../../../hooks/useClassActionConfirm";
+import KeyboardInsetView from "../../../../components/common/KeyboardInsetView";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -197,6 +200,15 @@ const EXERCISE_TONE: Record<string, Tone> = {
   EN_ATTENTE_CORRECTION: "blue",
   CORRIGE: "cyan",
   ANNULE: "red",
+};
+
+/** Event status computed from the dates (computeEventStatus), shown in French. */
+const EVENT_LABEL: Record<string, string> = {
+  EN_COURS: "En cours",
+  PLANIFIE: "Planifié",
+  A_VENIR: "À venir",
+  PASSE: "Terminé",
+  ANNULE: "Annulé",
 };
 
 const EVENT_TONE: Record<string, Tone> = {
@@ -507,6 +519,8 @@ const Dialog = ({
   const t = tone(iconTone);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      {/* RN Modal = separate window: pad by the keyboard height on Android (edge-to-edge). */}
+      <KeyboardInsetView>
       <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.dialog}>
           <View style={styles.dialogHeader}>
@@ -533,6 +547,7 @@ const Dialog = ({
           <View style={styles.dialogFooter}>{footer}</View>
         </View>
       </KeyboardAvoidingView>
+      </KeyboardInsetView>
     </Modal>
   );
 };
@@ -638,6 +653,11 @@ const ClassDetails = ({
   // - canPublish = manager or holder of a publication right (peutPublier)
   // Access requests, member management and the offer/contract panel are for managers only.
   const [perms, setPerms] = useState<{ canManage: boolean; canPublish: boolean }>({ canManage: false, canPublish: false });
+  // Offer's "Élèves max" restriction (null: unknown / not visible)
+  const [capacity, setCapacity] = useState<{ elevesMax: number | null; nombreEleves: number; complete: boolean } | null>(null);
+  const loadCapacity = useCallback(() => {
+    classService.getCapacity(classId).then(setCapacity).catch(() => setCapacity(null));
+  }, [classId]);
   const canManageRef = useRef(false);
   const rawTab = normalizeTab(activeDetailTab, isAdmin);
   const activeTab: TabKey = rawTab === "access-requests" && !perms.canManage ? "overview" : rawTab;
@@ -974,6 +994,8 @@ const ClassDetails = ({
       setEvents(
         ((ev || []) as AnyUser[])
           .filter((x) => Array.isArray(x.classesIds) && x.classesIds.includes(classId))
+          // Status from the dates, not the stored etat (always PLANIFIE).
+          .map((x) => ({ ...x, etat: computeEventStatus(x as { etat?: string; heureDebut?: string; heureFin?: string }) ?? x.etat }))
           .sort((a, b) => (evOrder[a.etat] ?? 99) - (evOrder[b.etat] ?? 99))
       );
       markSections(["events"], "ready");
@@ -1030,6 +1052,7 @@ const ClassDetails = ({
         if (seq !== loadSeqRef.current) return;
         canManageRef.current = p.canManage;
         setPerms(p);
+        loadCapacity();
 
         await Promise.all([
           loadMembers(p.canManage, mode, seq),
@@ -1072,6 +1095,24 @@ const ClassDetails = ({
 
   // "isModerator" = class manager (backend isClassManager); publishers only get canPublish.
   const isModerator = perms.canManage;
+
+  // Pending parental follow requests of the class's adult students (decided here by the managers): added to
+  // the "Demandes" tab count; ParentFollowSection keeps it in sync after a decision.
+  const [followReqCount, setFollowReqCount] = useState(0);
+  useEffect(() => {
+    if (!isModerator || !classId) {
+      setFollowReqCount(0);
+      return;
+    }
+    let alive = true;
+    parentLinkService
+      .classRequests(classId)
+      .then((l) => alive && setFollowReqCount(l.length))
+      .catch(() => alive && setFollowReqCount(0));
+    return () => {
+      alive = false;
+    };
+  }, [classId, isModerator, tabsRefreshKey]);
   const canPublish = perms.canPublish;
 
   const isPending = classDetails?.etat === "EN_ATTENTE_APPROBATION" || classDetails?.etat === "PENDING";
@@ -1740,6 +1781,14 @@ const ClassDetails = ({
                 <Text style={styles.heroMetaText}>{users.eleves.length} participants</Text>
               )}
             </View>
+            {capacity?.elevesMax != null ? (
+              <View style={styles.heroMetaItem}>
+                <FontAwesome5 name="user-graduate" size={10} color={capacity.complete ? "#FDE68A" : "#DBEAFE"} />
+                <Text style={[styles.heroMetaText, capacity.complete && { color: "#FDE68A", fontWeight: "700" }]}>
+                  {tr("classDetails.capacity.count", { n: capacity.nombreEleves, max: capacity.elevesMax })}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
       </View>
@@ -1823,7 +1872,7 @@ const ClassDetails = ({
     { key: "parents", label: tabLabel("Parents", "parents", users.parents.length), icon: "user-friends" },
     { key: "utilisateurs", label: tabLabel("Utilisateurs", "utilisateurs", users.utilisateurs.length), icon: "user" },
     ...(isModerator
-      ? ([{ key: "access-requests", label: tabLabel("Demandes", "access-requests", users.accessRequests.length), icon: "clock" }] as {
+      ? ([{ key: "access-requests", label: tabLabel("Demandes", "access-requests", users.accessRequests.length + followReqCount), icon: "clock" }] as {
           key: TabKey;
           label: string;
           icon: string;
@@ -1946,9 +1995,18 @@ const ClassDetails = ({
           </View>
         </SectionCard>
 
+        {isModerator && capacity?.complete ? (
+          <View style={styles.capacityWarning}>
+            <FontAwesome5 name="exclamation-triangle" size={13} color="#B45309" />
+            <Text style={styles.capacityWarningText}>
+              {tr("classDetails.capacity.full", { max: capacity.elevesMax ?? 0 })}
+            </Text>
+          </View>
+        ) : null}
+
         {isModerator ? (
           <View style={{ marginBottom: 14 }}>
-            <OffreInfoPanel type="CLASSE" entityId={classId} />
+            <OffreInfoPanel type="CLASSE" entityId={classId} onContratChange={loadCapacity} />
           </View>
         ) : null}
 
@@ -2384,7 +2442,7 @@ const ClassDetails = ({
                     <Text style={styles.moduleTitle} numberOfLines={2}>
                       {it.titre || "—"}
                     </Text>
-                    <Tag tone={EVENT_TONE[it.etat] || "gray"} label={it.etat || "—"} />
+                    <Tag tone={EVENT_TONE[it.etat] || "gray"} label={EVENT_LABEL[it.etat] || it.etat || "—"} />
                   </View>
                   <View style={styles.moduleMeta}>
                     <View style={styles.metaItem}>
@@ -2413,12 +2471,27 @@ const ClassDetails = ({
       case "professeurs":
       case "parents":
       case "utilisateurs":
-      case "access-requests":
         return renderUserList(activeTab);
+      case "access-requests":
+        return (
+          <>
+            <ParentFollowSection
+              classId={classId}
+              mode="requests"
+              refreshKey={tabsRefreshKey}
+              onCount={setFollowReqCount}
+              onSuccess={showSuccess}
+            />
+            {renderUserList("access-requests")}
+          </>
+        );
       case "eleves":
         return (
           <>
             {renderMajeurBox()}
+            {isModerator ? (
+              <ParentFollowSection classId={classId} mode="follows" refreshKey={tabsRefreshKey} onSuccess={showSuccess} />
+            ) : null}
             {renderUserList("eleves")}
           </>
         );
@@ -2908,6 +2981,11 @@ const createStyles = (c: ReturnType<typeof useThemeColors>, isDark: boolean) => 
     heroMeta: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 12, rowGap: 4, marginTop: 8 },
     heroMetaItem: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" },
     heroMetaText: { color: "#DBEAFE", fontSize: 12 },
+    capacityWarning: {
+      flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 14, padding: 12,
+      borderRadius: 12, backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: "#FCD34D",
+    },
+    capacityWarningText: { flex: 1, color: "#92400E", fontSize: 12, lineHeight: 17 },
     heroActions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 },
     heroBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 11, paddingVertical: 7, borderRadius: 10, borderWidth: 1 },
     heroBtnGhost: { backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.25)" },

@@ -8,6 +8,7 @@ import { establishmentService, offerService } from "../../../services/api";
 import { Etablissement, Offre } from "../../../types";
 import EstablishmentDetails from "../../establishment/EstablishmentDetails";
 import { CreateEstablishmentSheet } from "./CreateEstablishmentSheet";
+import { formatDureeJours, joursEnMinutes, minutesEnJoursSaisie } from "../../../utils/offreDuree";
 
 // LinearGradient with safe fallback
 let LinearGradient: any;
@@ -277,7 +278,7 @@ const PricingBlock = ({ label, price, duration }: { label: string; price?: any; 
     <Text style={styles.pricingPrice}>
       {price != null ? `${Number(price).toLocaleString("fr-FR")} FCFA` : "—"}
     </Text>
-    {duration ? <Text style={styles.pricingDuration}>{duration} min</Text> : null}
+    {duration ? <Text style={styles.pricingDuration}>{formatDureeJours(duration)}</Text> : null}
   </View>
   );
 };
@@ -301,9 +302,16 @@ export interface CreateSheetProps {
   editingOffre?: Offre | null;
 }
 
-const DUREE_PRESETS = [{ label: "1 mois", minutes: 30 * 24 * 60 }, { label: "1 an", minutes: 365 * 24 * 60 }, { label: "2 ans", minutes: 2 * 365 * 24 * 60 }, { label: "Test 3min", minutes: 3 }];
-const DELAI_RAPPEL_PRESETS = [{ label: "2 jours", minutes: 2 * 24 * 60 }, { label: "7 jours", minutes: 7 * 24 * 60 }, { label: "Test 1min", minutes: 1 }];
-const DELAI_SUPPRESSION_PRESETS = [{ label: "3 jours", minutes: 3 * 24 * 60 }, { label: "14 jours", minutes: 14 * 24 * 60 }, { label: "Test 2min", minutes: 2 }];
+// Durations are entered in days and sent to the API in minutes (round(days x 1440)).
+// Minute-level test presets only exist in development builds (__DEV__).
+type DureePreset = { label: string; jours: number };
+const DUREE_PRESETS: DureePreset[] = [
+  { label: "1 mois (30 j)", jours: 30 }, { label: "1 an (365 j)", jours: 365 }, { label: "2 ans (730 j)", jours: 730 },
+  ...(__DEV__ ? [{ label: "Test 3min", jours: 3 / 1440 }] : []),
+];
+const DELAI_PURGE_PRESETS: DureePreset[] = [{ label: "2 jours", jours: 2 }, { label: "3 jours", jours: 3 }, { label: "7 jours", jours: 7 }, { label: "14 jours", jours: 14 }];
+const DELAI_RAPPEL_PRESETS: DureePreset[] = [...DELAI_PURGE_PRESETS, ...(__DEV__ ? [{ label: "Test 1min", jours: 1 / 1440 }] : [])];
+const DELAI_SUPPRESSION_PRESETS: DureePreset[] = [...DELAI_PURGE_PRESETS, ...(__DEV__ ? [{ label: "Test 2min", jours: 2 / 1440 }] : [])];
 const toNumOrUndef = (v: string) => (v.trim() === "" ? undefined : Number(v));
 
 const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateSheetProps) => {
@@ -316,11 +324,11 @@ const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateS
   const [estTest, setEstTest] = useState(false);
   const [actif, setActif] = useState(true);
   const [prixMensuel, setPrixMensuel] = useState("");
-  const [dureeMensuelleMinutes, setDureeMensuelleMinutes] = useState("");
+  const [dureeMensuelleJours, setDureeMensuelleJours] = useState("");
   const [prixAnnuel, setPrixAnnuel] = useState("");
-  const [dureeAnnuelleMinutes, setDureeAnnuelleMinutes] = useState("");
-  const [delaiRappelSuppressionMinutes, setDelaiRappelSuppressionMinutes] = useState("");
-  const [delaiSuppressionMinutes, setDelaiSuppressionMinutes] = useState("");
+  const [dureeAnnuelleJours, setDureeAnnuelleJours] = useState("");
+  const [delaiRappelSuppressionJours, setDelaiRappelSuppressionJours] = useState("");
+  const [delaiSuppressionJours, setDelaiSuppressionJours] = useState("");
   const [elevesMax, setElevesMax] = useState("");
   const [stockageMaxGo, setStockageMaxGo] = useState("");
   const [messagerieIncluse, setMessagerieIncluse] = useState(false);
@@ -334,11 +342,11 @@ const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateS
     setNom(o?.nom ?? ""); setDescription(o?.description ?? ""); setCible(o?.cible === "ETABLISSEMENT" ? "ETABLISSEMENT" : "CLASSE");
     setEstTest(!!o?.estTest); setActif(o ? !!o.actif : true);
     setPrixMensuel(o?.prixMensuel != null ? String(o.prixMensuel) : "");
-    setDureeMensuelleMinutes(o?.dureeMensuelleMinutes != null ? String(o.dureeMensuelleMinutes) : "");
+    setDureeMensuelleJours(minutesEnJoursSaisie(o?.dureeMensuelleMinutes));
     setPrixAnnuel(o?.prixAnnuel != null ? String(o.prixAnnuel) : "");
-    setDureeAnnuelleMinutes(o?.dureeAnnuelleMinutes != null ? String(o.dureeAnnuelleMinutes) : "");
-    setDelaiRappelSuppressionMinutes(o?.delaiRappelSuppressionMinutes != null ? String(o.delaiRappelSuppressionMinutes) : "");
-    setDelaiSuppressionMinutes(o?.delaiSuppressionMinutes != null ? String(o.delaiSuppressionMinutes) : "");
+    setDureeAnnuelleJours(minutesEnJoursSaisie(o?.dureeAnnuelleMinutes));
+    setDelaiRappelSuppressionJours(minutesEnJoursSaisie(o?.delaiRappelSuppressionMinutes));
+    setDelaiSuppressionJours(minutesEnJoursSaisie(o?.delaiSuppressionMinutes));
     setElevesMax(o?.elevesMax != null ? String(o.elevesMax) : "");
     setStockageMaxGo(o?.stockageMaxGo != null ? String(o.stockageMaxGo) : "");
     setMessagerieIncluse(!!o?.messagerieIncluse);
@@ -347,8 +355,8 @@ const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateS
   }, [visible, editingOffre]);
 
   const reduction = (() => {
-    if (!prixMensuel || !prixAnnuel || !dureeMensuelleMinutes || !dureeAnnuelleMinutes) return null;
-    const pm = Number(prixMensuel), pa = Number(prixAnnuel), dm = Number(dureeMensuelleMinutes), da = Number(dureeAnnuelleMinutes);
+    if (!prixMensuel || !prixAnnuel || !dureeMensuelleJours || !dureeAnnuelleJours) return null;
+    const pm = Number(prixMensuel), pa = Number(prixAnnuel), dm = joursEnMinutes(dureeMensuelleJours), da = joursEnMinutes(dureeAnnuelleJours);
     if (!pm || !pa || !dm || !da) return null;
     const moisEquivalents = da / dm;
     const prixMensualiseSurAnnee = pm * moisEquivalents;
@@ -356,19 +364,27 @@ const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateS
     return 1 - pa / prixMensualiseSurAnnee;
   })();
 
+  // Days input -> minutes. An untouched field of an edited offer keeps its original minutes
+  // (avoids rounding a duration that is not a multiple of 0.01 day).
+  const champJoursEnMinutes = (jours: string, cle: string): number | undefined => {
+    const initiale = (editingOffre as any)?.[cle];
+    if (initiale != null && jours === minutesEnJoursSaisie(initiale)) return Number(initiale);
+    return joursEnMinutes(jours);
+  };
+
   const handleSubmit = async () => {
     if (!nom.trim()) { Alert.alert("Erreur", "Le nom est obligatoire."); return; }
     setSubmitting(true);
     try {
       const payload: Record<string, unknown> = {
         nom: nom.trim(), description: description.trim() || undefined, cible,
-        prixMensuel: toNumOrUndef(prixMensuel), dureeMensuelleMinutes: toNumOrUndef(dureeMensuelleMinutes),
-        prixAnnuel: toNumOrUndef(prixAnnuel), dureeAnnuelleMinutes: toNumOrUndef(dureeAnnuelleMinutes),
+        prixMensuel: toNumOrUndef(prixMensuel), dureeMensuelleMinutes: champJoursEnMinutes(dureeMensuelleJours, "dureeMensuelleMinutes"),
+        prixAnnuel: toNumOrUndef(prixAnnuel), dureeAnnuelleMinutes: champJoursEnMinutes(dureeAnnuelleJours, "dureeAnnuelleMinutes"),
         nombreClassesInclues: cible === "ETABLISSEMENT" ? toNumOrUndef(nombreClassesInclues) : undefined,
         classesBonus: cible === "ETABLISSEMENT" ? toNumOrUndef(classesBonus) : undefined,
         estTest, actif,
-        delaiRappelSuppressionMinutes: toNumOrUndef(delaiRappelSuppressionMinutes),
-        delaiSuppressionMinutes: toNumOrUndef(delaiSuppressionMinutes),
+        delaiRappelSuppressionMinutes: champJoursEnMinutes(delaiRappelSuppressionJours, "delaiRappelSuppressionMinutes"),
+        delaiSuppressionMinutes: champJoursEnMinutes(delaiSuppressionJours, "delaiSuppressionMinutes"),
         elevesMax: toNumOrUndef(elevesMax), stockageMaxGo: toNumOrUndef(stockageMaxGo), messagerieIncluse,
       };
       if (isEditMode && editingOffre) { await offerService.update(editingOffre.id, payload); Alert.alert("Succès", "Offre modifiée avec succès."); }
@@ -378,10 +394,10 @@ const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateS
     finally { setSubmitting(false); }
   };
 
-  const PresetRow = ({ presets, onPick }: { presets: { label: string; minutes: number }[]; onPick: (m: string) => void }) => (
+  const PresetRow = ({ presets, onPick }: { presets: DureePreset[]; onPick: (jours: string) => void }) => (
     <View style={styles.chipRow}>
       {presets.map((p) => (
-        <TouchableOpacity key={p.label} style={styles.presetChip} onPress={() => onPick(String(p.minutes))}>
+        <TouchableOpacity key={p.label} style={styles.presetChip} onPress={() => onPick(String(p.jours))}>
           <Text style={styles.presetChipText}>{p.label}</Text>
         </TouchableOpacity>
       ))}
@@ -409,12 +425,12 @@ const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateS
         </View>
         <Text style={styles.sectionTitle}>Périodicité mensuelle</Text>
         <Input label="Prix mensuel (FCFA)" value={prixMensuel} onChangeText={setPrixMensuel} placeholder="0" keyboardType="numeric" />
-        <Input label="Durée (minutes)" value={dureeMensuelleMinutes} onChangeText={setDureeMensuelleMinutes} placeholder="0" keyboardType="numeric" />
-        <PresetRow presets={DUREE_PRESETS} onPick={setDureeMensuelleMinutes} />
+        <Input label="Durée (jours)" value={dureeMensuelleJours} onChangeText={setDureeMensuelleJours} placeholder="30" keyboardType="decimal-pad" />
+        <PresetRow presets={DUREE_PRESETS} onPick={setDureeMensuelleJours} />
         <Text style={styles.sectionTitle}>Périodicité annuelle (optionnelle)</Text>
         <Input label="Prix annuel (FCFA)" value={prixAnnuel} onChangeText={setPrixAnnuel} placeholder="0" keyboardType="numeric" />
-        <Input label="Durée (minutes)" value={dureeAnnuelleMinutes} onChangeText={setDureeAnnuelleMinutes} placeholder="0" keyboardType="numeric" />
-        <PresetRow presets={DUREE_PRESETS} onPick={setDureeAnnuelleMinutes} />
+        <Input label="Durée (jours)" value={dureeAnnuelleJours} onChangeText={setDureeAnnuelleJours} placeholder="365" keyboardType="decimal-pad" />
+        <PresetRow presets={DUREE_PRESETS} onPick={setDureeAnnuelleJours} />
         {reduction != null && reduction > 0 && (
           <View style={styles.reductionBox}>
             <FontAwesome5 name="tag" size={13} color={colors.success} />
@@ -423,14 +439,15 @@ const CreateOfferSheet = ({ visible, onClose, onCreated, editingOffre }: CreateS
         )}
         <Text style={styles.sectionTitle}>Purge automatique après expiration</Text>
         <Text style={styles.offreHint}>Laissez vide pour désactiver la purge automatique sur cette offre.</Text>
-        <Input label="Rappel de suppression (min après expiration)" value={delaiRappelSuppressionMinutes} onChangeText={setDelaiRappelSuppressionMinutes} placeholder="0" keyboardType="numeric" />
-        <PresetRow presets={DELAI_RAPPEL_PRESETS} onPick={setDelaiRappelSuppressionMinutes} />
-        <Input label="Suppression définitive (min après expiration)" value={delaiSuppressionMinutes} onChangeText={setDelaiSuppressionMinutes} placeholder="0" keyboardType="numeric" />
-        <PresetRow presets={DELAI_SUPPRESSION_PRESETS} onPick={setDelaiSuppressionMinutes} />
-        <Text style={styles.sectionTitle}>Restrictions (informatif)</Text>
-        <Input label="Élèves max" value={elevesMax} onChangeText={setElevesMax} placeholder="0" keyboardType="numeric" />
-        <Input label="Stockage max (Go)" value={stockageMaxGo} onChangeText={setStockageMaxGo} placeholder="0" keyboardType="numeric" />
-        <ToggleRow checked={messagerieIncluse} onToggle={() => setMessagerieIncluse((v) => !v)} label="Messagerie incluse" />
+        <Input label="Rappel de suppression (jours après expiration)" value={delaiRappelSuppressionJours} onChangeText={setDelaiRappelSuppressionJours} placeholder="0" keyboardType="decimal-pad" />
+        <PresetRow presets={DELAI_RAPPEL_PRESETS} onPick={setDelaiRappelSuppressionJours} />
+        <Input label="Suppression définitive (jours après expiration)" value={delaiSuppressionJours} onChangeText={setDelaiSuppressionJours} placeholder="0" keyboardType="decimal-pad" />
+        <PresetRow presets={DELAI_SUPPRESSION_PRESETS} onPick={setDelaiSuppressionJours} />
+        <Text style={styles.sectionTitle}>Restrictions</Text>
+        <Input label="Élèves max" value={elevesMax} onChangeText={setElevesMax} placeholder="Illimité" keyboardType="numeric" />
+        <Text style={styles.offreHint}>Appliqué : une classe complète refuse les nouveaux élèves. Vide = illimité.</Text>
+        <Input label="Stockage max (Go) (informatif)" value={stockageMaxGo} onChangeText={setStockageMaxGo} placeholder="0" keyboardType="numeric" />
+        <ToggleRow checked={messagerieIncluse} onToggle={() => setMessagerieIncluse((v) => !v)} label="Messagerie incluse (informatif)" />
         {cible === "ETABLISSEMENT" && (
           <>
             <Text style={styles.sectionTitle}>Quota de classes (établissement)</Text>

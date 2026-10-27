@@ -496,7 +496,7 @@ const DashboardContentBody = (_props: DashboardContentBodyProps) => {
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <LinearGradient colors={["#2563EB", "#4F46E5"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerIcon}>
-              <FontAwesome5 name="heartbeat" size={17} color="#FFFFFF" />
+              <FontAwesome5 name="chart-line" size={17} color="#FFFFFF" />
             </LinearGradient>
             <View style={{ flexShrink: 1 }}>
               <Text style={styles.headerTitle}>Tableau de Bord</Text>
@@ -608,7 +608,7 @@ const DashboardContentBody = (_props: DashboardContentBodyProps) => {
         </ChartCard>
 
         {/* ── Tendances mensuelles (area) ─────────────────────────────── */}
-        <ChartCard title="Tendances Mensuelles" icon="heartbeat" p={p}>
+        <ChartCard title="Tendances Mensuelles" icon="chart-line" p={p}>
           <AreaChartSvg data={areaData} width={chartW} height={224} p={p} />
         </ChartCard>
 
@@ -631,7 +631,7 @@ const DashboardContentBody = (_props: DashboardContentBodyProps) => {
         </ChartCard>
 
         {/* ── Activités récentes ──────────────────────────────────────── */}
-        <ChartCard title="Activités Récentes" icon="heartbeat" p={p}>
+        <ChartCard title="Activités Récentes" icon="newspaper" p={p}>
           <View style={{ gap: 4 }}>
             {recentItems.map((item, i) => (
               <View key={i} style={styles.activityRow}>

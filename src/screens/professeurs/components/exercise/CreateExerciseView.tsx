@@ -601,6 +601,9 @@ const AnswerBuilder = ({
 
 // ── Media attachments (web QuestionMediaAttachments) ────────────────────────
 
+const QUESTION_IMAGE_MAX = 10 * 1024 * 1024;
+const QUESTION_PDF_MAX = 25 * 1024 * 1024;
+
 const isImageMedia = (m: QuestionMedia) => m.mediaType === "IMAGE" || (m.contentType || "").startsWith("image/");
 
 const QuestionMediaAttachments = ({
@@ -619,6 +622,7 @@ const QuestionMediaAttachments = ({
   palette: Palette;
 }) => {
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<{ name: string; pct: number; index: number; total: number } | null>(null);
   const list = medias || [];
 
   const pick = async () => {
@@ -630,8 +634,22 @@ const QuestionMediaAttachments = ({
     });
     if (result.canceled || !result.assets?.length) return;
     const files = result.assets;
-    const valid = files.filter((f) => (f.mimeType ?? "").startsWith("image/") || f.mimeType === "application/pdf");
-    if (valid.length < files.length) onWarn("Seules les images et les fichiers PDF sont acceptés");
+    const errors: string[] = [];
+    const valid = files.filter((f) => {
+      const mime = f.mimeType ?? "";
+      const isImg = mime.startsWith("image/");
+      if (!isImg && mime !== "application/pdf") {
+        errors.push(`« ${f.name} » : seules les images et les fichiers PDF sont acceptés.`);
+        return false;
+      }
+      const max = isImg ? QUESTION_IMAGE_MAX : QUESTION_PDF_MAX;
+      if (f.size && f.size > max) {
+        errors.push(`« ${f.name} » est trop volumineux (${(f.size / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo). Taille maximale : ${isImg ? "10 Mo" : "25 Mo"}.`);
+        return false;
+      }
+      return true;
+    });
+    if (errors.length) onWarn(errors.join("\n"));
     if (valid.length === 0) return;
     if (!ownerId) {
       onWarn("Utilisateur non connecté.", "error");
@@ -640,31 +658,31 @@ const QuestionMediaAttachments = ({
     setUploading(true);
     let next = [...list];
     try {
-      for (const file of valid) {
+      for (let idx = 0; idx < valid.length; idx += 1) {
+        const file = valid[idx];
         const mimeType = file.mimeType ?? "application/octet-stream";
         const isImage = mimeType.startsWith("image/");
         const mediaType = isImage ? "IMAGE" : "DOCUMENT";
+        setProgress({ name: file.name, pct: 0, index: idx + 1, total: valid.length });
         try {
-          // Same presigned flow as web's minioS3Service.uploadFile(file, mediaType, "question_attachments")
-          const presigned: any = await mediaService.getPresignedUploadUrl(
-            file.name,
-            mimeType,
+          // Same presigned flow as web's minioS3Service.uploadFile(file, mediaType, "question_attachments"),
+          // through XMLHttpRequest (byte progress; Expo's fetch can't send RN files).
+          const ref = await mediaService.uploadFileWithPath(
+            { uri: file.uri, mimeType, name: file.name },
             ownerId,
             mediaType,
-            "question_attachments"
+            "question_attachments",
+            (fraction) => setProgress({ name: file.name, pct: Math.round(fraction * 100), index: idx + 1, total: valid.length })
           );
-          await mediaService.putToPresignedUrl(presigned.url, { uri: file.uri, mimeType, name: file.name });
-          const resOwner = presigned.ownerId ?? ownerId;
-          const resMediaType = presigned.mediaType ?? mediaType;
           const media: QuestionMedia = {
             success: true,
-            fileName: presigned.fileName,
-            mediaType: resMediaType,
-            documentType: presigned.documentType ?? "question_attachments",
-            ownerId: resOwner,
+            fileName: ref.fileName,
+            mediaType,
+            documentType: "question_attachments",
+            ownerId,
             fileSize: file.size,
             contentType: mimeType,
-            filePath: `users/${resOwner}/${String(mediaType).toLowerCase()}/question_attachments/${presigned.fileName}`,
+            filePath: ref.filePath || `users/${ownerId}/${String(mediaType).toLowerCase()}/question_attachments/${ref.fileName}`,
             previewUrl: isImage ? file.uri : null,
           };
           next = [...next, media];
@@ -675,6 +693,7 @@ const QuestionMediaAttachments = ({
       }
     } finally {
       setUploading(false);
+      setProgress(null);
     }
   };
 
@@ -695,9 +714,17 @@ const QuestionMediaAttachments = ({
           <FontAwesome5 name="paperclip" size={20} color="#6366F1" />
         )}
         <Text style={styles.dropzoneText}>
-          {uploading ? "Envoi en cours…" : "Touchez pour joindre une image ou un PDF"}
+          {uploading && progress
+            ? `Envoi ${progress.index}/${progress.total} — ${progress.pct}%`
+            : "Touchez pour joindre une image ou un PDF"}
         </Text>
-        <Text style={styles.dropzoneSub}>Vous pouvez ajouter plusieurs fichiers</Text>
+        {uploading && progress ? (
+          <View style={{ alignSelf: "stretch", height: 5, borderRadius: 3, backgroundColor: palette.cardBorder, overflow: "hidden", marginTop: 4 }}>
+            <View style={{ width: `${progress.pct}%`, height: 5, backgroundColor: "#6366F1" }} />
+          </View>
+        ) : (
+          <Text style={styles.dropzoneSub}>Plusieurs fichiers possibles · images ≤ 10 Mo, PDF ≤ 25 Mo</Text>
+        )}
       </TouchableOpacity>
 
       {list.length > 0 && (

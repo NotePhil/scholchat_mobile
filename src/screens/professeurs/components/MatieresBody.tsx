@@ -18,6 +18,7 @@ import { useAuthStore } from "../../../store/useAuthStore";
 import { useThemeStore } from "../../../store/useThemeStore";
 import { Matiere } from "../../../types";
 import { formatDate as formatServerDate } from "../../../utils/dates";
+import KeyboardInsetView from "../../../components/common/KeyboardInsetView";
 
 // LinearGradient with safe fallback
 let LinearGradient: any;
@@ -370,6 +371,8 @@ const MatieresBody = () => {
 
       {/* ── Create / Edit dialog ─────────────────────────────────── */}
       <Modal visible={modal === "create" || modal === "edit"} transparent animationType="fade" onRequestClose={closeModals}>
+        {/* RN Modal = separate window: pad by the keyboard height on Android (edge-to-edge). */}
+        <KeyboardInsetView>
         <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.dialog}>
             <View style={styles.dialogHeader}>
@@ -418,6 +421,7 @@ const MatieresBody = () => {
             </View>
           </View>
         </KeyboardAvoidingView>
+        </KeyboardInsetView>
       </Modal>
 
       {/* ── Delete dialog ────────────────────────────────────────── */}

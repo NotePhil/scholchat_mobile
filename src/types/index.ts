@@ -203,8 +203,18 @@ export interface MessageItem {
 
 /** Payload pushed on /topic/messages/{userId}. */
 export interface MessageRealtimeEvent {
-  type: 'NEW_MESSAGE' | 'MESSAGE_DELETED' | 'MESSAGE_RESTORED' | string;
-  message: MessageItem;
+  type: 'NEW_MESSAGE' | 'MESSAGE_DELETED' | 'MESSAGE_RESTORED' | 'CONVERSATION_READ' | string;
+  /** Legacy MessageDto (null for CONVERSATION_READ). */
+  message?: MessageItem | null;
+  /** Chat model (ConversationsApi): conversation of the message / of the read receipt. */
+  conversationId?: string | null;
+  /** NEW_MESSAGE: the message as a chat message (ChatMessageDto, see conversationService). */
+  chat?: import('../services/conversationService').ChatMessage | null;
+  /** CONVERSATION_READ: who read, up to which instant. */
+  lecteurId?: string | null;
+  luJusqua?: string | null;
+  /** MESSAGE_DELETED: true when deleted for everyone (placeholder), false when hidden for the caller. */
+  pourTous?: boolean | null;
 }
 
 /** GET /messages/contacts item. */
@@ -561,6 +571,9 @@ export interface Interaction {
   creationDate?: string;
   niveau?: string;
   createdById?: string;
+  /** Author's first / last name (set by the server). */
+  createdByPrenom?: string | null;
+  createdByNom?: string | null;
   eventId?: string;
   messageId?: string;
   [key: string]: any;
@@ -575,6 +588,10 @@ export interface ActivityEvent {
   etat?: string; // EtatEvenement: PLANIFIE | A_VENIR | EN_COURS | ANNULE | PASSE | EN_ATTENTE_CONFIRMATION | COMPLET
   heureDebut?: string;
   heureFin?: string;
+  /** Publication (creation) date of the post, UTC instant — shown in the card header. */
+  datePublication?: string;
+  /** Status computed by the backend from the dates: PLANIFIE | EN_COURS | PASSE | ANNULE. */
+  statut?: string;
   createurId?: string;
   createurNom?: string;
   createurPrenom?: string;

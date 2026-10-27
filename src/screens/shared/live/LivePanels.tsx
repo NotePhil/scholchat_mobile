@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -15,8 +14,17 @@ import {
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useT } from '../../../i18n';
-import CourseRichContent, { resolveChapterHtml } from '../CourseRichContent';
+import CourseRichContent, { extractChapterFiles, resolveChapterHtml } from '../CourseRichContent';
+import { useFileOpener } from '../../../hooks/useFileOpener';
 import { LIVE } from './liveTheme';
+import { extensionOf } from '../../../services/fileOpener';
+
+/** Same hint as CourseViewerScreen: a MIME type when the name has no extension. */
+const contentTypeHint = (type: string, fileName: string, contentType?: string) => {
+  if (contentType) return contentType;
+  if (extensionOf(fileName)) return undefined;
+  return type === 'pdf' ? 'application/pdf' : type === 'image' ? 'image/jpeg' : type === 'video' ? 'video/mp4' : undefined;
+};
 
 export interface LiveChapter {
   id: string;
@@ -61,6 +69,9 @@ export const LiveContentPanel = ({
   onMarkDone,
 }: ContentProps) => {
   const { t } = useT();
+  // Overlay mode: viewers open as Modals above the live screen, which stays
+  // mounted, so the call keeps running (no navigation, no other app).
+  const fileOpener = useFileOpener({ overlay: true });
   const cacheRef = useRef(new Map<string, string>());
   const [html, setHtml] = useState<Record<string, string>>({});
   const idx = chapitres.findIndex((c) => c.id === currentChapitreId);
@@ -78,6 +89,16 @@ export const LiveContentPanel = ({
       cancelled = true;
     };
   }, [current, redacteurId, html]);
+
+  /** Link / image tapped in the chapter: in-app viewer (image, PDF, video); web pages → browser. */
+  const openChapterLink = (url: string, meta?: { fileName?: string; contentType?: string }) => {
+    const known = current && html[current.id] ? extractChapterFiles(html[current.id], current.id).find((f) => f.url === url) : undefined;
+    if (known) {
+      fileOpener.openLink(url, { fileName: known.fileName, contentType: contentTypeHint(known.type, known.fileName, meta?.contentType) }, known.id);
+    } else {
+      fileOpener.openLink(url, meta ?? {}, `link:${url}`);
+    }
+  };
 
   if (chapitres.length === 0) {
     return (
@@ -125,7 +146,7 @@ export const LiveContentPanel = ({
         <View style={panel.contentCard}>
           {current?.contenu ? (
             html[current.id] !== undefined ? (
-              <CourseRichContent html={html[current.id]} onOpenLink={(url) => Linking.openURL(url).catch(() => {})} />
+              <CourseRichContent html={html[current.id]} onOpenLink={openChapterLink} />
             ) : (
               <ActivityIndicator color={LIVE.primary} />
             )
@@ -173,6 +194,7 @@ export const LiveContentPanel = ({
           })}
         </View>
       </ScrollView>
+      {fileOpener.host}
     </View>
   );
 };

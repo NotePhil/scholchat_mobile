@@ -27,6 +27,9 @@ import { classService } from "../../../services/classService";
 import ActivityMediaImage from "../../../components/common/ActivityMediaImage";
 import { ActivityEvent, ActivityMedia as RawActivityMedia, ClassEntity } from "../../../types";
 import { formatDateTime, parseServerDate, serverDateMs, toServerDateTime } from "../../../utils/dates";
+import { captureFromCamera, CaptureKind } from "../../../utils/cameraCapture";
+import { useT } from "../../../i18n";
+import KeyboardInsetView from "../../../components/common/KeyboardInsetView";
 
 /** A picked file that hasn't been uploaded yet. */
 interface PickedMedia {
@@ -150,6 +153,7 @@ const CreateActivityModal = ({ onClose, onSaved, activityToEdit }: CreateActivit
   const isDark = useThemeStore((s) => s.mode === "dark");
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const insets = useSafeAreaInsets();
+  const { t } = useT();
   const isEditMode = !!activityToEdit;
 
   const [form, setForm] = useState({
@@ -222,6 +226,30 @@ const CreateActivityModal = ({ onClose, onSaved, activityToEdit }: CreateActivit
       });
     }
     setPicked((prev) => [...prev, ...accepted]);
+  };
+
+  const captureMedia = async (kind: CaptureKind) => {
+    const f = await captureFromCamera(kind);
+    if (!f) return;
+    const max = f.isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+    if (f.size && f.size > max) {
+      Alert.alert(
+        "Fichier trop volumineux",
+        `${f.name} est trop volumineux (${(f.size / 1024 / 1024).toFixed(1)} Mo). Maximum: ${max / 1024 / 1024} Mo`
+      );
+      return;
+    }
+    setPicked((prev) => [
+      ...prev,
+      {
+        key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        uri: f.uri,
+        type: f.isVideo ? "VIDEO" : "IMAGE",
+        name: f.name,
+        mimeType: f.mimeType,
+        fileSizeBytes: f.size,
+      },
+    ]);
   };
 
   const toggleClass = (id: string) =>
@@ -338,6 +366,8 @@ const CreateActivityModal = ({ onClose, onSaved, activityToEdit }: CreateActivit
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      {/* RN Modal = separate window: pad by the keyboard height on Android (edge-to-edge). */}
+      <KeyboardInsetView>
       <View style={styles.backdrop}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.sheet}>
@@ -509,6 +539,16 @@ const CreateActivityModal = ({ onClose, onSaved, activityToEdit }: CreateActivit
               <Text style={styles.dropTitle}>AJOUTER DES MÉDIAS</Text>
               <Text style={styles.dropSub}>PHOTOS OU VIDÉOS (MAX 50MO)</Text>
             </TouchableOpacity>
+            <View style={styles.cameraRow}>
+              <TouchableOpacity style={styles.cameraBtn} onPress={() => captureMedia("photo")} activeOpacity={0.8}>
+                <FontAwesome5 name="camera" size={14} color="#2563EB" />
+                <Text style={styles.cameraBtnText}>{t("camera.takePhoto")}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cameraBtn} onPress={() => captureMedia("video")} activeOpacity={0.8}>
+                <FontAwesome5 name="video" size={14} color="#2563EB" />
+                <Text style={styles.cameraBtnText}>{t("camera.recordVideo")}</Text>
+              </TouchableOpacity>
+            </View>
 
             {picked.length > 0 && (
               <View style={[styles.thumbGrid, { marginTop: 12 }]}>
@@ -567,6 +607,7 @@ const CreateActivityModal = ({ onClose, onSaved, activityToEdit }: CreateActivit
           </View>
         </KeyboardAvoidingView>
       </View>
+      </KeyboardInsetView>
     </Modal>
   );
 };
@@ -691,6 +732,18 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean
       justifyContent: "center",
       marginBottom: 14,
     },
+    cameraRow: { flexDirection: "row", gap: 10, marginTop: 10 },
+    cameraBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 12,
+      borderRadius: 14,
+      backgroundColor: isDark ? "rgba(37,99,235,0.2)" : "#EFF6FF",
+    },
+    cameraBtnText: { fontSize: 12, fontWeight: "800", color: "#2563EB" },
     dropTitle: { fontSize: 13, fontWeight: "900", letterSpacing: 1.5, color: isDark ? "#D1D5DB" : "#374151" },
     dropSub: { fontSize: 10, fontWeight: "700", letterSpacing: 1.5, color: "#9CA3AF", marginTop: 4 },
     thumbGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },

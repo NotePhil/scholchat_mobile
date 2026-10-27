@@ -1,5 +1,5 @@
 import React, { ReactNode, useEffect, useState } from 'react';
-import { Keyboard, Platform, View } from 'react-native';
+import { Dimensions, Keyboard, Platform, View } from 'react-native';
 
 /**
  * App-wide replacement for Android's old "adjustResize".
@@ -12,14 +12,20 @@ import { Keyboard, Platform, View } from 'react-native';
  * scroll the focused field into view on their own.
  *
  * iOS is untouched (screens there use KeyboardAvoidingView as usual).
- * Note: RN <Modal>s are separate windows and are not covered by this.
+ * Note: RN <Modal>s are separate windows and are not covered by this: wrap their content in it too.
  */
 const KeyboardInsetView = ({ children }: { children: ReactNode }) => {
   const [inset, setInset] = useState(0);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
-    const show = Keyboard.addListener('keyboardDidShow', (e) => setInset(e.endCoordinates.height));
+    const show = Keyboard.addListener('keyboardDidShow', (e) => {
+      // With edge-to-edge the window reaches the bottom of the screen, under the navigation bar, but
+      // endCoordinates.height excludes that bar: measure from the keyboard top to the window bottom instead.
+      const { height, screenY } = e.endCoordinates;
+      const fromTop = Dimensions.get('window').height - screenY;
+      setInset(Math.max(height, screenY > 0 ? fromTop : 0));
+    });
     const hide = Keyboard.addListener('keyboardDidHide', () => setInset(0));
     return () => {
       show.remove();

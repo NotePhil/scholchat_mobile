@@ -35,8 +35,9 @@ const H_QUAD_ROW = 192;
  *  - 2 items: two side-by-side tiles
  *  - 3 items: one large tile (2/3 width) + two stacked tiles
  *  - 4+ items: 2x2 grid, the 4th tile showing "+N" for the items not shown
- * Images and videos stay mixed in their original order. Tapping an image
- * opens the full-screen viewer; a video plays inline in its tile, as on web.
+ * Images and videos stay mixed in their original order. Videos show their
+ * real first frame with a play button and duration; tapping any tile opens
+ * the full-screen viewer (where videos play, with a loading indicator).
  * The "+N" tile always opens the viewer so the hidden items can be reached.
  */
 export const ActivityMediaGallery = ({ medias, onOpen }: { medias: FeedMedia[]; onOpen: (index: number) => void }) => {
@@ -46,17 +47,24 @@ export const ActivityMediaGallery = ({ medias, onOpen }: { medias: FeedMedia[]; 
     const media = medias[index];
     const isVideo = media.type === 'VIDEO';
     if (isVideo && !overlay) {
+      // First-frame thumbnail; a tap opens the full-screen viewer, which plays it.
       return (
         <View key={media.id} style={[styles.cell, style]}>
-          <ActivityMediaVideo mediaId={media.id} presignedUrl={media.presignedUrl ?? null} style={styles.fill} compact={compact} />
+          <ActivityMediaVideo
+            mediaId={media.id}
+            presignedUrl={media.presignedUrl ?? null}
+            style={styles.fill}
+            compact={compact}
+            onPress={() => onOpen(index)}
+          />
         </View>
       );
     }
     return (
       <TouchableOpacity key={media.id} style={[styles.cell, style]} activeOpacity={0.9} onPress={() => onOpen(index)}>
         {isVideo ? (
-          <View style={[styles.fill, styles.videoTile]}>
-            <FontAwesome5 name="play" size={18} color="#FFFFFF" />
+          <View style={styles.fill} pointerEvents="none">
+            <ActivityMediaVideo mediaId={media.id} presignedUrl={media.presignedUrl ?? null} style={styles.fill} compact />
           </View>
         ) : (
           <ActivityMediaImage mediaId={media.id} presignedUrl={media.presignedUrl ?? null} style={styles.fill} />
@@ -180,6 +188,7 @@ export const ActivityMediaViewer = ({
                   style={{ width: width - 24, height: mediaHeight, borderRadius: 12 }}
                   resizeMode="contain"
                   placeholderColor="transparent"
+                  retryable
                 />
               )}
             </View>

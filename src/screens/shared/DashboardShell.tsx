@@ -49,6 +49,7 @@ import StudentCoursesBody from "../student/StudentCoursesBody";
 import EstablishmentOverviewBody from "../establishment/EstablishmentOverviewBody";
 import EstablishmentListBody from "../establishment/EstablishmentListBody";
 import EstablishmentClassesBody from "../establishment/EstablishmentClassesBody";
+import { useHardwareBack } from "../../hooks/useHardwareBack";
 
 interface DashboardShellProps {
   onLogout: () => void;
@@ -64,7 +65,7 @@ const localizeActions = (t: TFunction, items: QuickActionDef[]): QuickAction[] =
 // Classes/Établissements dropdown grouping (Créer/Gérer sub-items each).
 const ADMIN_QUICK_ACTIONS: QuickActionDef[] = [
   { icon: "home", label: "menu.home", color: "#6366F1", tab: "dashboard" },
-  { icon: "heartbeat", label: "menu.activities", color: "#3B82F6", tab: "activities" },
+  { icon: "newspaper", label: "menu.activities", color: "#3B82F6", tab: "activities" },
   { icon: "users", label: "menu.manageUsers", color: "#7C3AED", submenu: "users" },
   { icon: "user-tie", label: "menu.gestionnaires", color: "#0D9488", tab: "gestionnaires" },
   { icon: "graduation-cap", label: "menu.subjects", color: "#A855F7", tab: "matieres" },
@@ -98,7 +99,7 @@ const ADMIN_QUICK_ACTION_SUBMENUS: Record<string, QuickActionDef[]> = {
 
 const PROFESSOR_QUICK_ACTIONS: QuickActionDef[] = [
   { icon: "home", label: "menu.home", color: "#6366F1", tab: "dashboard" },
-  { icon: "heartbeat", label: "menu.activities", color: "#3B82F6", tab: "activities" },
+  { icon: "newspaper", label: "menu.activities", color: "#3B82F6", tab: "activities" },
   { icon: "book-open", label: "menu.courses", color: "#10B981", tab: "cours" },
   { icon: "graduation-cap", label: "menu.subjects", color: "#A855F7", tab: "matieres" },
   { icon: "clipboard-list", label: "menu.exercises", color: "#F59E0B", tab: "exercises" },
@@ -110,7 +111,7 @@ const PROFESSOR_QUICK_ACTIONS: QuickActionDef[] = [
 
 const PARENT_QUICK_ACTIONS: QuickActionDef[] = [
   { icon: "home", label: "menu.home", color: "#6366F1", tab: "dashboard" },
-  { icon: "heartbeat", label: "menu.activities", color: "#3B82F6", tab: "activities" },
+  { icon: "newspaper", label: "menu.activities", color: "#3B82F6", tab: "activities" },
   { icon: "clipboard-list", label: "menu.homework", color: "#F59E0B", tab: "exercises" },
   { icon: "chalkboard", label: "menu.classes", color: "#10B981", tab: "classes" },
   { icon: "book-open", label: "menu.myCourses", color: "#8B5CF6", tab: "courses" },
@@ -121,7 +122,7 @@ const PARENT_QUICK_ACTIONS: QuickActionDef[] = [
 
 const STUDENT_QUICK_ACTIONS: QuickActionDef[] = [
   { icon: "home", label: "menu.home", color: "#6366F1", tab: "dashboard" },
-  { icon: "heartbeat", label: "menu.activities", color: "#3B82F6", tab: "activities" },
+  { icon: "newspaper", label: "menu.activities", color: "#3B82F6", tab: "activities" },
   { icon: "clipboard-list", label: "menu.homework", color: "#F59E0B", tab: "exercises" },
   { icon: "chalkboard", label: "menu.classes", color: "#10B981", tab: "classes" },
   { icon: "book-open", label: "menu.myCourses", color: "#8B5CF6", tab: "courses" },
@@ -131,7 +132,7 @@ const STUDENT_QUICK_ACTIONS: QuickActionDef[] = [
 
 const ESTABLISHMENT_QUICK_ACTIONS: QuickActionDef[] = [
   { icon: "home", label: "menu.home", color: "#6366F1", tab: "dashboard" },
-  { icon: "heartbeat", label: "menu.activities", color: "#3B82F6", tab: "activities" },
+  { icon: "newspaper", label: "menu.activities", color: "#3B82F6", tab: "activities" },
   { icon: "school", label: "menu.schools", color: "#0D9488", tab: "establishments" },
   { icon: "chalkboard", label: "menu.classes", color: "#10B981", tab: "classes" },
   { icon: "envelope", label: "menu.messaging", color: "#0EA5E9", tab: "messages" },
@@ -144,7 +145,7 @@ const ESTABLISHMENT_QUICK_ACTIONS: QuickActionDef[] = [
 // Messagerie, Paramètres.
 const GESTIONNAIRE_QUICK_ACTIONS: QuickActionDef[] = [
   { icon: "home", label: "menu.home", color: "#6366F1", tab: "dashboard" },
-  { icon: "heartbeat", label: "menu.activities", color: "#3B82F6", tab: "activities" },
+  { icon: "newspaper", label: "menu.activities", color: "#3B82F6", tab: "activities" },
   { icon: "school", label: "menu.establishments", color: "#0D9488", tab: "manage-establishment" },
   { icon: "chalkboard", label: "menu.classes", color: "#10B981", submenu: "classes" },
   { icon: "envelope", label: "menu.messaging", color: "#0EA5E9", tab: "messages" },
@@ -163,7 +164,7 @@ const GESTIONNAIRE_QUICK_ACTION_SUBMENUS: Record<string, QuickActionDef[]> = {
 // items: such a user must never inherit the professor's creation/management
 // screens just because the professor branch used to be the `default`.
 const BASIC_QUICK_ACTIONS: QuickActionDef[] = [
-  { icon: "heartbeat", label: "menu.activities", color: "#3B82F6", tab: "activities" },
+  { icon: "newspaper", label: "menu.activities", color: "#3B82F6", tab: "activities" },
   { icon: "envelope", label: "menu.messaging", color: "#0EA5E9", tab: "messages" },
   { icon: "cog", label: "menu.settings", color: "#64748B", tab: "settings" },
 ];
@@ -323,6 +324,14 @@ const DashboardShell = ({ onLogout }: DashboardShellProps) => {
     setEditingCours(null);
     setCoursViewMode("list");
   };
+
+  // Android Back: course editor → course list. Then, once no sub-view of the current tab is open
+  // (lowest priority), any other tab → the landing tab (Activités, or "Mes enfants" for a parent
+  // in limited mode); only Back on the landing tab leaves the app.
+  useHardwareBack(handleBackToCoursList, activeTab === "cours" && coursViewMode === "create");
+  const landingTab = parentLimited ? "children" : "activities";
+  const onLandingTab = activeTab === landingTab || (landingTab === "children" && activeTab === "my-children");
+  useHardwareBack(() => setActiveTab(landingTab), !onLandingTab && !professorNotValidated, -1);
 
   const renderBody = () => {
     switch (role) {

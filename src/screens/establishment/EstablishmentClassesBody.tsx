@@ -272,6 +272,9 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [nom, setNom] = useState("");
   const [niveau, setNiveau] = useState("");
+  // Niveau libre saisi quand "Autre" est choisi : c'est ce texte qui est envoyé comme niveau.
+  const [niveauAutre, setNiveauAutre] = useState("");
+  const niveauEffectif = (niveau === "Autre" ? niveauAutre : niveau).trim();
   const [accesMajeur, setAccesMajeur] = useState(false);
   const [codeUnique, setCodeUnique] = useState("");
   const [etablissementId, setEtablissementId] = useState<string | null>(null);
@@ -284,6 +287,7 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
     if (!visible) {
       setNom("");
       setNiveau("");
+      setNiveauAutre("");
       setAccesMajeur(false);
       setCodeUnique("");
     }
@@ -300,7 +304,7 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
       Alert.alert("Erreur", "Le nom est obligatoire.");
       return;
     }
-    if (!niveau) {
+    if (!niveauEffectif) {
       Alert.alert("Erreur", "Le niveau est requis.");
       return;
     }
@@ -316,7 +320,7 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
     try {
       const payload: Record<string, unknown> = {
         nom: nom.trim(),
-        niveau,
+        niveau: niveauEffectif,
         etablissementId,
         creatorId,
         moderatorId: creatorId,
@@ -347,6 +351,9 @@ const CreateClassSheet = ({ visible, onClose, onCreated, establishments, creator
           ))}
         </View>
       </ScrollView>
+      {niveau === "Autre" ? (
+        <Input label="Précisez le niveau *" value={niveauAutre} onChangeText={setNiveauAutre} placeholder="Ex: BTS 1, Formation adulte…" maxLength={60} />
+      ) : null}
 
       <TouchableOpacity style={styles.accesMajeurBox} onPress={() => setAccesMajeur((v) => !v)}>
         <FontAwesome5 name={accesMajeur ? "check-square" : "square"} size={18} color={accesMajeur ? colors.primary : colors.textMuted} />

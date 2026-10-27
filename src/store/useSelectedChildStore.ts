@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { parentService } from '../services/api';
-import type { ChildStatus } from '../services/api/parentService';
+import { isLinkedChild, type ChildStatus } from '../services/api/parentService';
 import { StudentProfile } from '../types';
 
 /**
@@ -32,7 +32,33 @@ interface SelectedChildState {
   loadChildren: (parentId: string) => Promise<void>;
 }
 
-const hasApprovedClass = (s: ChildStatus) => s.classes.some((c) => String(c.statut).toUpperCase() === 'APPROUVEE');
+// Only an active parent ↔ child link counts (a pending follow-up request of an adult child does not).
+const hasApprovedClass = (s: ChildStatus) =>
+  isLinkedChild(s) && s.classes.some((c) => String(c.statut).toUpperCase() === 'APPROUVEE');
+
+/**
+ * Adult child with their own account (login e-mail): the parent only READS their data (no hand-in,
+ * no chapter marking, no class request on their behalf). From the statuses (`majeur`), else the
+ * profile's e-mail (a minor's profile has none).
+ */
+export const isAdultChild = (
+  child: { id?: string; email?: string | null } | null | undefined,
+  statuses?: ChildStatus[] | null
+): boolean => {
+  if (!child) return false;
+  const st = statuses?.find((s) => s.enfantId === child.id);
+  if (st?.majeur) return true;
+  return !!(child.email && String(child.email).trim());
+};
+
+/** Hook: is the given (default: selected) child an adult with their own account? */
+export const useIsAdultChild = (childId?: string | null) =>
+  useSelectedChildStore((s) => {
+    const id = childId === undefined ? s.selectedChildId : childId;
+    if (!id) return false;
+    const child = s.allChildren.find((c) => c.id === id) ?? s.children.find((c) => c.id === id);
+    return isAdultChild(child ?? { id }, s.statuses);
+  });
 
 /** True when at least one child of the parent has an approved class (statuses loaded). */
 export const statusesHaveApprovedChild = (statuses: ChildStatus[] | null) => !!statuses && statuses.some(hasApprovedClass);
@@ -72,7 +98,13 @@ export const useSelectedChildStore = create<SelectedChildState>((set, get) => ({
     const all: StudentProfile[] = list.map((c) => ({ ...c, id: String(c.id) }));
     statuses?.forEach((st) => {
       if (!all.some((c) => c.id === st.enfantId)) {
-        all.push({ id: st.enfantId, prenom: st.prenom ?? undefined, nom: st.nom ?? undefined, niveau: st.niveau ?? undefined });
+        all.push({
+          id: st.enfantId,
+          prenom: st.prenom ?? undefined,
+          nom: st.nom ?? undefined,
+          niveau: st.niveau ?? undefined,
+          email: st.email ?? undefined,
+        });
       }
     });
 

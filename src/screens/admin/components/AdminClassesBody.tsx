@@ -309,22 +309,34 @@ interface EditClassSheetProps {
 const EditClassSheet = ({ classItem, onClose, onSubmit }: EditClassSheetProps) => {
   const [nom, setNom] = useState("");
   const [niveau, setNiveau] = useState("");
+  // "Autre" → niveau libre (pré-rempli si le niveau actuel n'est pas dans la liste).
+  const [niveauAutre, setNiveauAutre] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (classItem) { setNom(classItem.nom ?? ""); setNiveau(classItem.niveau ?? ""); }
+    if (classItem) {
+      setNom(classItem.nom ?? "");
+      const actuel = classItem.niveau ?? "";
+      if (actuel && (!NIVEAUX.includes(actuel) || actuel === "Autre")) { setNiveau("Autre"); setNiveauAutre(actuel === "Autre" ? "" : actuel); }
+      else { setNiveau(actuel); setNiveauAutre(""); }
+    }
   }, [classItem]);
 
   const handleSubmit = async () => {
     if (!nom.trim()) { Alert.alert("Erreur", "Le nom est obligatoire."); return; }
+    const niveauEffectif = (niveau === "Autre" ? niveauAutre : niveau).trim();
+    if (niveau === "Autre" && !niveauEffectif) { Alert.alert("Erreur", "Précisez le niveau."); return; }
     setSubmitting(true);
-    try { await onSubmit(nom.trim(), niveau.trim()); } finally { setSubmitting(false); }
+    try { await onSubmit(nom.trim(), niveauEffectif); } finally { setSubmitting(false); }
   };
 
   return (
     <BottomSheet visible={!!classItem} onClose={onClose} title={`Modifier — ${classItem?.nom ?? ""}`}>
       <Input label="Nom de la classe" value={nom} onChangeText={setNom} placeholder="Ex: 3ème A" />
       <DropdownField label="Niveau" placeholder="Sélectionner un niveau" value={niveau} options={NIVEAUX.map((n) => ({ label: n, value: n }))} onChange={setNiveau} />
+      {niveau === "Autre" ? (
+        <Input label="Précisez le niveau" value={niveauAutre} onChangeText={setNiveauAutre} placeholder="Ex: BTS 1, Formation adulte…" maxLength={60} />
+      ) : null}
       <Button label="Enregistrer" onPress={handleSubmit} loading={submitting} fullWidth style={{ marginTop: spacing.md, marginBottom: spacing.lg }} />
     </BottomSheet>
   );

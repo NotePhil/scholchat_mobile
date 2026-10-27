@@ -1,3 +1,4 @@
+import { pickImageFromCameraOrFiles } from '../../utils/cameraCapture';
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -12,7 +13,16 @@ import {
   authService,
 } from '../../services/home/authService';
 import { ClassPreview, ClassPreviewError, classPreviewService } from '../../services/api/classPreviewService';
-import { isClassCodeError } from '../../services/api/parentService';
+import {
+  CHILD_EXISTS_WITH_ACCOUNT,
+  ChildKind,
+  isChildEmailError,
+  isClassCodeError,
+  cleanCodes,
+  ADULT_NOT_IN_CLASS,
+} from '../../services/api/parentService';
+import ChildKindToggle from '../parent/ChildKindToggle';
+import AdultClassCodesInput from '../parent/AdultClassCodesInput';
 import {
   AuthScreen,
   AuthTitle,
@@ -39,6 +49,13 @@ type StepId = 'infos' | 'classe' | 'confirmation' | 'enfants' | 'recap' | 'docum
 /** Child card of the parent sign-up ("Vos enfants"), with its own class-code check. */
 interface ChildDraft {
   key: string;
+  /** MINEUR: no account (prénom, nom, code). MAJEUR: own account, e-mail + class codes (parent read-only). */
+  kind: ChildKind;
+  email: string;
+  /** MAJEUR: codes of the classes (the child is a member of) to follow. */
+  codes: string[];
+  /** Minor refused because a same-name student with an account is in the class: offer "add by e-mail". */
+  suggestAdult?: boolean;
   prenom: string;
   nom: string;
   code: string;
@@ -47,7 +64,7 @@ interface ChildDraft {
   /** Normalized code the preview / error belongs to. */
   checkedCode: string;
   lookupError: string;
-  errors: { prenom?: string; nom?: string; code?: string; general?: string };
+  errors: { prenom?: string; nom?: string; code?: string; email?: string; codes?: string; general?: string };
 }
 
 const MAX_CHILDREN = 10;
@@ -55,6 +72,9 @@ const normalizeCode = (code: string) => code.trim().toUpperCase();
 let childKeySeq = 0;
 const newChild = (): ChildDraft => ({
   key: `child-${++childKeySeq}`,
+  kind: 'MINEUR',
+  email: '',
+  codes: [''],
   prenom: '',
   nom: '',
   code: '',
@@ -64,7 +84,10 @@ const newChild = (): ChildDraft => ({
   lookupError: '',
   errors: {},
 });
-const isChildVerified = (ch: ChildDraft) => ch.status === 'found' && !!ch.preview && ch.checkedCode === normalizeCode(ch.code);
+const isCodeVerified = (ch: ChildDraft) => ch.status === 'found' && !!ch.preview && ch.checkedCode === normalizeCode(ch.code);
+/** Minor: verified class code. Adult: valid e-mail + at least one class code (checked by the server). */
+const isChildVerified = (ch: ChildDraft) =>
+  ch.kind === 'MAJEUR' ? SIGNUP_EMAIL_REGEX.test(ch.email.trim()) && cleanCodes(ch.codes).length > 0 : isCodeVerified(ch);
 
 /** Existing e-mail reported by the sign-up (actions shown under the e-mail field). */
 type EmailIssue = 'exists' | 'pending' | 'inactive' | 'other';
@@ -276,12 +299,32 @@ const SignUpScreen = () => {
     }
   };
 
-  /** "Vos enfants" step: names + verified code on every card, no child twice. */
+  /** Switches a card between minor and adult (the class code must be re-checked: rules differ). */
+  const setChildKind = (key: string, kind: ChildKind) =>
+    updateChild(key, (cur) =>
+      cur.kind === kind
+        ? {}
+        : { kind, suggestAdult: false, status: 'idle', preview: null, checkedCode: '', lookupError: '', errors: {} }
+    );
+
+  /** "Vos enfants" step: names + verified code on every minor card, e-mail on adult cards, no child twice. */
   const validateChildren = (): boolean => {
     let ok = true;
     const seen = new Set<string>();
+    const seenEmails = new Set<string>();
     const next = enfants.map((ch) => {
       const errors: ChildDraft['errors'] = {};
+      if (ch.kind === 'MAJEUR') {
+        const mail = ch.email.trim().toLowerCase();
+        if (!mail) errors.email = t('adultChild.emailRequired');
+        else if (!SIGNUP_EMAIL_REGEX.test(mail)) errors.email = t('adultChild.emailInvalid');
+        else if (mail === email.trim().toLowerCase()) errors.email = t('adultChild.notStudent');
+        else if (seenEmails.has(mail)) errors.email = t('adultChild.emailDuplicate');
+        if (mail) seenEmails.add(mail);
+        if (!cleanCodes(ch.codes).length) errors.codes = t('adultChild.codes.required');
+        if (Object.keys(errors).length) ok = false;
+        return { ...ch, errors };
+      }
       if (!ch.prenom.trim()) errors.prenom = t('auth.signup.errors.firstName');
       if (!ch.nom.trim()) errors.nom = t('auth.signup.errors.lastName');
       if (!ch.code.trim()) errors.code = t('classPreview.errors.required');
@@ -302,13 +345,11 @@ const SignUpScreen = () => {
   // ── Professor documents ───────────────────────────────────────────────────
   const pickDoc = async (key: DocKey) => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        // Web SignUp.jsx accepts images only (file.type.startsWith("image/")) for the 3 documents.
-        type: ['image/*'],
-        copyToCacheDirectory: true,
-      });
-      if (!result.canceled && result.assets?.length) {
-        setDocs((prev) => ({ ...prev, [key]: result.assets[0] }));
+      // Web SignUp.jsx accepts images only (file.type.startsWith("image/")) for the 3 documents.
+      const picked = await pickImageFromCameraOrFiles();
+      if (picked) {
+        const asset: DocumentAsset = { ...picked, lastModified: Date.now() };
+        setDocs((prev) => ({ ...prev, [key]: asset }));
         if (error) setError('');
       }
     } catch {
@@ -339,7 +380,18 @@ const SignUpScreen = () => {
         return {
           prenom: String(r.prenom ?? draft?.prenom ?? '').trim(),
           nom: String(r.nom ?? draft?.nom ?? '').trim(),
-          classeNom: typeof r.classeNom === 'string' && r.classeNom ? r.classeNom : draft?.preview?.nom ?? '',
+          classeNom:
+            typeof r.classeNom === 'string' && r.classeNom
+              ? r.classeNom
+              : draft?.kind === 'MAJEUR'
+                ? translate('adultChild.linkRequested', {
+                    classes:
+                      (Array.isArray(r.classesSuivi) ? (r.classesSuivi as { classeNom?: string }[]) : [])
+                        .map((c) => c.classeNom)
+                        .filter(Boolean)
+                        .join(', ') || cleanCodes(draft.codes).join(', '),
+                  })
+                : draft?.preview?.nom ?? '',
         };
       });
       finish({ variant: 'parentCreated', email: email.trim(), enfants: children });
@@ -399,7 +451,11 @@ const SignUpScreen = () => {
         };
         if (role === 'eleve') payload.codeClasse = codeClasse.trim();
         if (role === 'parent') {
-          payload.enfants = enfants.map((ch) => ({ prenom: ch.prenom.trim(), nom: ch.nom.trim(), codeClasse: normalizeCode(ch.code) }));
+          payload.enfants = enfants.map((ch) =>
+            ch.kind === 'MAJEUR'
+              ? { type: 'MAJEUR' as const, email: ch.email.trim(), codesClasse: cleanCodes(ch.codes) }
+              : { prenom: ch.prenom.trim(), nom: ch.nom.trim(), codeClasse: normalizeCode(ch.code) }
+          );
         }
         const res = await authService.signUp(payload);
         if (role !== 'professeur' || res.inscriptionStatut === 'ROLE_ADDED' || !res.id) {
@@ -430,11 +486,18 @@ const SignUpScreen = () => {
       if (role === 'parent' && enfantIndex !== undefined && enfantIndex < enfants.length) {
         // A child refused: back to "Vos enfants", error on that child's card.
         const key = enfants[enfantIndex].key;
+        const isAdultCard = enfants[enfantIndex].kind === 'MAJEUR';
         updateChild(
           key,
-          isClassCodeError(code)
+          isAdultCard && (code === ADULT_NOT_IN_CLASS || code === 'LIEN_PARENT_DEJA_DEMANDE' || code === 'ENFANT_INVALIDE')
+            ? { errors: { codes: msg } }
+            : isClassCodeError(code)
             ? { status: 'idle', preview: null, checkedCode: '', lookupError: '', errors: { code: msg } }
-            : { errors: { general: msg } }
+            : isAdultCard && isChildEmailError(code)
+              ? { errors: { email: msg } }
+              : !isAdultCard && code === CHILD_EXISTS_WITH_ACCOUNT
+                ? { errors: { general: msg }, suggestAdult: true }
+                : { errors: { general: msg } }
         );
         setStep(steps.indexOf('enfants'));
         return;
@@ -721,6 +784,30 @@ const SignUpScreen = () => {
                 <TextLink label={t('auth.signup.enfants.remove')} onPress={() => removeChild(ch.key)} disabled={loading} muted />
               ) : null}
             </View>
+            <ChildKindToggle value={ch.kind} onChange={(k) => setChildKind(ch.key, k)} disabled={loading} />
+            {ch.kind === 'MAJEUR' ? (
+              <>
+                <TextField
+                  label={t('adultChild.email')}
+                  required
+                  icon="envelope"
+                  placeholder={t('adultChild.emailPlaceholder')}
+                  value={ch.email}
+                  onChangeText={(v) => updateChild(ch.key, { email: v, errors: { ...ch.errors, email: undefined, general: undefined } })}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  error={ch.errors.email}
+                />
+                <AdultClassCodesInput
+                  codes={ch.codes}
+                  onChange={(v) => updateChild(ch.key, { codes: v, errors: { ...ch.errors, codes: undefined, general: undefined } })}
+                  error={ch.errors.codes}
+                  disabled={loading}
+                />
+              </>
+            ) : (
+              <>
             <TextField
               label={t('auth.signup.infos.firstName')}
               required
@@ -756,7 +843,7 @@ const SignUpScreen = () => {
               onSubmitEditing={() => verifyChild(ch.key)}
               error={ch.errors.code}
             />
-            {!verified ? (
+            {!isCodeVerified(ch) ? (
               <GradientButton
                 label={shownStatus === 'loading' ? t('classPreview.verifying') : t('classPreview.verify')}
                 icon="search"
@@ -768,7 +855,19 @@ const SignUpScreen = () => {
               />
             ) : null}
             <ClassPreviewCard status={shownStatus} preview={ch.preview} error={ch.lookupError} style={s.previewCard} />
+              </>
+            )}
             {ch.errors.general ? <Banner message={ch.errors.general} /> : null}
+            {ch.suggestAdult && ch.kind === 'MINEUR' ? (
+              <GradientButton
+                label={t('adultChild.switchToAdult')}
+                icon="envelope"
+                variant="outline"
+                onPress={() => setChildKind(ch.key, 'MAJEUR')}
+                disabled={loading}
+                style={s.verifyBtn}
+              />
+            ) : null}
           </View>
         );
       })}
@@ -812,11 +911,17 @@ const SignUpScreen = () => {
             </View>
             <View style={s.flex}>
               <Text style={s.summaryValue} numberOfLines={1}>
-                {`${ch.prenom.trim()} ${ch.nom.trim()}`.trim() || '—'}
+                {ch.kind === 'MAJEUR' ? ch.email.trim() || '—' : `${ch.prenom.trim()} ${ch.nom.trim()}`.trim() || '—'}
               </Text>
-              <Text style={s.summaryLabel} numberOfLines={2}>
-                {[ch.preview?.nom, ch.preview?.etablissementNom].filter(Boolean).join(' · ') || normalizeCode(ch.code)}
-              </Text>
+              {ch.kind === 'MAJEUR' ? (
+                <Text style={s.summaryLabel} numberOfLines={2}>
+                  {[t('adultChild.badgeAdult'), cleanCodes(ch.codes).join(', ')].filter(Boolean).join(' · ')}
+                </Text>
+              ) : (
+                <Text style={s.summaryLabel} numberOfLines={2}>
+                  {[ch.preview?.nom, ch.preview?.etablissementNom].filter(Boolean).join(' · ') || normalizeCode(ch.code)}
+                </Text>
+              )}
             </View>
           </View>
         ))}

@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Image, ImageStyle, StyleProp, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, Image, ImageStyle, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useThemeColors } from '../../styles/theme';
 import { mediaService } from '../../services/api';
 import { storageService } from '../../services/storageService';
+import { useT } from '../../i18n';
 
 interface ActivityMediaImageProps {
   mediaId?: string;
@@ -14,6 +15,8 @@ interface ActivityMediaImageProps {
   resizeMode?: 'cover' | 'contain';
   /** Background shown while loading or broken. Defaults to the theme's elevated surface; the full-screen viewer passes 'transparent'. */
   placeholderColor?: string;
+  /** Full-screen viewer: a "Chargement de l'image…" label while loading and a Réessayer button when it fails. */
+  retryable?: boolean;
 }
 
 /**
@@ -35,7 +38,10 @@ const ActivityMediaImage = ({
   onPress,
   resizeMode = 'cover',
   placeholderColor,
+  retryable = false,
 }: ActivityMediaImageProps) => {
+  const { t } = useT();
+  const [retryNonce, setRetryNonce] = useState(0);
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(), []);
   const [url, setUrl] = useState<string | null>(presignedUrl ?? null);
@@ -80,7 +86,7 @@ const ActivityMediaImage = ({
     return () => {
       cancelled = true;
     };
-  }, [mediaId, presignedUrl]);
+  }, [mediaId, presignedUrl, retryNonce]);
 
   useEffect(() => {
     if (!needsAuthHeader) {
@@ -116,6 +122,7 @@ const ActivityMediaImage = ({
     <>
       {showImage ? (
         <Image
+          key={retryNonce}
           source={{ uri: url as string, headers: authHeader }}
           style={StyleSheet.absoluteFill}
           resizeMode={resizeMode}
@@ -124,11 +131,28 @@ const ActivityMediaImage = ({
         />
       ) : null}
       {!loaded || failed ? (
-        <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: bg }]} pointerEvents="none">
+        <View
+          style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: bg }]}
+          pointerEvents={retryable && failed ? 'box-none' : 'none'}
+        >
           {failed ? (
-            <FontAwesome5 name="image" size={26} color={colors.textLight} style={{ opacity: 0.5 }} />
+            <>
+              <FontAwesome5 name="image" size={26} color={retryable ? '#9CA3AF' : colors.textLight} style={{ opacity: retryable ? 1 : 0.5 }} />
+              {retryable ? (
+                <>
+                  <Text style={styles.viewerText}>{t('media.imageError')}</Text>
+                  <TouchableOpacity style={styles.retryBtn} onPress={() => setRetryNonce((n) => n + 1)} accessibilityRole="button">
+                    <FontAwesome5 name="redo" size={12} color="#FFFFFF" />
+                    <Text style={styles.retryText}>{t('media.retry')}</Text>
+                  </TouchableOpacity>
+                </>
+              ) : null}
+            </>
           ) : (
-            <ActivityIndicator color={colors.textLight} />
+            <>
+              <ActivityIndicator color={retryable ? '#FFFFFF' : colors.textLight} size={retryable ? 'large' : 'small'} />
+              {retryable ? <Text style={styles.viewerText}>{t('media.loadingImage')}</Text> : null}
+            </>
           )}
         </View>
       ) : null}
@@ -148,6 +172,18 @@ const createStyles = () =>
   StyleSheet.create({
     box: { overflow: 'hidden' },
     center: { alignItems: 'center', justifyContent: 'center' },
+    viewerText: { color: '#E5E7EB', fontSize: 13, fontWeight: '600', marginTop: 10 },
+    retryBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginTop: 14,
+      paddingHorizontal: 18,
+      paddingVertical: 10,
+      borderRadius: 12,
+      backgroundColor: '#2563EB',
+    },
+    retryText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   });
 
 export default ActivityMediaImage;

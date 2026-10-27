@@ -24,11 +24,14 @@ import { useUser } from "../../../context/UserContext";
 import { useAuthStore } from "../../../store/useAuthStore";
 import { useUiStore } from "../../../store/useUiStore";
 import { useMountedRef } from "../../../hooks/useMountedRef";
-import { translate } from "../../../i18n";
+import { translate, useT } from "../../../i18n";
 import { useThemeStore } from "../../../store/useThemeStore";
 import { useThemeColors } from "../../../styles/theme";
 import { ActivityEvent } from "../../../types";
 import { formatDateTime, serverDateMs } from "../../../utils/dates";
+import { computeEventStatus } from "../../../utils/eventStatus";
+import { useSelectedChildStore } from "../../../store/useSelectedChildStore";
+import { useParentLimited } from "../../../services/parentAccess";
 
 /*
  * Port of scholchat_front's ActivitiesContent.jsx ("Fil d'actualité"), as web
@@ -50,6 +53,8 @@ const CREATOR_ROLES = ["admin", "professor", "tutor", "gestionnaire"];
 
 /** Kept in memory across unmount/remount (switching tabs and back), like web's module-level `_cache`. */
 const _cache = {
+  /** Whose feed is cached (user + child for a parent / the student) — another feed must not reuse it. */
+  feedKey: "",
   raw: [] as ActivityEvent[],
   page: 0,
   hasMore: true,
@@ -64,7 +69,20 @@ interface FeedComment {
   content: string;
   creationDate?: string;
   isCurrentUser: boolean;
+  /** "Prénom Nom" of the author (from the server). */
+  authorName: string;
+  /** Author of the comment, author of the publication or admin (the server also lets class managers). */
+  canDelete: boolean;
 }
+
+/** Initials ("AE") from a display name; "?" when unknown. */
+const initialsOf = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w.charAt(0).toUpperCase())
+    .join("") || "?";
 
 interface FeedActivity {
   id: string;
@@ -120,7 +138,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 /** Same mapping as web's loadEvents(). */
-const mapEvent = (event: ActivityEvent, currentUserId?: string): FeedActivity => {
+const mapEvent = (event: ActivityEvent, currentUserId?: string, isAdmin = false): FeedActivity => {
   const medias: FeedMedia[] = (event.medias ?? [])
     .filter((m) => {
       const t = (m.mediaType || "").toUpperCase();
@@ -139,6 +157,13 @@ const mapEvent = (event: ActivityEvent, currentUserId?: string): FeedActivity =>
       content: c.content ?? "",
       creationDate: c.creationDate,
       isCurrentUser: !!currentUserId && c.createdById === currentUserId,
+      authorName:
+        `${c.createdByPrenom ?? ""} ${c.createdByNom ?? ""}`.trim() ||
+        (c.createdById && _cache.userNames[c.createdById]?.name) ||
+        translate("comments.unknownAuthor"),
+      canDelete:
+        !String(c.id ?? "").startsWith("temp-") &&
+        (isAdmin || (!!currentUserId && (c.createdById === currentUserId || event.createurId === currentUserId))),
     }));
   const participantsIds = event.participantsIds ?? [];
 
@@ -156,9 +181,11 @@ const mapEvent = (event: ActivityEvent, currentUserId?: string): FeedActivity =>
     id: String(event.id),
     titre: event.titre ?? "",
     description: event.description ?? "",
-    timestamp: fmt(event.creationDate || event.heureDebut),
+    // Header date = PUBLICATION date (when the post was created), not the event's start date.
+    timestamp: fmt(event.datePublication || event.creationDate || event.heureDebut),
     user: { name: name || "Utilisateur", role },
-    status: event.etat,
+    // Status from the dates (Planifié / En cours / Terminé), never the stored etat as is.
+    status: computeEventStatus(event),
     location: event.lieu,
     startTime: event.heureDebut,
     endTime: event.heureFin,
@@ -175,8 +202,12 @@ const mapEvent = (event: ActivityEvent, currentUserId?: string): FeedActivity =>
   };
 };
 
-/** Looks up missing author and class names, cached, as web does before mapping a page. */
-const resolveNames = async (events: ActivityEvent[]) => {
+/**
+ * Looks up missing author and class names, cached, as web does before mapping a page. Skipped for
+ * a parent in limited mode: those lookups are outside what the server allows them (403).
+ */
+const resolveNames = async (events: ActivityEvent[], skip = false) => {
+  if (skip) return;
   const users = new Set<string>();
   const classIds = new Set<string>();
   events.forEach((e) => {
@@ -225,14 +256,39 @@ const pluralize = (n: number, one: string, many: string) => `${n} ${n === 1 ? on
 const DashboardActivitiesBody = () => {
   const { user } = useUser();
   const role = useAuthStore((s) => s.role);
+  const authUser = useAuthStore((s) => s.user);
   const colors = useThemeColors();
   const isDark = useThemeStore((s) => s.mode === "dark");
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const insets = useSafeAreaInsets();
   const currentUserId = user?.userId;
   const canCreateEvent = CREATOR_ROLES.includes(role);
+  // Parent without an approved child yet: only the general (public, class-less) news, read without
+  // a child id; joining is not offered. Once a child is accepted the feed reloads with that child.
+  const parentLimited = useParentLimited();
+  const { t } = useT();
+  const parentLimitedRef = useRef(parentLimited);
+  parentLimitedRef.current = parentLimited;
 
-  const isFresh = _cache.raw.length > 0 && Date.now() - _cache.timestamp < CACHE_TTL;
+  // Parent: the feed of the child selected in the header (only events of that child's classes + public
+  // ones), reloaded when the selection changes. Student: their own classes. Others: unchanged.
+  const selectedChildId = useSelectedChildStore((s) => s.selectedChildId);
+  const childrenLoaded = useSelectedChildStore((s) => s.loaded && s.ownerId === currentUserId);
+  const feedEleveId: string | null =
+    role === "parent" ? (parentLimited ? null : selectedChildId) : role === "student" ? currentUserId ?? null : null;
+  // A parent whose children aren't known yet waits instead of loading an unfiltered feed.
+  const waitingForChild = role === "parent" && !parentLimited && !selectedChildId && !childrenLoaded;
+  const feedKey = `${currentUserId ?? ""}|${role}|${parentLimited ? "limited" : feedEleveId ?? ""}`;
+  const feedEleveIdRef = useRef(feedEleveId);
+  feedEleveIdRef.current = feedEleveId;
+  useEffect(() => {
+    if (role === "parent" && currentUserId && !childrenLoaded && !useSelectedChildStore.getState().loading) {
+      useSelectedChildStore.getState().loadChildren(currentUserId).catch(() => {});
+    }
+  }, [role, currentUserId, childrenLoaded]);
+
+  const isFresh =
+    _cache.feedKey === feedKey && _cache.raw.length > 0 && Date.now() - _cache.timestamp < CACHE_TTL;
   const [rawActivities, setRawActivities] = useState<ActivityEvent[]>(isFresh ? _cache.raw : []);
   const [loading, setLoading] = useState(!isFresh);
   const [refreshing, setRefreshing] = useState(false);
@@ -253,17 +309,22 @@ const DashboardActivitiesBody = () => {
 
   // Keep the module cache in sync so switching tabs and back restores the feed instantly.
   useEffect(() => {
+    _cache.feedKey = feedKey;
     _cache.raw = rawActivities;
     _cache.page = page;
     _cache.hasMore = hasMore;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawActivities, page, hasMore]);
 
   const loadEvents = useCallback(async (pageToLoad: number) => {
     if (pageToLoad === 0) setError("");
+    const eleveId = feedEleveIdRef.current;
     try {
-      const result = await activityFeedService.getPaged(pageToLoad, PAGE_SIZE);
+      const result = await activityFeedService.getPaged(pageToLoad, PAGE_SIZE, eleveId);
+      // The selected child changed while this page was loading: drop it (the new feed is loading).
+      if (eleveId !== feedEleveIdRef.current) return;
       const content = result.content ?? [];
-      await resolveNames(content);
+      await resolveNames(content, parentLimitedRef.current);
       setRawActivities((prev) => {
         if (pageToLoad === 0) return content;
         const seen = new Set(prev.map((r) => String(r.id)));
@@ -275,23 +336,37 @@ const DashboardActivitiesBody = () => {
       _cache.timestamp = Date.now();
       setNamesVersion((v) => v + 1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Échec du chargement des activités.");
+      if (eleveId === feedEleveIdRef.current) {
+        setError(err instanceof Error ? err.message : "Échec du chargement des activités.");
+      }
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      if (eleveId === feedEleveIdRef.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, []);
 
+  // First load, and a reload from page 0 whenever the feed changes (parent selecting another child).
+  const loadedKeyRef = useRef<string | null>(isFresh ? feedKey : null);
   useEffect(() => {
-    if (!isFresh) loadEvents(0);
+    if (waitingForChild || loadedKeyRef.current === feedKey) return;
+    loadedKeyRef.current = feedKey;
+    setRawActivities([]);
+    setPage(0);
+    setHasMore(true);
+    setLoading(true);
+    _cache.feedKey = feedKey;
+    _cache.raw = [];
+    loadEvents(0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [feedKey, waitingForChild]);
 
   const activities = useMemo(
-    () => rawActivities.map((r) => mapEvent(r, currentUserId)),
+    () => rawActivities.map((r) => mapEvent(r, currentUserId, role === "admin")),
     // namesVersion: remap once author/class names have been looked up
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rawActivities, currentUserId, namesVersion]
+    [rawActivities, currentUserId, namesVersion, role]
   );
 
   // Tabs depend on role, as on web: creators get "Mes publications", others get "Passés" at the end.
@@ -302,13 +377,17 @@ const DashboardActivitiesBody = () => {
       { key: "withMedia", label: "Avec médias", labelMobile: "Médias", icon: "image", color: "#DB2777", bg: "#FDF2F8", bgDark: "rgba(131,24,67,0.3)" },
       { key: "participating", label: "Participations", labelMobile: "Participations", icon: "user-plus", color: "#2563EB", bg: "#EFF6FF", bgDark: "rgba(30,58,138,0.3)" },
     ];
+    if (parentLimited) {
+      // No participation for general news while limited.
+      base.splice(base.findIndex((t) => t.key === "participating"), 1);
+    }
     if (canCreateEvent) {
       base.splice(1, 0, { key: "mine", label: "Mes publications", labelMobile: "Mes posts", icon: "pencil-alt", color: "#4F46E5", bg: "#EEF2FF", bgDark: "rgba(49,46,129,0.3)" });
     } else {
       base.push({ key: "past", label: "Passés", labelMobile: "Passés", icon: "clock", color: "#D97706", bg: "#FFFBEB", bgDark: "rgba(120,53,15,0.3)" });
     }
     return base;
-  }, [canCreateEvent]);
+  }, [canCreateEvent, parentLimited]);
 
   useEffect(() => {
     if (!tabs.some((t) => t.key === activeTab)) setActiveTab("all");
@@ -352,7 +431,7 @@ const DashboardActivitiesBody = () => {
         try {
           const ev = await activityFeedService.getById(eventId);
           if (!ev?.id) throw new Error("not found");
-          await resolveNames([ev]);
+          await resolveNames([ev], parentLimitedRef.current);
           if (!mountedRef.current) return;
           setRawActivities((prev) => (prev.some((r) => String(r.id) === eventId) ? prev : [ev, ...prev]));
           setNamesVersion((v) => v + 1);
@@ -441,7 +520,17 @@ const DashboardActivitiesBody = () => {
       ...r,
       interactions: [
         ...(r.interactions ?? []),
-        { id: tempId, type: "COMMENT", content, createdById: currentUserId, creationDate: new Date().toISOString() },
+        {
+          id: tempId,
+          type: "COMMENT",
+          content,
+          createdById: currentUserId,
+          // The login response carries no prenom/nom, only username ("Nom Prénom"): show it as "Prénom Nom".
+          createdByPrenom:
+            authUser?.prenom ?? ((authUser?.username ?? "").trim().split(/\s+/).reverse().join(" ") || null),
+          createdByNom: authUser?.nom ?? null,
+          creationDate: new Date().toISOString(),
+        },
       ],
     }));
     try {
@@ -449,13 +538,45 @@ const DashboardActivitiesBody = () => {
       if (created?.id) {
         patchRaw(a.id, (r) => ({
           ...r,
-          interactions: (r.interactions ?? []).map((i) => (i.id === tempId ? { ...i, id: created.id, creationDate: created.creationDate ?? i.creationDate } : i)),
+          interactions: (r.interactions ?? []).map((i) =>
+            i.id === tempId
+              ? {
+                  ...i,
+                  id: created.id,
+                  creationDate: created.creationDate ?? i.creationDate,
+                  // The optimistic entry may lack the author's name (auth user without prenom/nom): use the server's.
+                  createdByPrenom: created.createdByPrenom ?? i.createdByPrenom,
+                  createdByNom: created.createdByNom ?? i.createdByNom,
+                }
+              : i
+          ),
         }));
       }
     } catch (err) {
       patchRaw(a.id, (r) => ({ ...r, interactions: (r.interactions ?? []).filter((i) => i.id !== tempId) }));
       Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du commentaire.");
     }
+  };
+
+  const handleDeleteComment = (a: FeedActivity, c: FeedComment) => {
+    Alert.alert(translate("comments.deleteTitle"), translate("comments.deleteConfirm"), [
+      { text: translate("common.cancel"), style: "cancel" },
+      {
+        text: translate("common.delete"),
+        style: "destructive",
+        onPress: async () => {
+          const raw = rawActivities.find((r) => String(r.id) === a.id);
+          const removed = (raw?.interactions ?? []).find((i) => String(i.id) === c.id);
+          patchRaw(a.id, (r) => ({ ...r, interactions: (r.interactions ?? []).filter((i) => String(i.id) !== c.id) }));
+          try {
+            await activityFeedService.removeComment(a.id, c.id);
+          } catch (err) {
+            if (removed) patchRaw(a.id, (r) => ({ ...r, interactions: [...(r.interactions ?? []), removed] }));
+            Alert.alert(translate("common.error"), err instanceof Error ? err.message : translate("comments.deleteError"));
+          }
+        },
+      },
+    ]);
   };
 
   const handleDelete = async (id: string) => {
@@ -544,10 +665,16 @@ const DashboardActivitiesBody = () => {
         <FontAwesome5 name="calendar-alt" size={28} color="#9CA3AF" />
       </View>
       <Text style={styles.emptyTitle}>
-        {activeTab === "all" ? "Aucune activité disponible" : `Aucun contenu dans "${currentTab.label}"`}
+        {parentLimited && activeTab === "all"
+          ? t("activities.parentLimitedEmpty")
+          : activeTab === "all"
+            ? "Aucune activité disponible"
+            : `Aucun contenu dans "${currentTab.label}"`}
       </Text>
       <Text style={styles.emptyText}>
-        {activeTab === "all"
+        {parentLimited
+          ? ""
+          : activeTab === "all"
           ? "Soyez le premier à créer un événement et à partager vos activités avec la communauté."
           : "Essayez de changer de filtre ou créez du contenu"}
       </Text>
@@ -596,7 +723,9 @@ const DashboardActivitiesBody = () => {
             liking={!!liking[item.id]}
             onLike={handleLike}
             onParticipate={handleParticipate}
+            canParticipate={!parentLimited}
             onComment={handleComment}
+            onDeleteComment={handleDeleteComment}
             onEdit={() => {
               const raw = rawActivities.find((r) => String(r.id) === item.id) ?? null;
               setEditing(raw);
@@ -606,7 +735,17 @@ const DashboardActivitiesBody = () => {
           />
           </View>
         )}
-        ListHeaderComponent={error ? <Text style={styles.errorText}>{error}</Text> : null}
+        ListHeaderComponent={
+          <>
+            {parentLimited ? (
+              <View style={styles.limitedBanner}>
+                <FontAwesome5 name="globe-africa" size={13} color="#2563EB" />
+                <Text style={styles.limitedBannerText}>{t("activities.parentLimitedBanner")}</Text>
+              </View>
+            ) : null}
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          </>
+        }
         ListEmptyComponent={empty}
         ListFooterComponent={footer}
         contentContainerStyle={{ paddingTop: 12, paddingBottom: insets.bottom + 150 }}
@@ -710,15 +849,28 @@ interface CardProps {
   liking: boolean;
   onLike: (a: FeedActivity) => void;
   onParticipate: (a: FeedActivity) => void;
+  /** False for a parent in limited mode (general news only, no participation). */
+  canParticipate: boolean;
   onComment: (a: FeedActivity, content: string) => void;
+  onDeleteComment: (a: FeedActivity, c: FeedComment) => void;
   onEdit: () => void;
   onDelete: () => void;
   onOpenMedia: (index: number) => void;
 }
 
 const ActivityCard = memo(
-  ({ activity: a, styles, colors, isDark, canEdit, deleting, liking, onLike, onParticipate, onComment, onEdit, onDelete, onOpenMedia }: CardProps) => {
+  ({ activity: a, styles, colors, isDark, canEdit, deleting, liking, onLike, onParticipate, canParticipate, onComment, onDeleteComment, onEdit, onDelete, onOpenMedia }: CardProps) => {
     const [showComments, setShowComments] = useState(false);
+    const { t } = useT();
+    const authUser = useAuthStore((s) => s.user);
+    const authPrenom = authUser?.prenom ?? "";
+    const authNom = authUser?.nom ?? "";
+    // The session carries no prenom/nom, only username = "Nom Prénom": prefer the name the server
+    // put on one of my comments, else the username read as "Prénom Nom" (same order as comments).
+    const myName =
+      `${authPrenom} ${authNom}`.trim() ||
+      a.comments.find((c) => c.isCurrentUser && c.authorName)?.authorName ||
+      (authUser?.username ?? "").trim().split(/\s+/).reverse().join(" ");
     const [draft, setDraft] = useState("");
     const status = a.status ? STATUS_META[a.status] : undefined;
     const statusLabel =
@@ -862,12 +1014,14 @@ const ActivityCard = memo(
           <TouchableOpacity style={styles.actionBtn} onPress={() => setShowComments((v) => !v)}>
             <FontAwesome5 name="comment" size={16} color={colors.textMuted} />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionBtn, a.isParticipating && { backgroundColor: isDark ? "rgba(20,83,45,0.25)" : "#F0FDF4" }]}
-            onPress={() => onParticipate(a)}
-          >
-            <FontAwesome5 name="user-plus" size={15} color={a.isParticipating ? "#16A34A" : colors.textMuted} />
-          </TouchableOpacity>
+          {canParticipate ? (
+            <TouchableOpacity
+              style={[styles.actionBtn, a.isParticipating && { backgroundColor: isDark ? "rgba(20,83,45,0.25)" : "#F0FDF4" }]}
+              onPress={() => onParticipate(a)}
+            >
+              <FontAwesome5 name="user-plus" size={15} color={a.isParticipating ? "#16A34A" : colors.textMuted} />
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={() => Share.share({ title: a.titre, message: `${a.titre}\n\n${a.description}` }).catch(() => {})}
@@ -884,15 +1038,38 @@ const ActivityCard = memo(
                 {a.comments.map((c) => (
                   <View key={c.id} style={[styles.commentRow, c.isCurrentUser && { flexDirection: "row-reverse" }]}>
                     <LinearGradient colors={["#3B82F6", "#6366F1"]} style={styles.commentAvatar}>
-                      <Text style={styles.commentAvatarText}>{c.isCurrentUser ? "V" : "U"}</Text>
+                      <Text style={styles.commentAvatarText}>{initialsOf(c.authorName)}</Text>
                     </LinearGradient>
                     <View style={{ flex: 1, maxWidth: "75%", alignItems: c.isCurrentUser ? "flex-end" : "flex-start" }}>
-                      <View style={[styles.bubble, c.isCurrentUser ? styles.bubbleMine : styles.bubbleOther]}>
-                        <Text style={[styles.bubbleText, c.isCurrentUser && { color: "#FFFFFF" }]}>{c.content}</Text>
-                      </View>
-                      <Text style={[styles.commentTime, c.isCurrentUser ? { marginRight: 12 } : { marginLeft: 12 }]}>
-                        {c.creationDate ? fmt(c.creationDate, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "À l'instant"}
+                      <Text
+                        style={[styles.commentAuthor, c.isCurrentUser ? { marginRight: 12 } : { marginLeft: 12 }]}
+                        numberOfLines={1}
+                      >
+                        {c.isCurrentUser ? t("comments.you") : c.authorName}
                       </Text>
+                      <TouchableOpacity
+                        activeOpacity={0.85}
+                        disabled={!c.canDelete}
+                        onLongPress={() => onDeleteComment(a, c)}
+                        style={[styles.bubble, c.isCurrentUser ? styles.bubbleMine : styles.bubbleOther]}
+                      >
+                        <Text style={[styles.bubbleText, c.isCurrentUser && { color: "#FFFFFF" }]}>{c.content}</Text>
+                      </TouchableOpacity>
+                      <View style={[styles.commentMetaRow, c.isCurrentUser ? { marginRight: 12 } : { marginLeft: 12 }]}>
+                        <Text style={styles.commentTime}>
+                          {c.creationDate ? fmt(c.creationDate, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "À l'instant"}
+                        </Text>
+                        {c.canDelete ? (
+                          <TouchableOpacity
+                            onPress={() => onDeleteComment(a, c)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityLabel={t("comments.delete")}
+                            style={styles.commentDelete}
+                          >
+                            <FontAwesome5 name="trash-alt" size={11} color={colors.textLight} />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
                     </View>
                   </View>
                 ))}
@@ -900,7 +1077,7 @@ const ActivityCard = memo(
             ) : null}
             <View style={styles.commentInputRow}>
               <LinearGradient colors={["#2563EB", "#4F46E5"]} style={styles.commentAvatar}>
-                <Text style={styles.commentAvatarText}>V</Text>
+                <Text style={styles.commentAvatarText}>{initialsOf(myName)}</Text>
               </LinearGradient>
               <View style={styles.commentInputWrap}>
                 <TextInput
@@ -965,6 +1142,20 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean
     plusBtn: { width: 36, height: 36, borderRadius: 8, backgroundColor: "#2563EB", alignItems: "center", justifyContent: "center" },
 
     errorText: { color: "#EF4444", marginHorizontal: 12, marginBottom: 12, fontSize: 13 },
+    limitedBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginHorizontal: 12,
+      marginBottom: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderRadius: 12,
+      backgroundColor: isDark ? "rgba(37,99,235,0.15)" : "#EFF6FF",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(59,130,246,0.35)" : "#BFDBFE",
+    },
+    limitedBannerText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.text, fontWeight: "500" },
 
     card: {
       backgroundColor: colors.surface,
@@ -1045,7 +1236,10 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>, isDark: boolean
     bubbleMine: { backgroundColor: "#2563EB" },
     bubbleOther: { backgroundColor: isDark ? "#374151" : "#F3F4F6" },
     bubbleText: { fontSize: 14, color: isDark ? "#F3F4F6" : "#111827" },
-    commentTime: { fontSize: 11, color: sub, marginTop: 4 },
+    commentTime: { fontSize: 11, color: sub },
+    commentAuthor: { fontSize: 12, fontWeight: "700", color: body, marginBottom: 3 },
+    commentMetaRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
+    commentDelete: { paddingHorizontal: 2 },
     commentInputRow: {
       flexDirection: "row",
       alignItems: "center",

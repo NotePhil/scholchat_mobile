@@ -12,6 +12,7 @@ import { loadExerciseStats } from "../../../../utils/classStats";
 import { formatDateTime, serverDateMs } from "../../../../utils/dates";
 import { TranslationKey, useT } from "../../../../i18n";
 import ProgrammedExerciseRow from "../exercise/ProgrammedExerciseRow";
+import { useHardwareBack } from "../../../../hooks/useHardwareBack";
 
 const fmt = (d?: string | null) => (d ? formatDateTime(d, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
 
@@ -69,6 +70,8 @@ const ClassCoursesTab = ({
   const [courses, setCourses] = useState<CoursResume[]>([]);
   const [fromSummary, setFromSummary] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  // Android Back: course page → the class course list.
+  useHardwareBack(() => setSelected(null), !!selected);
   const seq = useRef(0);
 
   const load = useCallback(async () => {

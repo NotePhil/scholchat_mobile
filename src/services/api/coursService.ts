@@ -119,9 +119,17 @@ export const coursService = {
     }
   },
 
-  markChapterComplete: async (coursId: string, chapitreId: string, utilisateurId: string): Promise<ApiSuccess> => {
+  /** `dureeSecondes`: active reading time measured on the device (capped at 4 h server-side, summed on re-completion). */
+  markChapterComplete: async (
+    coursId: string,
+    chapitreId: string,
+    utilisateurId: string,
+    dureeSecondes?: number
+  ): Promise<ApiSuccess> => {
     try {
-      await apiClient.post(`/cours/${coursId}/chapitres/${chapitreId}/complete/${utilisateurId}`);
+      await apiClient.post(`/cours/${coursId}/chapitres/${chapitreId}/complete/${utilisateurId}`, null, {
+        params: dureeSecondes != null ? { dureeSecondes: Math.max(0, Math.round(dureeSecondes)) } : undefined,
+      });
       return { success: true };
     } catch (error) {
       throw new Error(extractErrorMessage(error, 'Échec de la mise à jour de la progression.'));

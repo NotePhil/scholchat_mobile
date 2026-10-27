@@ -1,120 +1,70 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  FlatList,
-  Keyboard,
-  KeyboardEvent,
-  Linking,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Alert } from "react-native";
+import { useHardwareBack } from "../../../../hooks/useHardwareBack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FontAwesome5 } from "@expo/vector-icons";
-import { messageService } from "../../../../services/messageService";
-import { subscribeMessagesStream, useMessagesStore } from "../../../../store/useMessagesStore";
 import { useUser } from "../../../../context/UserContext";
 import { useUiStore } from "../../../../store/useUiStore";
+import { subscribeMessagesStream, useMessagesStore } from "../../../../store/useMessagesStore";
 import { translate } from "../../../../i18n";
-import { useThemeColors } from "../../../../styles/theme";
-
-type ThemeColors = ReturnType<typeof useThemeColors>;
-import { MessageItem, MessageParty } from "../../../../types";
-import { DeleteScope } from "../../../../services/messageService";
+import { ChatMessage, ChatTrash, Conversation, conversationService } from "../../../../services/conversationService";
+import ConversationList from "./ConversationList";
+import ChatView from "./ChatView";
 import ComposeMessageModal from "./ComposeMessageModal";
-import AttachmentModal, { AttachmentType } from "./AttachmentModal";
-import { MessageMediaList, PendingAttachmentsBar, useMessageAttachments } from "./messageMedia";
+import { MessageItem } from "../../../../types";
+import ChatActionSheet from "./ChatActionSheet";
 import {
-  ConversationThread,
-  formatBubbleTime,
-  formatDayLabel,
-  formatListDate,
-  getDisplayName,
-  getInitials,
-  getMessagePreview,
-  getRoleLabel,
-  groupByPartner,
-  parseMessageDate,
-  splitQuoted,
-  stripReplyPrefix,
-  toUtilisateurPayload,
-  upsertById,
-} from "./messageHelpers";
-
-type FilterType = "inbox" | "sent" | "starred" | "trash";
+  ConversationFilter,
+  conversationTitle,
+  isUnreadConversation,
+  mediaSummary,
+  sortConversations,
+} from "./chatHelpers";
 
 /** Height of the shared floating MobileFooterNav above the bottom safe-area inset. */
 const FOOTER_NAV_HEIGHT = 64;
-
-const URL_RE = /(https?:\/\/[^\s]+)/g;
-
-/** Renders message text with tappable links. */
-const LinkifiedText = ({ text, style, linkColor }: { text: string; style: any; linkColor: string }) => {
-  const parts = text.split(URL_RE);
-  return (
-    <Text style={style}>
-      {parts.map((part, i) =>
-        /^https?:\/\//.test(part) ? (
-          <Text
-            key={i}
-            style={{ color: linkColor, textDecorationLine: "underline" }}
-            onPress={() => Linking.openURL(part).catch(() => Alert.alert("Erreur", "Impossible d'ouvrir le lien."))}
-          >
-            {part}
-          </Text>
-        ) : (
-          <Text key={i}>{part}</Text>
-        )
-      )}
-    </Text>
-  );
-};
 
 interface DashboardMessagesBodyProps {
   onBack?: () => void;
 }
 
+/**
+ * Messages tab — WhatsApp-like chat: conversation list ⇄ chat view.
+ * Data: ConversationsApi (/conversations…); live updates on /topic/messages/{userId}
+ * (shared STOMP socket, see useMessagesRealtime) — no polling.
+ */
 const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
   const { user } = useUser();
   // The login response carries `userId`, not `id`.
   const userId = (user?.userId ?? user?.id) as string | undefined;
   const insets = useSafeAreaInsets();
-  const colors = useThemeColors();
-  const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const [sent, setSent] = useState<MessageItem[]>([]);
-  const [received, setReceived] = useState<MessageItem[]>([]);
-  const [trash, setTrash] = useState<MessageItem[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [openFallback, setOpenFallback] = useState<Conversation | null>(null);
+  const [showNew, setShowNew] = useState(false);
+  const [menuFor, setMenuFor] = useState<Conversation | null>(null);
+  // List filters: Tous / Non lus / Favoris / Général / Envoyés / Corbeille
+  const [filter, setFilter] = useState<ConversationFilter>("all");
+  const [trash, setTrash] = useState<ChatTrash>({ conversations: [], messages: [] });
+  const [trashLoading, setTrashLoading] = useState(true);
+  const [trashMenu, setTrashMenu] = useState<
+    { kind: "conversation"; item: Conversation } | { kind: "message"; item: ChatMessage } | null
+  >(null);
 
-  const [filterType, setFilterType] = useState<FilterType>("inbox");
-  const [searchTerm, setSearchTerm] = useState("");
-  const [showCompose, setShowCompose] = useState(false);
-  const [selectedThreadKey, setSelectedThreadKey] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState("");
-  const [sendingReply, setSendingReply] = useState(false);
-  const [keyboardInset, setKeyboardInset] = useState<number | null>(null);
-  const [showReplyAttach, setShowReplyAttach] = useState(false);
-  const replyAttachments = useMessageAttachments(userId);
-
-  const markingRef = useRef(new Set<string>());
-  const listRef = useRef<FlatList<MessageItem>>(null);
+  const openIdRef = useRef<string | null>(null);
+  openIdRef.current = openId;
+  const conversationsRef = useRef<Conversation[]>([]);
+  conversationsRef.current = conversations;
   const loadSeqRef = useRef(0);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const refreshUnreadBadge = useCallback(() => {
+  const refreshBadge = useCallback(() => {
     useMessagesStore.getState().refresh(userId);
   }, [userId]);
 
-  /** `silent` refreshes (reconnect catch-up, pull-to-refresh) never swap the list for a spinner. */
   const load = useCallback(
     async (silent = false) => {
       if (!userId) {
@@ -124,1075 +74,435 @@ const DashboardMessagesBody = ({ onBack }: DashboardMessagesBodyProps) => {
       const seq = ++loadSeqRef.current;
       if (!silent) setLoading(true);
       try {
-        const [sentData, receivedData, trashData] = await Promise.all([
-          messageService.getSentMessages(userId),
-          messageService.getReceivedMessages(userId),
-          messageService.getTrash(userId).catch(() => [] as MessageItem[]),
-        ]);
-        if (seq !== loadSeqRef.current) return; // a newer load already started
-        setSent(sentData);
-        setReceived(receivedData);
-        setTrash(trashData);
-        setError("");
-        refreshUnreadBadge();
-      } catch (err) {
+        const list = await conversationService.list();
         if (seq !== loadSeqRef.current) return;
-        // Keep showing the last good data on a failed background refresh.
-        if (!silent) setError(err instanceof Error ? err.message : "Échec du chargement des messages.");
+        setConversations(sortConversations(list));
+        setError("");
+      } catch (e) {
+        if (seq !== loadSeqRef.current) return;
+        if (!silent) setError(e instanceof Error ? e.message : translate("chat.errors.load"));
       } finally {
         if (seq === loadSeqRef.current) setLoading(false);
       }
     },
-    [userId, refreshUnreadBadge]
+    [userId]
   );
+
+  /** My trash (deleted conversations and messages); secondary: errors keep the current one. */
+  const loadTrash = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const data = await conversationService.trash();
+      setTrash(data);
+    } catch {
+      // keep the current trash
+    } finally {
+      setTrashLoading(false);
+    }
+  }, [userId]);
+
+  const scheduleReload = useCallback(() => {
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      load(true);
+      loadTrash();
+    }, 400);
+  }, [load, loadTrash]);
 
   useEffect(() => {
     load();
-  }, [load]);
+    loadTrash();
+    return () => {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    };
+  }, [load, loadTrash]);
 
-  const refreshTrash = useCallback(() => {
-    if (!userId) return;
-    messageService
-      .getTrash(userId)
-      .then(setTrash)
-      .catch(() => {});
-  }, [userId]);
+  const patchConversation = useCallback((id: string, fn: (c: Conversation) => Conversation) => {
+    setConversations((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
+    setOpenFallback((c) => (c && c.id === id ? fn(c) : c));
+  }, []);
 
-  // Live updates pushed on /topic/messages/{userId} (shared STOMP socket, see useMessagesRealtime).
-  // No polling: after a socket reconnect the stream emits RESYNC and we re-fetch once.
+  /** Puts a just-sent / just-received message on top of the list as the conversation preview. */
+  const applyMessageToList = useCallback(
+    (m: ChatMessage) => {
+      if (!conversationsRef.current.some((c) => c.id === m.conversationId)) {
+        // Unknown (new conversation, or one hidden for me) → fetch the list once.
+        scheduleReload();
+        return;
+      }
+      setConversations((prev) => {
+        const next = prev.map((c) => {
+          if (c.id !== m.conversationId) return c;
+          const fromOther = m.expediteurId !== userId;
+          const isOpen = openIdRef.current === c.id;
+          const alreadyLast = c.dernierMessage?.id === m.id;
+          const text = (m.contenu ?? "").trim();
+          return {
+            ...c,
+            lastMessageAt: m.date,
+            nonLus: fromOther && !isOpen && !alreadyLast ? (c.nonLus ?? 0) + 1 : isOpen ? 0 : c.nonLus,
+            dernierMessage: {
+              id: m.id,
+              contenu: m.supprimePourTous ? "" : text || (m.medias?.length ? translate("chat.attachment") : mediaSummary(m.medias)),
+              expediteurId: m.expediteurId,
+              expediteurPrenom: m.expediteurPrenom,
+              expediteurNom: m.expediteurNom,
+              date: m.date,
+              supprime: !!m.supprimePourTous,
+            },
+          };
+        });
+        return sortConversations(next);
+      });
+    },
+    [userId, scheduleReload]
+  );
+
+  // Live updates of the list (the open ChatView handles its own messages).
   useEffect(
     () =>
       subscribeMessagesStream((evt) => {
         if (evt.type === "RESYNC") {
           load(true);
+          loadTrash();
           return;
         }
-        const msg = "message" in evt ? evt.message : null;
-        if (!msg?.id) return;
-        if (evt.type === "NEW_MESSAGE" || evt.type === "MESSAGE_RESTORED") {
-          const isSender = !!userId && msg.expediteur?.id === userId;
-          const isRecipient = !isSender || (msg.destinataires ?? []).some((d) => d?.id === userId);
-          if (isSender) setSent((prev) => upsertById(prev, msg));
-          if (isRecipient) setReceived((prev) => upsertById(prev, msg));
-          if (evt.type === "MESSAGE_RESTORED") setTrash((prev) => prev.filter((m) => m.id !== msg.id));
-        } else if (evt.type === "MESSAGE_DELETED") {
-          const drop = (list: MessageItem[]) => list.filter((m) => m.id !== msg.id);
-          setSent(drop);
-          setReceived(drop);
-          // If WE deleted it (e.g. on another device) it now sits in our trash.
-          refreshTrash();
+        const e = evt as any;
+        if (e.type === "NEW_MESSAGE") {
+          if (e.chat?.conversationId) applyMessageToList(e.chat as ChatMessage);
+          else scheduleReload();
+        } else if (e.type === "CONVERSATION_READ" && e.conversationId) {
+          if (e.lecteurId === userId) {
+            patchConversation(e.conversationId, (c) => ({ ...c, nonLus: 0 }));
+          } else if (e.lecteurId) {
+            patchConversation(e.conversationId, (c) => ({
+              ...c,
+              participants: (c.participants ?? []).map((p) =>
+                p.id === e.lecteurId ? { ...p, lastReadAt: e.luJusqua ?? new Date().toISOString() } : p
+              ),
+            }));
+          }
+        } else if (
+          e.type === "MESSAGE_DELETED" ||
+          e.type === "MESSAGE_RESTORED" ||
+          // my own view changed elsewhere: favourite, marked unread, muted, trash
+          e.type === "CONVERSATION_UPDATED" ||
+          e.type === "CORBEILLE_UPDATED"
+        ) {
+          scheduleReload();
         }
       }),
-    [userId, load, refreshTrash]
+    [userId, load, loadTrash, scheduleReload, applyMessageToList, patchConversation]
   );
 
-  // Track keyboard so the chat input sits above it (and above the floating footer nav otherwise).
-  useEffect(() => {
-    const baseWindowHeight = Dimensions.get("window").height;
-    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const onShow = (e: KeyboardEvent) => {
-      // If the OS already resized the window (Android adjustResize without edge-to-edge),
-      // the keyboard no longer overlaps us.
-      const resizedBy = Math.max(0, baseWindowHeight - Dimensions.get("window").height);
-      setKeyboardInset(Math.max(0, e.endCoordinates.height - resizedBy));
-    };
-    const onHide = () => setKeyboardInset(null);
-    const s1 = Keyboard.addListener(showEvt, onShow);
-    const s2 = Keyboard.addListener(hideEvt, onHide);
-    return () => {
-      s1.remove();
-      s2.remove();
-    };
+  const openConversation = useCallback((c: Conversation) => {
+    setOpenFallback(c);
+    setOpenId(c.id);
   }, []);
 
-  // One conversation list built from BOTH sides of every exchange, deduped by id.
-  const allMessages = useMemo(() => {
-    const byId = new Map<string, MessageItem>();
-    [...received, ...sent].forEach((m) => {
-      const existing = byId.get(m.id);
-      // A message sent to yourself shows up in both lists — keep the received copy (real `lu`).
-      byId.set(m.id, existing ? { ...m, ...existing } : m);
-    });
-    return Array.from(byId.values());
-  }, [received, sent]);
+  const closeConversation = useCallback(() => {
+    setOpenId(null);
+    setOpenFallback(null);
+  }, []);
 
-  const allThreads = useMemo(() => groupByPartner(allMessages, userId), [allMessages, userId]);
+  // Hardware back closes the open chat first.
+  useHardwareBack(closeConversation, !!openId);
 
-  const term = searchTerm.trim().toLowerCase();
-
-  const listedThreads = useMemo(() => {
-    let threads = allThreads;
-    if (filterType === "inbox") threads = threads.filter((t) => t.hasReceived);
-    else if (filterType === "sent") threads = threads.filter((t) => t.hasSent);
-    else if (filterType === "starred") threads = threads.filter((t) => t.hasFavorite);
-    if (!term) return threads;
-    return threads.filter(
-      (t) =>
-        t.partnerLabel.toLowerCase().includes(term) ||
-        t.messages.some(
-          (m) => (m.objet ?? "").toLowerCase().includes(term) || (m.contenu ?? "").toLowerCase().includes(term)
-        )
-    );
-  }, [allThreads, filterType, term]);
-
-  const listedTrash = useMemo(() => {
-    const when = (m: MessageItem) => parseMessageDate(m.dateSuppression ?? m.dateCreation)?.getTime() ?? 0;
-    const sorted = [...trash].sort((a, b) => when(b) - when(a));
-    if (!term) return sorted;
-    return sorted.filter(
-      (m) =>
-        (m.objet ?? "").toLowerCase().includes(term) ||
-        (m.contenu ?? "").toLowerCase().includes(term) ||
-        getDisplayName(m.expediteur).toLowerCase().includes(term) ||
-        (m.destinataires ?? []).some((d) => getDisplayName(d).toLowerCase().includes(term))
-    );
-  }, [trash, term]);
-
-  const counts = useMemo(
-    () => ({
-      inbox: allThreads.reduce((n, t) => n + t.unreadCount, 0),
-      sent: 0,
-      starred: allMessages.filter((m) => m.favori).length,
-      trash: trash.length,
-    }),
-    [allThreads, allMessages, trash]
-  );
-
-  const selectedThread = useMemo(
-    () => allThreads.find((t) => t.key === selectedThreadKey) ?? null,
-    [allThreads, selectedThreadKey]
-  );
-
-  // Opened from a notification tap (useUiStore.requestConversation): the thread holding that
-  // message (else the one with its sender). Not found in the loaded lists → one silent reload,
-  // then a message instead of silently showing the inbox.
+  // Opened from a notification tap (MESSAGE_SENT → useUiStore.requestConversation): the conversation
+  // of that message, else the direct chat with its sender.
   const pendingConversation = useUiStore((s) => s.pendingConversation);
-  const conversationRetriedRef = useRef(false);
-  const conversationReloadingRef = useRef(false);
-  const [conversationRetryTick, setConversationRetryTick] = useState(0);
   useEffect(() => {
-    if (!pendingConversation || loading) return;
-    const { partnerId, messageId } = pendingConversation;
-    const thread =
-      (messageId ? allThreads.find((th) => th.messages.some((m) => m.id === messageId)) : undefined) ??
-      (partnerId ? allThreads.find((th) => th.key === partnerId) : undefined);
-    if (!thread && conversationReloadingRef.current) return; // wait for the reload below
-    if (!thread && !conversationRetriedRef.current) {
-      conversationRetriedRef.current = true;
-      conversationReloadingRef.current = true;
-      load(true).finally(() => {
-        conversationReloadingRef.current = false;
-        setConversationRetryTick((n) => n + 1);
-      });
-      return;
-    }
+    if (!pendingConversation || !userId) return;
     useUiStore.getState().clearPendingConversation();
-    conversationRetriedRef.current = false;
-    if (thread) {
-      setSearchTerm("");
-      if (filterType === "trash") setFilterType("inbox");
-      setSelectedThreadKey(thread.key);
-    } else {
-      Alert.alert(translate("notifications.unavailableTitle"), translate("notifications.conversationUnavailable"));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingConversation, loading, allThreads, conversationRetryTick]);
+    const { messageId, partnerId } = pendingConversation;
+    (async () => {
+      let conv: Conversation | null = null;
+      if (messageId) conv = await conversationService.byMessage(messageId).catch(() => null);
+      if (!conv && partnerId && partnerId !== userId) conv = await conversationService.create([partnerId]).catch(() => null);
+      if (!conv) {
+        Alert.alert(translate("notifications.unavailableTitle"), translate("chat.unavailable"));
+        return;
+      }
+      const found = conv;
+      setConversations((prev) => (prev.some((c) => c.id === found.id) ? prev : sortConversations([found, ...prev])));
+      openConversation(found);
+    })();
+  }, [pendingConversation, userId, openConversation]);
 
-  const patchMessage = useCallback((id: string, patch: Partial<MessageItem>) => {
-    const apply = (list: MessageItem[]) => list.map((m) => (m.id === id ? { ...m, ...patch } : m));
-    setReceived(apply);
-    setSent(apply);
-  }, []);
-
-  const markThreadRead = useCallback(
-    (thread: ConversationThread) => {
-      if (!userId) return;
-      const toMark = thread.messages.filter(
-        (m) => !m.lu && m.expediteur?.id !== userId && !markingRef.current.has(m.id)
-      );
-      if (toMark.length === 0) return;
-      toMark.forEach((m) => markingRef.current.add(m.id));
-      Promise.allSettled(toMark.map((m) => messageService.setRead(m.id, userId, true))).then((results) => {
-        results.forEach((r, i) => {
-          const id = toMark[i].id;
-          markingRef.current.delete(id);
-          // Only flip locally once the backend confirmed it, so a failure doesn't silently revert later.
-          if (r.status === "fulfilled") patchMessage(id, { lu: true });
-        });
-        refreshUnreadBadge();
-      });
+  /**
+   * Original "Nouveau message" flow (individuel / à une classe): after the send, refresh the list and
+   * open the conversation the backend put the message in.
+   */
+  const handleComposeSent = useCallback(
+    async (sent?: MessageItem) => {
+      setShowNew(false);
+      load(true);
+      refreshBadge();
+      if (!sent) return;
+      let conv: Conversation | null = null;
+      if (sent.conversationId) conv = await conversationService.get(sent.conversationId).catch(() => null);
+      if (!conv && sent.id) conv = await conversationService.byMessage(String(sent.id)).catch(() => null);
+      if (!conv) return;
+      const found = conv;
+      setConversations((prev) => sortConversations([found, ...prev.filter((c) => c.id !== found.id)]));
+      openConversation(found);
     },
-    [userId, patchMessage, refreshUnreadBadge]
+    [load, refreshBadge, openConversation]
   );
-
-  // Mark incoming messages as read while their thread is open (also covers messages pushed live).
-  useEffect(() => {
-    if (selectedThread) markThreadRead(selectedThread);
-  }, [selectedThread, markThreadRead]);
-
-  const markThreadUnread = async (thread: ConversationThread) => {
-    if (!userId) return;
-    const lastReceived = [...thread.messages].reverse().find((m) => m.expediteur?.id !== userId);
-    if (!lastReceived) return;
-    try {
-      await messageService.setRead(lastReceived.id, userId, false);
-      patchMessage(lastReceived.id, { lu: false });
-      refreshUnreadBadge();
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la mise à jour du statut.");
-    }
-  };
-
-  const toggleFavorite = async (message: MessageItem) => {
-    if (!userId) return;
-    const next = !message.favori;
-    patchMessage(message.id, { favori: next });
-    try {
-      await messageService.setFavorite(message.id, userId, next);
-    } catch (err) {
-      patchMessage(message.id, { favori: !next });
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la mise à jour du statut.");
-    }
-  };
-
-  const removeLocally = useCallback((ids: string[]) => {
-    const set = new Set(ids);
-    const drop = (list: MessageItem[]) => list.filter((m) => !set.has(m.id));
-    setSent(drop);
-    setReceived(drop);
-  }, []);
-
-  /** Single message: sender may delete for everyone or for themself; a recipient only for themself. */
-  const confirmDeleteMessage = (message: MessageItem) => {
-    const isMine = message.expediteur?.id === userId;
-    const run = async (scope: DeleteScope) => {
-      try {
-        await messageService.remove(message.id, scope);
-        removeLocally([message.id]);
-        refreshTrash();
-        refreshUnreadBadge();
-      } catch (err) {
-        Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression du message.");
-      }
-    };
-    if (isMine) {
-      Alert.alert("Supprimer le message", "Le message sera placé dans votre corbeille.", [
-        { text: "Supprimer pour tout le monde", style: "destructive", onPress: () => run("everyone") },
-        { text: "Supprimer pour moi", onPress: () => run("me") },
-        { text: "Annuler", style: "cancel" },
-      ]);
-    } else {
-      Alert.alert("Supprimer le message", "Le message sera supprimé de votre messagerie uniquement.", [
-        { text: "Annuler", style: "cancel" },
-        { text: "Supprimer pour moi", style: "destructive", onPress: () => run("me") },
-      ]);
-    }
-  };
-
-  /** Whole conversation (POST /messages/bulk-delete): "everyone" only if the user sent at least one message in it. */
-  const confirmDeleteThread = (thread: ConversationThread) => {
-    const ids = thread.messages.map((m) => m.id).filter((id) => !id.startsWith("local-"));
-    if (ids.length === 0) return;
-    const run = async (scope: DeleteScope) => {
-      try {
-        await messageService.bulkDelete(ids, scope);
-        removeLocally(ids);
-        if (selectedThreadKey === thread.key) setSelectedThreadKey(null);
-        refreshTrash();
-        refreshUnreadBadge();
-      } catch (err) {
-        Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la suppression de la conversation.");
-      }
-    };
-    if (thread.hasSent) {
-      Alert.alert(
-        "Supprimer la conversation",
-        "« Pour tout le monde » supprime vos messages chez tous les participants ; les messages reçus ne sont supprimés que pour vous.",
-        [
-          { text: "Supprimer pour tout le monde", style: "destructive", onPress: () => run("everyone") },
-          { text: "Supprimer pour moi", onPress: () => run("me") },
-          { text: "Annuler", style: "cancel" },
-        ]
-      );
-    } else {
-      Alert.alert("Supprimer la conversation", "La conversation sera supprimée de votre messagerie uniquement.", [
-        { text: "Annuler", style: "cancel" },
-        { text: "Supprimer pour moi", style: "destructive", onPress: () => run("me") },
-      ]);
-    }
-  };
-
-  const handleThreadLongPress = (thread: ConversationThread) => {
-    const options: { text: string; onPress?: () => void; style?: "cancel" | "destructive" }[] = [];
-    if (thread.unreadCount > 0) options.push({ text: "Marquer comme lu", onPress: () => markThreadRead(thread) });
-    else if (thread.hasReceived) options.push({ text: "Marquer comme non lu", onPress: () => markThreadUnread(thread) });
-    options.push({ text: "Supprimer la conversation", style: "destructive", onPress: () => confirmDeleteThread(thread) });
-    options.push({ text: "Annuler", style: "cancel" });
-    Alert.alert(thread.partnerLabel, undefined, options);
-  };
-
-  const handleBubbleLongPress = (message: MessageItem) => {
-    if (message.id.startsWith("local-")) return;
-    Alert.alert(message.objet || "Message", undefined, [
-      { text: message.favori ? "Retirer des favoris" : "Ajouter aux favoris", onPress: () => toggleFavorite(message) },
-      { text: "Supprimer", style: "destructive", onPress: () => confirmDeleteMessage(message) },
-      { text: "Annuler", style: "cancel" },
-    ]);
-  };
-
-  // A half-written reply's attachments belong to that conversation only.
-  useEffect(() => {
-    replyAttachments.clear();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThreadKey]);
-
-  const handleReplyAttach = async (type: AttachmentType) => {
-    setShowReplyAttach(false);
-    try {
-      if (type === "media") await replyAttachments.pickMedia();
-      else if (type === "document") await replyAttachments.pickDocument();
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Impossible d'ajouter la pièce jointe.");
-    }
-  };
-
-  const replyMedias = replyAttachments.toPayload();
-  const canSendReply =
-    (!!replyText.trim() || replyMedias.length > 0) && !sendingReply && !replyAttachments.isUploading && !replyAttachments.hasErrors;
-
-  const handleSendReply = async () => {
-    if (!selectedThread || !userId || sendingReply) return;
-    if (replyAttachments.hasErrors) {
-      Alert.alert("Pièces jointes", "Certaines pièces jointes n'ont pas pu être téléversées. Retirez-les ou réessayez.");
-      return;
-    }
-    const content = replyText.trim();
-    const medias = replyAttachments.toPayload();
-    if ((!content && medias.length === 0) || replyAttachments.isUploading) return;
-    const recipients: MessageParty[] = selectedThread.partner
-      ? [selectedThread.partner]
-      : selectedThread.broadcastRecipients;
-    if (recipients.length === 0 || recipients.every((r) => r.id === userId)) {
-      Alert.alert("Erreur", "Destinataire introuvable pour cette réponse.");
-      return;
-    }
-    const baseSubject = stripReplyPrefix(selectedThread.latest.objet);
-    setSendingReply(true);
-    try {
-      const created = await messageService.sendIndividualMessage({
-        contenu: content,
-        objet: baseSubject ? `Re: ${baseSubject}` : undefined,
-        destinataires: recipients.map((r) => toUtilisateurPayload(r)),
-        medias: medias.length ? medias : undefined,
-      });
-      // The server also pushes NEW_MESSAGE to the sender; upsert by id keeps a single copy.
-      setSent((prev) =>
-        upsertById(prev, {
-          ...created,
-          id: created?.id ?? `local-${Date.now()}`,
-          contenu: created?.contenu ?? content,
-          dateCreation: created?.dateCreation ?? new Date().toISOString(),
-          expediteur: created?.expediteur ?? { id: userId, nom: user?.nom, prenom: user?.prenom },
-          destinataires: created?.destinataires ?? recipients,
-          medias: created?.medias ?? [],
-          lu: true,
-        })
-      );
-      setReplyText("");
-      replyAttachments.clear();
-    } catch (err) {
-      Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de l'envoi de la réponse.");
-    } finally {
-      setSendingReply(false);
-    }
-  };
-
-  const handleRestore = (message: MessageItem) => {
-    Alert.alert("Restaurer", "Restaurer ce message depuis la corbeille ?", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Restaurer",
-        onPress: async () => {
-          try {
-            await messageService.restore(message.id);
-            setTrash((prev) => prev.filter((m) => m.id !== message.id));
-            load(true);
-            refreshUnreadBadge();
-          } catch (err) {
-            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la restauration.");
-          }
-        },
-      },
-    ]);
-  };
-
-  const handleEmptyTrash = () => {
-    Alert.alert("Vider la corbeille", "Supprimer définitivement tous les messages de votre corbeille ? Cette action est irréversible.", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Vider",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await messageService.emptyTrash();
-            setTrash([]);
-          } catch (err) {
-            Alert.alert("Erreur", err instanceof Error ? err.message : "Échec du vidage de la corbeille.");
-          }
-        },
-      },
-    ]);
-  };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await load(true);
+    await Promise.all([load(true), loadTrash()]);
     setRefreshing(false);
   };
 
+  const onRead = useCallback(
+    (id: string) => {
+      patchConversation(id, (c) => ({ ...c, nonLus: 0, marqueNonLu: false }));
+      refreshBadge();
+    },
+    [patchConversation, refreshBadge]
+  );
+
+  const hideConversation = async (c: Conversation) => {
+    try {
+      await conversationService.hide(c.id);
+      setConversations((prev) => prev.filter((x) => x.id !== c.id));
+      refreshBadge();
+      loadTrash();
+    } catch (e) {
+      Alert.alert(translate("common.error"), e instanceof Error ? e.message : translate("chat.errors.delete"));
+    }
+  };
+
+  const toggleFavorite = async (c: Conversation) => {
+    const next = !c.favori;
+    patchConversation(c.id, (x) => ({ ...x, favori: next }));
+    try {
+      await conversationService.setFavorite(c.id, next);
+    } catch (e) {
+      patchConversation(c.id, (x) => ({ ...x, favori: !next }));
+      Alert.alert(translate("common.error"), e instanceof Error ? e.message : translate("chat.errors.generic"));
+    }
+  };
+
+  /** "Marquer comme non lu" (also from the open chat, which is then closed so it stays unread). */
+  const markUnread = async (c: Conversation) => {
+    patchConversation(c.id, (x) => ({ ...x, marqueNonLu: true }));
+    if (openIdRef.current === c.id) closeConversation();
+    try {
+      await conversationService.markUnread(c.id);
+    } catch (e) {
+      patchConversation(c.id, (x) => ({ ...x, marqueNonLu: false }));
+      Alert.alert(translate("common.error"), e instanceof Error ? e.message : translate("chat.errors.generic"));
+    }
+    refreshBadge();
+  };
+
+  const markRead = async (c: Conversation) => {
+    patchConversation(c.id, (x) => ({ ...x, nonLus: 0, marqueNonLu: false }));
+    try {
+      await conversationService.markRead(c.id);
+    } catch {
+      // the badge is refreshed on the next load
+    }
+    refreshBadge();
+  };
+
+  // ── Corbeille ──────────────────────────────────────────────────────────
+  const dropFromTrash = (kind: "conversation" | "message", id: string) =>
+    setTrash((prev) => ({
+      conversations: kind === "conversation" ? prev.conversations.filter((c) => c.id !== id) : prev.conversations,
+      messages: kind === "message" ? prev.messages.filter((m) => m.id !== id) : prev.messages,
+    }));
+
+  const restoreFromTrash = async (kind: "conversation" | "message", id: string) => {
+    try {
+      if (kind === "conversation") await conversationService.restoreConversation(id);
+      else await conversationService.restoreMessage(id);
+      dropFromTrash(kind, id);
+      load(true);
+      loadTrash();
+      refreshBadge();
+    } catch (e) {
+      Alert.alert(translate("common.error"), e instanceof Error ? e.message : translate("chat.errors.restore"));
+    }
+  };
+
+  const purgeFromTrash = (kind: "conversation" | "message", id: string) => {
+    Alert.alert(
+      kind === "conversation" ? translate("chat.trash.purgeChatTitle") : translate("chat.trash.purgeMessageTitle"),
+      translate("chat.trash.purgeConfirm"),
+      [
+        { text: translate("common.cancel"), style: "cancel" },
+        {
+          text: translate("chat.trash.purge"),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              if (kind === "conversation") await conversationService.purgeConversation(id);
+              else await conversationService.purgeMessage(id);
+              dropFromTrash(kind, id);
+              loadTrash();
+            } catch (e) {
+              Alert.alert(translate("common.error"), e instanceof Error ? e.message : translate("chat.errors.delete"));
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const emptyTrash = () => {
+    Alert.alert(translate("chat.trash.emptyTitle"), translate("chat.trash.emptyConfirm"), [
+      { text: translate("common.cancel"), style: "cancel" },
+      {
+        text: translate("chat.trash.empty"),
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await conversationService.emptyTrash();
+            setTrash({ conversations: [], messages: [] });
+            loadTrash();
+          } catch (e) {
+            Alert.alert(translate("common.error"), e instanceof Error ? e.message : translate("chat.errors.delete"));
+          }
+        },
+      },
+    ]);
+  };
+
+  const toggleMute = async (c: Conversation) => {
+    try {
+      await conversationService.setMuted(c.id, !c.muted);
+      patchConversation(c.id, (x) => ({ ...x, muted: !c.muted }));
+    } catch (e) {
+      Alert.alert(translate("common.error"), e instanceof Error ? e.message : translate("chat.errors.generic"));
+    }
+  };
+
   const footerClearance = Math.max(insets.bottom, 12) + FOOTER_NAV_HEIGHT;
+  const open = useMemo(
+    () => (openId ? conversations.find((c) => c.id === openId) ?? openFallback : null),
+    [openId, conversations, openFallback]
+  );
 
-  // ── Thread (chat) view ────────────────────────────────────────────────
-  if (selectedThread) {
-    const canReply = !!selectedThread.partner || selectedThread.broadcastRecipients.length > 0;
-    const subtitle = selectedThread.partner
-      ? [getRoleLabel(selectedThread.partner), stripReplyPrefix(selectedThread.latest.objet)].filter(Boolean).join(" · ")
-      : `Message groupé · ${selectedThread.broadcastRecipients.length} destinataires`;
-    const bottomSpacer = keyboardInset !== null ? keyboardInset + 8 : footerClearance;
-
+  if (open) {
     return (
-      <View style={styles.container}>
-        <View style={styles.threadHeader}>
-          <TouchableOpacity onPress={() => setSelectedThreadKey(null)} style={styles.iconButton} accessibilityLabel="Retour">
-            <FontAwesome5 name="arrow-left" size={18} color={colors.text} />
-          </TouchableOpacity>
-          <View style={styles.threadAvatar}>
-            {selectedThread.partner ? (
-              <Text style={styles.threadAvatarText}>{getInitials(selectedThread.partner)}</Text>
-            ) : (
-              <FontAwesome5 name="users" size={14} color={colors.white} />
-            )}
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.threadName} numberOfLines={1}>
-              {selectedThread.partnerLabel}
-            </Text>
-            {subtitle ? (
-              <Text style={styles.threadSubject} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            ) : null}
-          </View>
-          <TouchableOpacity onPress={() => confirmDeleteThread(selectedThread)} style={styles.iconButton} accessibilityLabel="Supprimer la conversation">
-            <FontAwesome5 name="trash-alt" size={16} color={colors.textLight} />
-          </TouchableOpacity>
-        </View>
-
-        <FlatList
-          ref={listRef}
-          style={styles.bubbleList}
-          contentContainerStyle={{ padding: 16, paddingBottom: 8 }}
-          data={selectedThread.messages}
-          keyExtractor={(item) => item.id}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
-          renderItem={({ item, index }) => {
-            const isMine = item.expediteur?.id === userId;
-            const { body, quoted } = splitQuoted(item.contenu);
-            const prev = index > 0 ? selectedThread.messages[index - 1] : null;
-            const day = formatDayLabel(item.dateCreation);
-            const showDay = !prev || formatDayLabel(prev.dateCreation) !== day;
-            const subject = stripReplyPrefix(item.objet);
-            const showSubject = !!subject && (!prev || stripReplyPrefix(prev.objet) !== subject);
-            return (
-              <View>
-                {showDay && day ? <Text style={styles.dayLabel}>{day}</Text> : null}
-                <View style={[styles.bubbleRow, isMine && styles.bubbleRowMine]}>
-                  <TouchableOpacity
-                    activeOpacity={0.85}
-                    onLongPress={() => handleBubbleLongPress(item)}
-                    style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}
-                  >
-                    {showSubject && (
-                      <Text style={[styles.bubbleSubject, isMine && styles.bubbleSubjectMine]} numberOfLines={2}>
-                        {subject}
-                      </Text>
-                    )}
-                    <MessageMediaList medias={item.medias} mine={isMine} />
-                    {body || !item.medias?.length ? (
-                      <LinkifiedText
-                        text={body || " "}
-                        style={[styles.bubbleText, isMine && styles.bubbleTextMine]}
-                        linkColor={isMine ? colors.white : colors.primary}
-                      />
-                    ) : null}
-                    {quoted ? (
-                      <Text style={[styles.bubbleQuoted, isMine && styles.bubbleQuotedMine]} numberOfLines={6}>
-                        {quoted}
-                      </Text>
-                    ) : null}
-                    <View style={styles.bubbleMeta}>
-                      {item.favori && (
-                        <FontAwesome5 name="star" solid size={9} color={isMine ? colors.white : colors.warning} />
-                      )}
-                      <Text style={[styles.bubbleTime, isMine && styles.bubbleTimeMine]}>
-                        {formatBubbleTime(item.dateCreation)}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            );
-          }}
-        />
-
-        {canReply ? (
-          <View style={styles.replyContainer}>
-            <PendingAttachmentsBar
-              items={replyAttachments.items}
-              onRemove={replyAttachments.remove}
-              onRetry={replyAttachments.retry}
-            />
-            <View style={styles.replyBar}>
-              <TouchableOpacity
-                style={styles.replyAttachButton}
-                onPress={() => setShowReplyAttach(true)}
-                accessibilityLabel="Joindre un fichier"
-              >
-                <FontAwesome5 name="paperclip" size={16} color={colors.primary} />
-              </TouchableOpacity>
-              <TextInput
-                style={styles.replyInput}
-                value={replyText}
-                onChangeText={setReplyText}
-                placeholder="Écrire un message..."
-                placeholderTextColor={colors.textLight}
-                multiline
-                maxLength={5000}
-              />
-              <TouchableOpacity
-                style={[styles.replySendButton, !canSendReply && styles.replySendButtonDisabled]}
-                onPress={handleSendReply}
-                disabled={!canSendReply}
-                accessibilityLabel="Envoyer"
-              >
-                {sendingReply || replyAttachments.isUploading ? (
-                  <ActivityIndicator size="small" color={colors.white} />
-                ) : (
-                  <FontAwesome5 name="paper-plane" size={16} color={colors.white} />
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
-        {/* Keeps the reply bar above the keyboard, or above the shared floating footer nav. */}
-        <View style={{ height: bottomSpacer, backgroundColor: colors.surface }} />
-        {showReplyAttach && <AttachmentModal onClose={() => setShowReplyAttach(false)} onAttach={handleReplyAttach} />}
-      </View>
+      <ChatView
+        conversation={open}
+        userId={userId}
+        me={{ prenom: user?.prenom as string | undefined, nom: user?.nom as string | undefined }}
+        bottomClearance={footerClearance}
+        onBack={closeConversation}
+        onRead={onRead}
+        onSent={applyMessageToList}
+        onConversationChange={(c) => patchConversation(c.id, () => c)}
+        onHidden={(id) => {
+          setConversations((prev) => prev.filter((x) => x.id !== id));
+          closeConversation();
+          refreshBadge();
+          loadTrash();
+        }}
+        onMarkUnread={markUnread}
+      />
     );
   }
 
-  // ── Inbox / list view ────────────────────────────────────────────────
-  const filterTabs: {
-    id: FilterType;
-    label: string;
-    icon: React.ComponentProps<typeof FontAwesome5>["name"];
-    count: number;
-  }[] = [
-    { id: "inbox", label: "Inbox", icon: "inbox", count: counts.inbox },
-    { id: "sent", label: "Envoyés", icon: "paper-plane", count: counts.sent },
-    { id: "starred", label: "Favoris", icon: "star", count: counts.starred },
-    { id: "trash", label: "Corbeille", icon: "trash-alt", count: counts.trash },
-  ];
-
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        {onBack && (
-          <TouchableOpacity style={styles.backButton} onPress={onBack} accessibilityLabel="Retour">
-            <FontAwesome5 name="arrow-left" size={18} color={colors.primary} />
-          </TouchableOpacity>
-        )}
-        <Text style={styles.headerTitle}>Messages</Text>
-        <TouchableOpacity onPress={() => load(true)} disabled={loading} style={styles.refreshButton} accessibilityLabel="Actualiser">
-          <FontAwesome5 name="sync-alt" size={15} color={colors.textMuted} style={loading ? { opacity: 0.4 } : undefined} />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchContainer}>
-        <FontAwesome5 name="search" size={14} color={colors.textLight} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Rechercher..."
-          value={searchTerm}
-          onChangeText={setSearchTerm}
-          placeholderTextColor={colors.textLight}
-        />
-        {searchTerm ? (
-          <TouchableOpacity onPress={() => setSearchTerm("")} accessibilityLabel="Effacer">
-            <FontAwesome5 name="times-circle" size={14} color={colors.textLight} />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsContainer}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
-      >
-        {filterTabs.map((tab) => {
-          const active = filterType === tab.id;
-          return (
-            <TouchableOpacity key={tab.id} style={[styles.tab, active && styles.activeTab]} onPress={() => setFilterType(tab.id)}>
-              <FontAwesome5 name={tab.icon} size={12} color={active ? colors.white : colors.textMuted} />
-              <Text style={[styles.tabText, active && styles.activeTabText]}>{tab.label}</Text>
-              {tab.count > 0 && (
-                <View style={[styles.tabBadge, active && styles.tabBadgeActive]}>
-                  <Text style={[styles.tabBadgeText, active && styles.tabBadgeTextActive]}>{tab.count}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      <ScrollView
-        style={styles.messagesList}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 150 }}
-        keyboardShouldPersistTaps="handled"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={colors.primary} />}
-      >
-        {error ? (
-          <View style={styles.emptyState}>
-            <FontAwesome5 name="exclamation-circle" size={40} color={colors.danger} />
-            <Text style={[styles.emptyStateText, { color: colors.danger }]}>{error}</Text>
-            <TouchableOpacity onPress={() => load()} style={styles.retryButton}>
-              <Text style={styles.retryText}>Réessayer</Text>
-            </TouchableOpacity>
-          </View>
-        ) : loading ? (
-          <View style={styles.emptyState}>
-            <ActivityIndicator size="large" color={colors.primary} />
-            <Text style={styles.emptyStateSubtext}>Chargement des messages...</Text>
-          </View>
-        ) : filterType === "trash" ? (
-          listedTrash.length === 0 ? (
-            <EmptyState styles={styles} colors={colors} searchTerm={searchTerm} filterType={filterType} />
-          ) : (
-            <>
-              <View style={styles.trashHeaderRow}>
-                <Text style={styles.trashHint}>Messages que vous avez supprimés.</Text>
-                <TouchableOpacity onPress={handleEmptyTrash} style={styles.emptyTrashButton} accessibilityLabel="Vider la corbeille">
-                  <FontAwesome5 name="trash" size={11} color={colors.danger} />
-                  <Text style={styles.emptyTrashText}>Vider la corbeille</Text>
-                </TouchableOpacity>
-              </View>
-              {listedTrash.map((m) => {
-                const sentByMe = m.expediteur?.id === userId;
-                const counterpart = sentByMe ? m.destinataires?.[0] : m.expediteur;
-                const preview = getMessagePreview(m);
-                return (
-                  <View key={m.id} style={styles.trashItem}>
-                    <View style={styles.trashAvatar}>
-                      <Text style={styles.trashAvatarText}>{getInitials(counterpart)}</Text>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.trashTo} numberOfLines={1}>
-                        {sentByMe
-                          ? `À : ${(m.destinataires ?? []).map(getDisplayName).join(", ") || "—"}`
-                          : `De : ${getDisplayName(m.expediteur)}`}
-                      </Text>
-                      <Text style={styles.trashSubject} numberOfLines={1}>{m.objet || "Sans objet"}</Text>
-                      <View style={styles.previewRow}>
-                        {preview.icon ? <FontAwesome5 name={preview.icon} size={10} color={colors.textLight} /> : null}
-                        <Text style={[styles.trashPreview, { marginTop: 0 }]} numberOfLines={1}>{preview.text}</Text>
-                      </View>
-                      {m.supprimePourTous ? <Text style={styles.trashBadge}>Supprimé pour tout le monde</Text> : null}
-                    </View>
-                    <TouchableOpacity onPress={() => handleRestore(m)} style={styles.restoreButton} accessibilityLabel="Restaurer">
-                      <FontAwesome5 name="undo" size={14} color={colors.primary} />
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
-            </>
+    <>
+      <ConversationList
+        conversations={conversations}
+        userId={userId}
+        loading={loading}
+        error={error}
+        refreshing={refreshing}
+        bottomClearance={footerClearance}
+        onBack={onBack}
+        onRefresh={handleRefresh}
+        onRetry={() => load()}
+        onOpen={openConversation}
+        onLongPress={setMenuFor}
+        onNew={() => setShowNew(true)}
+        filter={filter}
+        onFilterChange={setFilter}
+        trash={trash}
+        trashLoading={trashLoading}
+        onTrashItemPress={(kind, item) =>
+          setTrashMenu(
+            kind === "conversation"
+              ? { kind, item: item as Conversation }
+              : { kind: "message", item: item as ChatMessage }
           )
-        ) : listedThreads.length === 0 ? (
-          <EmptyState styles={styles} colors={colors} searchTerm={searchTerm} filterType={filterType} />
-        ) : (
-          listedThreads.map((thread) => {
-            const hasUnread = thread.unreadCount > 0;
-            const latestIsMine = thread.latest.expediteur?.id === userId;
-            const latestPreview = getMessagePreview(thread.latest);
-            return (
-              <TouchableOpacity
-                key={thread.key}
-                style={styles.conversationCard}
-                onPress={() => setSelectedThreadKey(thread.key)}
-                onLongPress={() => handleThreadLongPress(thread)}
-              >
-                <View style={styles.conversationAvatarWrap}>
-                  <View style={[styles.conversationAvatar, hasUnread && styles.conversationAvatarUnread]}>
-                    {thread.partner ? (
-                      <Text style={[styles.conversationAvatarText, hasUnread && { color: colors.primary }]}>
-                        {getInitials(thread.partner)}
-                      </Text>
-                    ) : (
-                      <FontAwesome5 name="users" size={16} color={colors.textMuted} />
-                    )}
-                  </View>
-                  {hasUnread && <View style={styles.unreadDot} />}
-                </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={styles.conversationTopRow}>
-                    <Text style={[styles.conversationName, hasUnread && styles.conversationNameUnread]} numberOfLines={1}>
-                      {thread.partnerLabel}
-                    </Text>
-                    <Text style={[styles.conversationTime, hasUnread && { color: colors.primary }]}>
-                      {formatListDate(thread.latest.dateCreation)}
-                    </Text>
-                  </View>
-                  <Text style={styles.conversationSubject} numberOfLines={1}>
-                    {thread.latest.objet || "Sans objet"}
-                  </Text>
-                  <View style={styles.conversationBottomRow}>
-                    {latestPreview.icon ? (
-                      <FontAwesome5
-                        name={latestPreview.icon}
-                        size={11}
-                        color={hasUnread ? colors.text : colors.textMuted}
-                        style={{ marginRight: 5 }}
-                      />
-                    ) : null}
-                    <Text style={[styles.conversationPreview, hasUnread && styles.conversationPreviewUnread]} numberOfLines={1}>
-                      {latestIsMine ? "Vous : " : ""}
-                      {latestPreview.text}
-                    </Text>
-                    {hasUnread ? (
-                      <View style={styles.unreadBadge}>
-                        <Text style={styles.unreadBadgeText}>{thread.unreadCount}</Text>
-                      </View>
-                    ) : thread.messages.length > 1 ? (
-                      <Text style={styles.threadCountText}>{thread.messages.length}</Text>
-                    ) : null}
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })
-        )}
-      </ScrollView>
-
-      <TouchableOpacity
-        style={[styles.floatingButton, { bottom: footerClearance + 20 }]}
-        onPress={() => setShowCompose(true)}
-        accessibilityLabel="Nouveau message"
-      >
-        <FontAwesome5 name="pen" size={20} color={colors.white} />
-      </TouchableOpacity>
-
-      {showCompose && (
-        <ComposeMessageModal
-          onClose={() => setShowCompose(false)}
-          onSend={() => {
-            setShowCompose(false);
-            setFilterType("inbox");
-            load(true);
-          }}
+        }
+        onEmptyTrash={emptyTrash}
+      />
+      {showNew && <ComposeMessageModal onClose={() => setShowNew(false)} onSend={handleComposeSent} />}
+      {menuFor && (
+        <ChatActionSheet
+          title={conversationTitle(menuFor, userId)}
+          onClose={() => setMenuFor(null)}
+          actions={[
+            isUnreadConversation(menuFor)
+              ? { key: "read", label: translate("chat.markRead"), icon: "envelope-open", onPress: () => markRead(menuFor) }
+              : { key: "unread", label: translate("chat.markUnread"), icon: "envelope", onPress: () => markUnread(menuFor) },
+            {
+              key: "favorite",
+              label: menuFor.favori ? translate("chat.removeFavorite") : translate("chat.addFavorite"),
+              icon: "star",
+              onPress: () => toggleFavorite(menuFor),
+            },
+            {
+              key: "mute",
+              label: menuFor.muted ? translate("chat.unmute") : translate("chat.mute"),
+              icon: menuFor.muted ? "bell" : "bell-slash",
+              onPress: () => toggleMute(menuFor),
+            },
+            {
+              key: "hide",
+              label: translate("chat.deleteChat"),
+              icon: "trash-alt",
+              destructive: true,
+              onPress: () => {
+                const target = menuFor;
+                Alert.alert(translate("chat.deleteChat"), translate("chat.deleteChatConfirm"), [
+                  { text: translate("common.cancel"), style: "cancel" },
+                  { text: translate("common.delete"), style: "destructive", onPress: () => hideConversation(target) },
+                ]);
+              },
+            },
+          ]}
         />
       )}
-    </View>
+      {trashMenu && (
+        <ChatActionSheet
+          title={
+            trashMenu.kind === "conversation"
+              ? conversationTitle(trashMenu.item, userId)
+              : (trashMenu.item.contenu ?? "").replace(/\s+/g, " ").trim().slice(0, 100) ||
+                mediaSummary(trashMenu.item.medias) ||
+                translate("chat.attachment")
+          }
+          onClose={() => setTrashMenu(null)}
+          actions={[
+            {
+              key: "restore",
+              label: translate("chat.trash.restore"),
+              icon: "undo",
+              onPress: () => restoreFromTrash(trashMenu.kind, trashMenu.item.id),
+            },
+            {
+              key: "purge",
+              label: translate("chat.trash.purge"),
+              icon: "trash-alt",
+              destructive: true,
+              onPress: () => purgeFromTrash(trashMenu.kind, trashMenu.item.id),
+            },
+          ]}
+        />
+      )}
+    </>
   );
 };
-
-const EMPTY_COPY: Record<FilterType, { icon: React.ComponentProps<typeof FontAwesome5>["name"]; title: string; sub: string }> = {
-  inbox: { icon: "inbox", title: "Aucun message", sub: "Vos conversations apparaîtront ici" },
-  sent: { icon: "paper-plane", title: "Aucun message envoyé", sub: "Appuyez sur le bouton crayon pour écrire" },
-  starred: { icon: "star", title: "Aucun favori", sub: "Appui long sur un message pour l'ajouter aux favoris" },
-  trash: { icon: "trash-alt", title: "Corbeille vide", sub: "Les messages que vous supprimez apparaîtront ici" },
-};
-
-const EmptyState = ({
-  styles,
-  colors,
-  searchTerm,
-  filterType,
-}: {
-  styles: ReturnType<typeof createStyles>;
-  colors: ThemeColors;
-  searchTerm: string;
-  filterType: FilterType;
-}) => {
-  const copy = EMPTY_COPY[filterType];
-  return (
-    <View style={styles.emptyState}>
-      <View style={styles.emptyIconWrap}>
-        <FontAwesome5 name={searchTerm ? "search" : copy.icon} size={32} color={colors.textLight} />
-      </View>
-      <Text style={styles.emptyStateText}>{searchTerm ? "Aucun résultat trouvé" : copy.title}</Text>
-      <Text style={styles.emptyStateSubtext}>{searchTerm ? "Essayez avec d'autres mots-clés" : copy.sub}</Text>
-    </View>
-  );
-};
-
-const createStyles = (c: ThemeColors) =>
-  StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.background },
-    header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
-    backButton: { marginRight: 12, padding: 4 },
-    headerTitle: { flex: 1, fontSize: 22, fontWeight: "800", color: c.text },
-    refreshButton: { padding: 9, backgroundColor: c.surface, borderRadius: 10, borderWidth: 1, borderColor: c.border },
-    searchContainer: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: c.surface,
-      marginHorizontal: 16,
-      marginBottom: 10,
-      paddingHorizontal: 14,
-      paddingVertical: Platform.OS === "ios" ? 11 : 4,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    searchIcon: { marginRight: 10 },
-    searchInput: { flex: 1, fontSize: 14, color: c.text },
-    tabsContainer: { flexGrow: 0, marginBottom: 10 },
-    tab: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderRadius: 12,
-      backgroundColor: c.surface,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    activeTab: { backgroundColor: c.primary, borderColor: c.primary },
-    tabText: { fontSize: 12, fontWeight: "700", color: c.textMuted },
-    activeTabText: { color: c.white },
-    tabBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, backgroundColor: c.surfaceElevated },
-    tabBadgeActive: { backgroundColor: "rgba(255,255,255,0.25)" },
-    tabBadgeText: { fontSize: 10, fontWeight: "700", color: c.textMuted },
-    tabBadgeTextActive: { color: c.white },
-    messagesList: { flex: 1, paddingHorizontal: 16 },
-    conversationCard: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: c.surface,
-      padding: 14,
-      marginBottom: 8,
-      borderRadius: 20,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    conversationAvatarWrap: { marginRight: 14 },
-    conversationAvatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 16,
-      backgroundColor: c.surfaceElevated,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    conversationAvatarUnread: { backgroundColor: c.primaryLight },
-    conversationAvatarText: { fontSize: 16, fontWeight: "800", color: c.textMuted },
-    unreadDot: {
-      position: "absolute",
-      top: -2,
-      right: -2,
-      width: 12,
-      height: 12,
-      borderRadius: 6,
-      backgroundColor: c.primary,
-      borderWidth: 2,
-      borderColor: c.surface,
-    },
-    conversationTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
-    conversationName: { flex: 1, fontSize: 14, fontWeight: "600", color: c.text, marginRight: 8 },
-    conversationNameUnread: { fontWeight: "800" },
-    conversationTime: { fontSize: 10, fontWeight: "700", color: c.textLight },
-    conversationSubject: { fontSize: 11, fontWeight: "700", color: c.primary, marginTop: 1 },
-    conversationBottomRow: { flexDirection: "row", alignItems: "center", marginTop: 2 },
-    conversationPreview: { flex: 1, fontSize: 12, color: c.textMuted },
-    conversationPreviewUnread: { color: c.text, fontWeight: "600" },
-    unreadBadge: {
-      minWidth: 18,
-      height: 18,
-      borderRadius: 9,
-      paddingHorizontal: 5,
-      backgroundColor: c.primary,
-      alignItems: "center",
-      justifyContent: "center",
-      marginLeft: 8,
-    },
-    unreadBadgeText: { fontSize: 10, fontWeight: "800", color: c.white },
-    threadCountText: { fontSize: 10, fontWeight: "700", color: c.textLight, marginLeft: 8 },
-    emptyState: { alignItems: "center", paddingVertical: 56, paddingHorizontal: 24 },
-    emptyIconWrap: { padding: 22, borderRadius: 999, backgroundColor: c.surfaceElevated, marginBottom: 4 },
-    emptyStateText: { fontSize: 15, fontWeight: "700", color: c.text, marginTop: 12, textAlign: "center" },
-    emptyStateSubtext: { fontSize: 12, color: c.textMuted, marginTop: 4, textAlign: "center" },
-    retryButton: { marginTop: 12, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, backgroundColor: c.primaryLight },
-    retryText: { color: c.primaryDark, fontWeight: "700" },
-    floatingButton: {
-      position: "absolute",
-      right: 20,
-      width: 56,
-      height: 56,
-      borderRadius: 18,
-      backgroundColor: c.primary,
-      justifyContent: "center",
-      alignItems: "center",
-      shadowColor: c.primary,
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.35,
-      shadowRadius: 10,
-      elevation: 8,
-    },
-    // Trash
-    trashHint: { fontSize: 11, color: c.textLight, marginBottom: 8, marginLeft: 4 },
-    trashItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: c.surface,
-      padding: 14,
-      marginBottom: 8,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    trashAvatar: {
-      width: 40,
-      height: 40,
-      borderRadius: 14,
-      backgroundColor: c.surfaceElevated,
-      alignItems: "center",
-      justifyContent: "center",
-      marginRight: 12,
-    },
-    trashAvatarText: { fontSize: 13, fontWeight: "800", color: c.textLight },
-    trashTo: { fontSize: 11, fontWeight: "600", color: c.textMuted },
-    trashSubject: { fontSize: 13, fontWeight: "700", color: c.text, marginTop: 1 },
-    trashPreview: { fontSize: 12, color: c.textLight, marginTop: 2 },
-    trashHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-    emptyTrashButton: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 10,
-      backgroundColor: c.dangerLight,
-    },
-    emptyTrashText: { fontSize: 11, fontWeight: "700", color: c.danger },
-    previewRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
-    trashBadge: { fontSize: 10, fontWeight: "700", color: c.warning, marginTop: 3 },
-    restoreButton: { padding: 10, borderRadius: 10, backgroundColor: c.primaryLight, marginLeft: 8 },
-    // Thread / chat view
-    threadHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      backgroundColor: c.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
-    },
-    iconButton: { padding: 8 },
-    threadAvatar: {
-      width: 38,
-      height: 38,
-      borderRadius: 19,
-      backgroundColor: c.primary,
-      alignItems: "center",
-      justifyContent: "center",
-      marginHorizontal: 8,
-    },
-    threadAvatarText: { color: c.white, fontSize: 14, fontWeight: "800" },
-    threadName: { fontSize: 15, fontWeight: "800", color: c.text },
-    threadSubject: { fontSize: 11, fontWeight: "600", color: c.textLight },
-    bubbleList: { flex: 1 },
-    dayLabel: {
-      alignSelf: "center",
-      fontSize: 10,
-      fontWeight: "700",
-      color: c.textMuted,
-      backgroundColor: c.surfaceElevated,
-      paddingHorizontal: 10,
-      paddingVertical: 3,
-      borderRadius: 999,
-      marginVertical: 8,
-      overflow: "hidden",
-    },
-    bubbleRow: { flexDirection: "row", justifyContent: "flex-start", marginBottom: 10 },
-    bubbleRowMine: { justifyContent: "flex-end" },
-    bubble: { maxWidth: "82%", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20 },
-    bubbleTheirs: { backgroundColor: c.surface, borderBottomLeftRadius: 4, borderWidth: 1, borderColor: c.border },
-    bubbleMine: { backgroundColor: c.primary, borderBottomRightRadius: 4 },
-    bubbleSubject: { fontSize: 11, fontWeight: "800", color: c.primary, marginBottom: 4 },
-    bubbleSubjectMine: { color: "rgba(255,255,255,0.85)" },
-    bubbleText: { fontSize: 14, lineHeight: 20, color: c.text },
-    bubbleTextMine: { color: c.white },
-    bubbleQuoted: {
-      fontSize: 12,
-      lineHeight: 17,
-      color: c.textMuted,
-      marginTop: 8,
-      paddingTop: 6,
-      borderTopWidth: 1,
-      borderTopColor: c.border,
-    },
-    bubbleQuotedMine: { color: "rgba(255,255,255,0.75)", borderTopColor: "rgba(255,255,255,0.35)" },
-    bubbleMeta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 4 },
-    bubbleTime: { fontSize: 10, color: c.textLight },
-    bubbleTimeMine: { color: "rgba(255,255,255,0.75)" },
-    replyContainer: {
-      paddingHorizontal: 12,
-      paddingTop: 4,
-      backgroundColor: c.surface,
-      borderTopWidth: 1,
-      borderTopColor: c.border,
-    },
-    replyBar: {
-      flexDirection: "row",
-      alignItems: "flex-end",
-      gap: 8,
-      paddingTop: 6,
-      paddingBottom: 6,
-    },
-    replyAttachButton: {
-      width: 40,
-      height: 44,
-      borderRadius: 14,
-      backgroundColor: c.primaryLight,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    replyInput: {
-      flex: 1,
-      maxHeight: 120,
-      backgroundColor: c.background,
-      borderRadius: 22,
-      borderWidth: 1,
-      borderColor: c.border,
-      paddingHorizontal: 16,
-      paddingTop: 10,
-      paddingBottom: 10,
-      fontSize: 14,
-      color: c.text,
-    },
-    replySendButton: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: c.primary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    replySendButtonDisabled: { backgroundColor: c.grayMid },
-  });
 
 export default DashboardMessagesBody;

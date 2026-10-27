@@ -2,6 +2,7 @@ import React, { ReactNode, useMemo } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { radius, spacing, typography, useThemeColors } from '../../styles/theme';
+import KeyboardInsetView from '../common/KeyboardInsetView';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -20,9 +21,11 @@ const BottomSheet = ({ visible, onClose, title, children }: BottomSheetProps) =>
   const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      {/* RN Modal = separate window: pad by the keyboard height on Android (edge-to-edge). */}
+      <KeyboardInsetView>
       <KeyboardAvoidingView
         style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
         <View style={styles.sheet}>
@@ -38,6 +41,7 @@ const BottomSheet = ({ visible, onClose, title, children }: BottomSheetProps) =>
           {children}
         </View>
       </KeyboardAvoidingView>
+      </KeyboardInsetView>
     </Modal>
   );
 };

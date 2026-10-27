@@ -29,6 +29,7 @@ import { useUser } from '../../../../context/UserContext';
 import { ClassEntity, ClassUser, CoursProgramme } from '../../../../types';
 import { Cours } from './DashboardCoursBody';
 import { formatDate, formatDateTime, formatTime, parseServerDate, serverDateMs, toServerDateTime } from '../../../../utils/dates';
+import { useHardwareBack } from '../../../../hooks/useHardwareBack';
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -874,6 +875,9 @@ export const CoursProgrammerScreen = ({
     setSubmitError('');
   };
 
+  // Android Back: form → session list → close the scheduling view.
+  useHardwareBack(() => (view === 'form' ? closeForm() : onClose()));
+
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: '' }));
@@ -1500,7 +1504,7 @@ export const CoursProgrammerScreen = ({
             error={errors.coursId}
           />
           <SelectField
-            icon="heartbeat"
+            icon="play-circle"
             label="État *"
             placeholder="Planifié"
             value={form.etatCoursProgramme}
@@ -1548,7 +1552,7 @@ export const CoursProgrammerScreen = ({
             {!isPlanifie ? (
               <>
                 <DateTimeInput
-                  icon="heartbeat"
+                  icon="play-circle"
                   iconColor="#16A34A"
                   label="Date début effectif"
                   value={form.dateDebutEffectif}

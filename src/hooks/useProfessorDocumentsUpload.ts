@@ -1,5 +1,5 @@
+import { pickImageFromCameraOrFiles } from '../utils/cameraCapture';
 import { useCallback, useState } from 'react';
-import * as DocumentPicker from 'expo-document-picker';
 import { mediaService, userService } from '../services/api';
 import { extractErrorMessage } from '../services/api/client';
 import { translate } from '../i18n';
@@ -39,9 +39,8 @@ export const useProfessorDocumentsUpload = (userId?: string | null) => {
 
   const pick = useCallback(async (key: ProfessorDocKey) => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ['image/*'], copyToCacheDirectory: true });
-      if (!result.canceled && result.assets?.length) {
-        const asset = result.assets[0];
+      const asset = await pickImageFromCameraOrFiles();
+      if (asset) {
         setFiles((prev) => ({
           ...prev,
           [key]: { uri: asset.uri, name: asset.name || `${key}.jpg`, mimeType: asset.mimeType || 'image/jpeg' },

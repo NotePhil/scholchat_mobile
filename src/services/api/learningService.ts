@@ -78,6 +78,8 @@ export interface CoursProgressionRow {
   exercicesTotal: number;
   moyenne: number | null;
   derniereActivite?: string | null;
+  /** Reading time (seconds) on the completed chapters. */
+  tempsLectureSecondes: number;
 }
 
 export interface EleveProgression {
@@ -103,10 +105,23 @@ export interface ExerciceStat {
   max: number | null;
 }
 
+export interface ChapitreTempsStat {
+  chapitreId: string;
+  titre: string;
+  ordre?: number;
+  /** Average reading time (seconds) over the learners with a measured time (null if none). */
+  tempsMoyenSecondes: number | null;
+  nbLecteurs: number;
+}
+
 export interface CoursStat {
   coursId: string;
   titre: string;
   progressionMoyenne: number;
+  /** Average reading time (seconds) of the course over the learners with a measured time (null if none). */
+  tempsMoyenSecondes: number | null;
+  nbLecteurs: number;
+  chapitres: ChapitreTempsStat[];
   exercices: ExerciceStat[];
 }
 
@@ -119,6 +134,8 @@ export interface EleveStat {
   devoirsTotal: number;
   moyenne: number | null;
   enRetard: number;
+  /** Total reading time (seconds) on the class's courses. */
+  tempsLectureSecondes: number;
 }
 
 export interface ClasseStatistiques {
@@ -180,6 +197,7 @@ const toProgression = (d: any): EleveProgression => ({
     exercicesTotal: num(c?.exercicesTotal),
     moyenne: numOrNull(c?.moyenne),
     derniereActivite: str(c?.derniereActivite) ?? null,
+    tempsLectureSecondes: num(c?.tempsLectureSecondes),
   })),
   devoirsEnRetard: arr(d?.devoirsEnRetard),
 });
@@ -190,6 +208,15 @@ const toStats = (d: any): ClasseStatistiques => ({
     coursId: String(c.coursId),
     titre: str(c?.titre) ?? '',
     progressionMoyenne: num(c?.progressionMoyenne),
+    tempsMoyenSecondes: numOrNull(c?.tempsMoyenSecondes),
+    nbLecteurs: num(c?.nbLecteurs),
+    chapitres: arr(c?.chapitres).map((ch: any) => ({
+      chapitreId: String(ch?.chapitreId ?? ''),
+      titre: str(ch?.titre) ?? '',
+      ordre: ch?.ordre != null ? num(ch.ordre) : undefined,
+      tempsMoyenSecondes: numOrNull(ch?.tempsMoyenSecondes),
+      nbLecteurs: num(ch?.nbLecteurs),
+    })),
     exercices: arr(c?.exercices).map((e: any) => ({
       exerciseProgrammerId: String(e?.exerciseProgrammerId ?? e?.id ?? ''),
       titre: str(e?.titre) ?? str(e?.nom) ?? '',
@@ -210,6 +237,7 @@ const toStats = (d: any): ClasseStatistiques => ({
     devoirsTotal: num(e?.devoirsTotal),
     moyenne: numOrNull(e?.moyenne),
     enRetard: num(e?.enRetard),
+    tempsLectureSecondes: num(e?.tempsLectureSecondes),
   })),
 });
 

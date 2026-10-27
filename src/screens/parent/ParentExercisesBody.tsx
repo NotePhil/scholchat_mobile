@@ -4,7 +4,7 @@ import { typography, useThemeColors } from "../../styles/theme";
 import { parentService } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
-import { useSelectedChildStore } from "../../store/useSelectedChildStore";
+import { useIsAdultChild, useSelectedChildStore } from "../../store/useSelectedChildStore";
 import ChildSelectorRow from "./ChildSelectorRow";
 import DevoirsBody from "../shared/DevoirsBody";
 import { useT } from "../../i18n";
@@ -54,8 +54,8 @@ const ParentExercisesBody = () => {
 
   const child = children.find((c) => c.id === selectedChildId);
   const childName = child?.prenom || child?.nom || "";
-  // Adult = has their own login (email); a minor's profile has none.
-  const childHasAccount = !!child?.email;
+  // Adult = has their own login (statuses `majeur`, else the profile e-mail); a minor's profile has none.
+  const childHasAccount = useIsAdultChild(selectedChildId);
 
   return (
     <View style={styles.container}>

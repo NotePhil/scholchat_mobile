@@ -17,6 +17,7 @@ import { buildDevoirItem, DevoirItem, loadDevoirs, sortDevoirs } from "../../uti
 import { loadClassProgression } from "../../utils/progression";
 import DevoirCard, { useDevoirNavigation } from "../shared/DevoirCard";
 import ProgressionContent from "../shared/ProgressionContent";
+import { useHardwareBack } from "../../hooks/useHardwareBack";
 
 /**
  * A learner's class page (student, or a parent viewing a child): the courses
@@ -68,6 +69,8 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId, learnerName, readOn
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seq = useRef(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Android Back: course page → class page → class list (one level per press, never leaving the app).
+  useHardwareBack(() => (selected ? setSelected(null) : onBack()));
 
   const load = useCallback(
     async (kind: "initial" | "refresh") => {
@@ -254,6 +257,15 @@ const StudentClassDetailPage = ({ classe, onBack, learnerId, learnerName, readOn
             <Text style={styles.heroSub} numberOfLines={1}>
               {`${classe.niveau ?? ""} · ${classe.description || t("studentClasses.classSpace")}`}
             </Text>
+            {readOnly && learnerId ? (
+              // Parent viewing an adult child (own account): his real data, no action on his behalf.
+              <View style={[styles.inline, { marginTop: 4 }]} accessibilityLabel={t("adultChild.readOnly")}>
+                <FontAwesome5 name="eye" size={10} color="#FFFFFF" />
+                <Text style={styles.heroSub} numberOfLines={2}>
+                  {`${t("adultChild.readOnly")} — ${t("adultChild.readOnlyHint", { name: learnerName || "" })}`}
+                </Text>
+              </View>
+            ) : null}
           </View>
           {status === "ready" ? (
             <Text style={styles.heroCount}>{t("studentClasses.coursesCount", { count: courses.length })}</Text>

@@ -229,10 +229,12 @@ const AdminUsersBody = ({ initialTab }: AdminUsersBodyProps) => {
     if (!editingRow) return;
     const payload = { prenom: patch.prenom, nom: patch.nom, email: patch.email, telephone: patch.telephone, adresse: patch.adresse, niveau: patch.niveau, matriculeProfesseur: patch.matricule };
     try {
-      if (activeTab === "professeurs") await professorService.update(editingRow.id, payload);
+      // "En attente" lists professors too: they need the "professeur" type discriminator, like the
+      // Profs tab (PATCH /utilisateurs/{id} answers 500 "missing type id" without it).
+      if (activeTab === "professeurs" || activeTab === "pending") await professorService.update(editingRow.id, payload);
       else if (activeTab === "parents") await parentService.update(editingRow.id, payload);
       else if (activeTab === "eleves") await studentService.update(editingRow.id, payload);
-      else await userService.updateUser(editingRow.id, payload);
+      else await userService.updateUser(editingRow.id, { type: "utilisateur", ...payload });
       Alert.alert("Succès", "Utilisateur modifié avec succès."); setEditingRow(null); load();
     } catch (err) { Alert.alert("Erreur", err instanceof Error ? err.message : "Échec de la modification."); }
   };

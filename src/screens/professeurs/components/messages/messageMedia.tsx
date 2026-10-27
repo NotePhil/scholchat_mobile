@@ -15,11 +15,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { useVideoPlayer, VideoView } from "expo-video";
 import { mediaService } from "../../../../services/api";
+import { captureFromCamera, CaptureKind } from "../../../../utils/cameraCapture";
 import { useThemeColors } from "../../../../styles/theme";
 import { MessageMedia, MessageMediaPayload, MessageMediaType } from "../../../../types";
 import { formatFileSize, mediaIconFor, mediaTypeFromMime } from "./messageHelpers";
+import { useT } from "../../../../i18n";
+import {
+  VideoErrorPanel,
+  VideoPlaybackSurface,
+  VideoPreparing,
+  VideoThumbnailTile,
+} from "../../../../components/common/videoPlayback";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
@@ -139,6 +146,24 @@ export const useMessageAttachments = (userId?: string) => {
     );
   }, [addFiles]);
 
+  /** Take a photo / record a video with the camera and attach it. */
+  const captureMedia = useCallback(
+    async (kind: CaptureKind = "photo") => {
+      const f = await captureFromCamera(kind);
+      if (!f) return;
+      addFiles([
+        {
+          uri: f.uri,
+          name: f.name,
+          mimeType: f.mimeType,
+          size: f.size,
+          mediaType: f.isVideo ? "VIDEO" : mediaTypeFromMime(f.mimeType),
+        },
+      ]);
+    },
+    [addFiles]
+  );
+
   const pickDocument = useCallback(async () => {
     const result = await DocumentPicker.getDocumentAsync({ type: "*/*", multiple: true, copyToCacheDirectory: true });
     if (result.canceled || !result.assets?.length) return;
@@ -172,7 +197,7 @@ export const useMessageAttachments = (userId?: string) => {
     [items]
   );
 
-  return { items, pickMedia, pickDocument, remove, retry, clear, isUploading, hasErrors, overallProgress, toPayload };
+  return { items, pickMedia, captureMedia, pickDocument, remove, retry, clear, isUploading, hasErrors, overallProgress, toPayload };
 };
 
 export const PendingAttachmentsBar = ({
@@ -339,7 +364,7 @@ const MessageImage = ({ media, styles, colors }: { media: MessageMedia; styles: 
               <FontAwesome5 name="times" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
-          {url ? <Image source={{ uri: url }} style={styles.viewerImage} resizeMode="contain" onError={onError} /> : null}
+          {open ? <FullScreenImage media={media} initialUrl={url} styles={styles} /> : null}
           {media.fileName ? (
             <Text style={[styles.viewerLabel, { bottom: insets.bottom + 24 }]} numberOfLines={1}>
               {media.fileName}
@@ -351,24 +376,72 @@ const MessageImage = ({ media, styles, colors }: { media: MessageMedia; styles: 
   );
 };
 
-const VideoPlayerView = ({ uri, onError }: { uri: string; onError: () => void }) => {
-  const player = useVideoPlayer({ uri }, (p) => {
-    p.loop = false;
-    p.play();
-  });
-  useEffect(() => {
-    const sub = player.addListener("statusChange", ({ status }) => {
-      if (status === "error") onError();
-    });
-    return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player]);
-  return <VideoView player={player} style={{ width: "100%", height: "70%" }} nativeControls surfaceType="textureView" />;
+/** Full-screen image: spinner until it has loaded, "Impossible d'afficher l'image" + Réessayer (fresh URL) on error. */
+const FullScreenImage = ({ media, initialUrl, styles }: { media: MessageMedia; initialUrl: string | null; styles: Styles }) => {
+  const { t } = useT();
+  const [url, setUrl] = useState<string | null>(initialUrl);
+  const [attempt, setAttempt] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+  const retry = async () => {
+    setError(false);
+    setLoaded(false);
+    const fresh = await resolveFreshUrl(media);
+    setUrl(fresh);
+    setAttempt((n) => n + 1);
+    if (!fresh) setError(true);
+  };
+  return (
+    <>
+      {url && !error ? (
+        <Image
+          key={`${attempt}-${url}`}
+          source={{ uri: url }}
+          style={styles.viewerImage}
+          resizeMode="contain"
+          onLoadEnd={() => setLoaded(true)}
+          onError={() => setError(true)}
+        />
+      ) : null}
+      {error ? (
+        <View style={[StyleSheet.absoluteFill, styles.center]}>
+          <FontAwesome5 name="image" size={28} color="#9CA3AF" />
+          <Text style={styles.viewerUnavailable}>{t("media.imageError")}</Text>
+          <TouchableOpacity style={styles.viewerOpenButton} onPress={retry}>
+            <FontAwesome5 name="redo" size={12} color="#FFFFFF" />
+            <Text style={styles.viewerOpenText}>{t("media.retry")}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !loaded ? (
+        <View style={[StyleSheet.absoluteFill, styles.center]} pointerEvents="none">
+          <ActivityIndicator size="large" color="#FFFFFF" />
+          <Text style={styles.viewerUnavailable}>{t("media.loadingImage")}</Text>
+        </View>
+      ) : null}
+    </>
+  );
 };
 
 const VideoModal = ({ media, onClose, styles }: { media: MessageMedia; onClose: () => void; styles: Styles }) => {
+  const { t } = useT();
   const { url, failed, onError } = useResolvedMediaUrl(media);
   const insets = useSafeAreaInsets();
+  // Réessayer: a fresh URL (by path) and a remounted player.
+  const [override, setOverride] = useState<string | null>(null);
+  const [overrideFailed, setOverrideFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const effectiveUrl = override ?? url;
+  const isFailed = override || retrying ? overrideFailed : failed;
+  const retry = async () => {
+    setRetrying(true);
+    setOverrideFailed(false);
+    const fresh = await resolveFreshUrl(media);
+    setAttempt((n) => n + 1);
+    setRetrying(false);
+    if (fresh) setOverride(fresh);
+    else setOverrideFailed(true);
+  };
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.viewerOverlay}>
@@ -380,43 +453,61 @@ const VideoModal = ({ media, onClose, styles }: { media: MessageMedia; onClose: 
             <FontAwesome5 name="times" size={20} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
-        {failed ? (
-          <View style={styles.center}>
-            <FontAwesome5 name="video-slash" size={28} color="#9CA3AF" />
-            <Text style={styles.viewerUnavailable}>Lecture impossible dans l'application.</Text>
-            <TouchableOpacity style={styles.viewerOpenButton} onPress={() => openExternally(media)}>
-              <FontAwesome5 name="external-link-alt" size={12} color="#FFFFFF" />
-              <Text style={styles.viewerOpenText}>Ouvrir la vidéo</Text>
-            </TouchableOpacity>
-          </View>
-        ) : url ? (
-          <VideoPlayerView key={url} uri={url} onError={onError} />
+        {isFailed ? (
+          <VideoErrorPanel
+            onRetry={retry}
+            extra={
+              <TouchableOpacity style={styles.viewerSecondaryButton} onPress={() => openExternally(media)}>
+                <FontAwesome5 name="external-link-alt" size={11} color="#D1D5DB" />
+                <Text style={styles.viewerSecondaryText}>{t("media.openExternally")}</Text>
+              </TouchableOpacity>
+            }
+          />
+        ) : effectiveUrl && !retrying ? (
+          <VideoPlaybackSurface
+            key={`${attempt}-${effectiveUrl}`}
+            source={{ uri: effectiveUrl }}
+            style={{ width: "100%", height: "70%" }}
+            onError={() => (override ? setOverrideFailed(true) : onError())}
+          />
         ) : (
-          <ActivityIndicator color="#FFFFFF" />
+          <VideoPreparing />
         )}
       </View>
     </Modal>
   );
 };
 
-const MessageVideo = ({ media, styles, mine }: { media: MessageMedia; styles: Styles; mine: boolean }) => {
+const MessageVideo = ({ media, styles }: { media: MessageMedia; styles: Styles; mine: boolean }) => {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
+  // The URL is resolved (by path) only once the tile is on screen.
+  const [wanted, setWanted] = useState(false);
+  const { url, failed, onError } = useResolvedMediaUrl(media, wanted);
+  const size = formatFileSize(media.fileSize);
   return (
     <>
-      <TouchableOpacity activeOpacity={0.85} onPress={() => setOpen(true)} style={styles.videoTile}>
-        <View style={styles.videoPlay}>
-          <FontAwesome5 name="play" size={16} color="#FFFFFF" style={{ marginLeft: 3 }} />
-        </View>
-        <View style={styles.videoBadge}>
-          <FontAwesome5 name="video" size={9} color="#FFFFFF" />
-          <Text style={styles.videoBadgeText} numberOfLines={1}>
-            {media.fileName || "Vidéo"}
-          </Text>
-        </View>
-        {formatFileSize(media.fileSize) ? (
-          <Text style={[styles.videoSize, mine && { color: "rgba(255,255,255,0.8)" }]}>{formatFileSize(media.fileSize)}</Text>
-        ) : null}
-      </TouchableOpacity>
+      <VideoThumbnailTile
+        source={url ? { uri: url } : null}
+        failed={failed}
+        onNeedSource={() => setWanted(true)}
+        onSourceError={() => {
+          onError();
+          return true;
+        }}
+        onPress={() => setOpen(true)}
+        style={styles.videoTile}
+        compact
+        topLeft={
+          <View style={styles.videoBadge}>
+            <FontAwesome5 name="video" size={9} color="#FFFFFF" />
+            <Text style={styles.videoBadgeText} numberOfLines={1}>
+              {media.fileName || t("media.video")}
+            </Text>
+          </View>
+        }
+        bottomLeft={size ? <Text style={styles.videoSize}>{size}</Text> : null}
+      />
       {open && <VideoModal media={media} onClose={() => setOpen(false)} styles={styles} />}
     </>
   );
@@ -526,35 +617,28 @@ const createStyles = (c: ThemeColors) =>
     imageThumbWrap: { borderRadius: 14, overflow: "hidden" },
     imageThumb: { width: 220, height: 180, backgroundColor: c.grayLight },
     unavailableText: { fontSize: 10, color: c.textMuted, marginTop: 4 },
-    videoTile: {
-      width: 220,
-      height: 130,
-      borderRadius: 14,
-      backgroundColor: "#111827",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    videoPlay: {
-      width: 46,
-      height: 46,
-      borderRadius: 23,
-      backgroundColor: "rgba(255,255,255,0.2)",
-      borderWidth: 2,
-      borderColor: "rgba(255,255,255,0.45)",
-      alignItems: "center",
-      justifyContent: "center",
-    },
+    videoTile: { width: 220, height: 130, borderRadius: 14 },
     videoBadge: {
-      position: "absolute",
-      top: 8,
-      left: 8,
-      right: 8,
       flexDirection: "row",
       alignItems: "center",
       gap: 4,
+      maxWidth: "100%",
+      backgroundColor: "rgba(0,0,0,0.6)",
+      borderRadius: 10,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
     },
     videoBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700", flexShrink: 1 },
-    videoSize: { position: "absolute", bottom: 6, right: 8, color: "rgba(255,255,255,0.7)", fontSize: 10 },
+    videoSize: {
+      color: "#FFFFFF",
+      fontSize: 10,
+      fontWeight: "600",
+      backgroundColor: "rgba(0,0,0,0.6)",
+      borderRadius: 6,
+      paddingHorizontal: 5,
+      paddingVertical: 1,
+      overflow: "hidden",
+    },
     docChip: {
       flexDirection: "row",
       alignItems: "center",
@@ -587,4 +671,6 @@ const createStyles = (c: ThemeColors) =>
       backgroundColor: c.primary,
     },
     viewerOpenText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+    viewerSecondaryButton: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, padding: 8 },
+    viewerSecondaryText: { color: "#D1D5DB", fontSize: 12, fontWeight: "600", textDecorationLine: "underline" },
   });

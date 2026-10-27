@@ -65,6 +65,7 @@ export const loadClassProgression = async (
       exercicesTotal: its.length,
       moyenne: avg(notesOf(its)),
       derniereActivite: lastActivity(its),
+      tempsLectureSecondes: Number((p as { tempsTotalSecondes?: number } | undefined)?.tempsTotalSecondes) || 0,
     };
   });
   const devoirs = items.filter((d) => d.programme.typeAssignation === 'DEVOIR');

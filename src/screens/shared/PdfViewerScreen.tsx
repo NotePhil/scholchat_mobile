@@ -8,7 +8,7 @@ import { radius, spacing, typography, useThemeColors } from '../../styles/theme'
 import { useThemeStore } from '../../store/useThemeStore';
 import { useT } from '../../i18n';
 import { CachedFile, FileOpenError, OpenableFile, downloadToCache, fileNameOf, readCachedBase64 } from '../../services/fileOpener';
-import { openExternallyWithAlert } from '../../hooks/useFileOpener';
+import { openExternallyWithAlert } from '../../hooks/fileOpenerAlerts';
 
 export interface PdfViewerParams {
   file: OpenableFile;
@@ -115,15 +115,12 @@ type Phase = 'download' | 'render' | 'ready' | 'error';
  * renders it with pdf.js inside react-native-webview — no extra native module.
  * The header has close and "Ouvrir avec…" (native app chooser).
  */
-const PdfViewerScreen = () => {
+export const PdfViewerView = ({ file, onClose }: { file: OpenableFile; onClose: () => void }) => {
   const colors = useThemeColors();
   const isDark = useThemeStore((s) => s.mode) === 'dark';
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation<any>();
-  const route = useRoute<any>();
   const { t } = useT();
-  const file = ((route.params ?? {}) as PdfViewerParams).file ?? {};
   const name = fileNameOf(file);
 
   const webRef = useRef<WebView>(null);
@@ -237,7 +234,7 @@ const PdfViewerScreen = () => {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconButton} accessibilityLabel={t('fileViewer.close')}>
+        <TouchableOpacity onPress={onClose} style={styles.iconButton} accessibilityLabel={t('fileViewer.close')}>
           <FontAwesome5 name="times" size={20} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.titleWrap}>
@@ -319,6 +316,14 @@ const PdfViewerScreen = () => {
       </View>
     </View>
   );
+};
+
+/** Stack screen wrapper (route param `file`). */
+const PdfViewerScreen = () => {
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const file = ((route.params ?? {}) as PdfViewerParams).file ?? {};
+  return <PdfViewerView file={file} onClose={() => navigation.goBack()} />;
 };
 
 const createStyles = (colors: ReturnType<typeof useThemeColors>) =>

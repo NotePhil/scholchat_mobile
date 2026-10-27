@@ -22,6 +22,7 @@ const PREVIEW_ERROR_KEYS: Record<string, TranslationKey> = {
   CLASSE_RESERVEE_MINEURS: 'classPreview.errors.minorsOnly',
   CODE_CLASSE_REQUIS: 'classPreview.errors.required',
   TROP_DE_TENTATIVES: 'classPreview.errors.tooMany',
+  CLASSE_COMPLETE: 'classPreview.errors.full',
 };
 
 export type ClassPreviewError = Error & { code?: string; status?: number };
@@ -55,7 +56,7 @@ export const classPreviewService = {
   /**
    * Looks a class up from its activation code. Throws an Error carrying the backend `code`
    * (CODE_CLASSE_INVALIDE, CLASSE_NON_ACTIVE, CLASSE_RESERVEE_MINEURS, CODE_CLASSE_REQUIS,
-   * TROP_DE_TENTATIVES) and the server message (translated in English when the code is known).
+   * TROP_DE_TENTATIVES, CLASSE_COMPLETE — offer's max students reached) and the server message (translated in English when the code is known).
    */
   getPreview: async (code: string, type: ClassPreviewType): Promise<ClassPreview> => {
     try {

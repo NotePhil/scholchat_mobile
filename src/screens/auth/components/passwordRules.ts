@@ -15,12 +15,19 @@ export const SIGNUP_EMAIL_REGEX = new RegExp(
     '(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+(?:[A-Za-z]{2,63}|xn--[A-Za-z0-9-]{1,59})$'
 );
 
-export type PasswordRuleKey = 'length' | 'uppercase' | 'lowercase' | 'number';
+export type PasswordRuleKey = 'length' | 'uppercase' | 'lowercase' | 'number' | 'special';
 
-/** Same checklist as web ResetPassword.jsx (checkPasswordStrength). */
+/** Special characters accepted by the backend PasswordPolicy (same class as web ui.jsx PASSWORD_RULES). */
+export const PASSWORD_SPECIAL_REGEX = /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/;
+
+/**
+ * Same checklist as web ui.jsx PASSWORD_RULES and the backend PasswordPolicy: 8+ characters,
+ * an uppercase, a lowercase, a digit and a special character — "all ok" == accepted by the server.
+ */
 export const PASSWORD_RULES: { key: PasswordRuleKey; label: TranslationKey; test: (v: string) => boolean }[] = [
   { key: 'length', label: 'auth.reset.rules.length', test: (v) => v.length >= 8 },
   { key: 'uppercase', label: 'auth.reset.rules.uppercase', test: (v) => /[A-Z]/.test(v) },
   { key: 'lowercase', label: 'auth.reset.rules.lowercase', test: (v) => /[a-z]/.test(v) },
   { key: 'number', label: 'auth.reset.rules.number', test: (v) => /[0-9]/.test(v) },
+  { key: 'special', label: 'auth.reset.rules.special', test: (v) => PASSWORD_SPECIAL_REGEX.test(v) },
 ];

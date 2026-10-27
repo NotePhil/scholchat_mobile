@@ -12,7 +12,7 @@ import { accederService, classAdminService, coursProgrammerService, learningServ
 import type { ClasseResume } from "../../services/api";
 import { ClassEntity } from "../../types";
 import { useUser } from "../../context/UserContext";
-import { useSelectedChildStore } from "../../store/useSelectedChildStore";
+import { useIsAdultChild, useSelectedChildStore } from "../../store/useSelectedChildStore";
 import { serverDateMs } from "../../utils/dates";
 import { useT } from "../../i18n";
 import { useUiStore } from "../../store/useUiStore";
@@ -32,6 +32,16 @@ const ParentClassesBody = () => {
   const { user } = useUser();
   const { t } = useT();
   const { children, selectedChildId, loadChildren } = useSelectedChildStore();
+  // Adult child (own account): read-only — he requests class access and hands in his work himself.
+  const adultChild = useIsAdultChild();
+  const openJoin = () => {
+    if (adultChild) {
+      const kid = useSelectedChildStore.getState().children.find((c) => c.id === useSelectedChildStore.getState().selectedChildId);
+      Alert.alert(t("adultChild.readOnly"), t("adultChild.joinSelf", { name: kid?.prenom || kid?.nom || "" }));
+      return;
+    }
+    setShowJoin(true);
+  };
   const [rows, setRows] = useState<ClassWithAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -52,7 +62,7 @@ const ParentClassesBody = () => {
     if (!pendingJoinClass) return;
     useUiStore.getState().clearPendingJoinClass();
     setSelectedClass(null);
-    setTimeout(() => (useSelectedChildStore.getState().selectedChildId ? setShowJoin(true) : setShowAddChild(true)), 250);
+    setTimeout(() => (useSelectedChildStore.getState().selectedChildId ? openJoin() : setShowAddChild(true)), 250);
   }, [pendingJoinClass]);
 
   // Mirrors web's StudentClassList.jsx (isParentView): only the child's classes are
@@ -214,7 +224,7 @@ const ParentClassesBody = () => {
           : t("parentClasses.rejectedMsg", { name: row.cls.nom ?? "" })
       );
     } else {
-      setShowJoin(true);
+      openJoin();
     }
   };
 
@@ -234,7 +244,7 @@ const ParentClassesBody = () => {
         learnerId={selectedChildId}
         learnerName={kid?.prenom || kid?.nom || undefined}
         // Adult child (own login) answers himself; the parent hands in a minor's work.
-        readOnly={!!kid?.email}
+        readOnly={adultChild}
         onBack={() => setSelectedClass(null)}
       />
     );
@@ -261,7 +271,7 @@ const ParentClassesBody = () => {
       {/* Prominent "Rejoindre une classe" — visible without scrolling. */}
       <TouchableOpacity
         style={styles.joinBtn}
-        onPress={() => (selectedChildId ? setShowJoin(true) : setShowAddChild(true))}
+        onPress={() => (selectedChildId ? openJoin() : setShowAddChild(true))}
         activeOpacity={0.85}
         accessibilityRole="button"
         accessibilityLabel={t("joinClass.cta")}
@@ -307,8 +317,8 @@ const ParentClassesBody = () => {
             icon="chalkboard"
             title={t("parentClasses.emptyTitle")}
             message={t("parentClasses.emptyText", { name: childName || t("parentClasses.yourChild") })}
-            actionLabel={t("studentClasses.joinClass")}
-            onAction={() => setShowJoin(true)}
+            actionLabel={adultChild ? undefined : t("studentClasses.joinClass")}
+            onAction={adultChild ? undefined : openJoin}
           />
         ) : (
           rows.map(({ cls, access, motifRejet }) => {

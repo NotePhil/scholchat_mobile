@@ -61,6 +61,15 @@ const ClassCard = ({ classItem, pendingRequestsCount, programmationsCount, onMan
         </View>
       </View>
 
+      {classItem.etat === "EN_ATTENTE_APPROBATION" || classItem.etat === "EN_ATTENTE" ? (
+        <View style={styles.badgesRow}>
+          <View style={[styles.badge, { backgroundColor: isDark ? "rgba(217,119,6,0.2)" : "#FEF3C7", borderColor: "#FDE68A" }]}>
+            <FontAwesome5 name="hourglass-half" size={9} color="#D97706" />
+            <Text style={[styles.badgeText, { color: "#D97706" }]}>{t("profClasses.card.pendingApproval")}</Text>
+          </View>
+        </View>
+      ) : null}
+
       {roleBadge ? (
         <View style={styles.badgesRow}>
           <View style={[styles.badge, { backgroundColor: isDark ? roleBadge.bgDark : roleBadge.bg, borderColor: `${roleBadge.color}33` }]}>

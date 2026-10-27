@@ -47,15 +47,28 @@ export interface SignupPayload {
   enfants?: SignupChild[];
 }
 
+/**
+ * Child of a parent sign-up: MINEUR (default, no account) {prenom, nom, codeClasse}, or MAJEUR
+ * {type: 'MAJEUR', email, codesClasse} — the child's existing student account and the classes (he is a
+ * member of) to follow; each class's professor validates (404 ELEVE_INTROUVABLE / 400 ELEVE_PAS_DANS_CLASSE
+ * with enfantIndex).
+ */
 export interface SignupChild {
-  prenom: string;
-  nom: string;
-  codeClasse: string;
+  type?: 'MINEUR' | 'MAJEUR';
+  prenom?: string;
+  nom?: string;
+  codeClasse?: string;
+  email?: string;
+  /** MAJEUR: codes of the classes (the child is a member of) to follow. */
+  codesClasse?: string[];
 }
 
 /** Child returned by a parent sign-up (request pending at first). */
 export interface SignupChildResult {
   id?: string;
+  type?: string;
+  email?: string;
+  lienStatut?: string;
   prenom?: string;
   nom?: string;
   classeId?: string;
@@ -114,6 +127,11 @@ const SIGNUP_ERROR_KEYS: Record<string, TranslationKey> = {
   EMAIL_DEJA_UTILISE: 'auth.signup.errors.emailUsed',
   COMPTE_NON_ACTIVE: 'auth.signup.errors.emailInactive',
   COMPTE_EN_ATTENTE_VALIDATION: 'auth.signup.errors.emailAwaitingValidation',
+  ELEVE_EXISTE_AVEC_COMPTE: 'adultChild.existsWithAccount',
+  COMPTE_NON_ELEVE: 'adultChild.notStudent',
+  LIEN_PARENT_DEJA_DEMANDE: 'adultChild.alreadyRequested',
+  ELEVE_INTROUVABLE: 'adultChild.notFound',
+  ELEVE_PAS_DANS_CLASSE: 'adultChild.notInClass',
 };
 
 /** Profile switch / add attempted from a student session (POST /auth/switch-role, POST /utilisateurs). */
@@ -264,11 +282,18 @@ export const authService = {
       if (payload.type === 'eleve') body.niveau = payload.niveau ?? '';
       if (payload.type === 'eleve' && payload.codeClasse?.trim()) body.codeClasse = payload.codeClasse.trim();
       if (payload.type === 'parent') {
-        body.enfants = (payload.enfants ?? []).map((e) => ({
-          prenom: e.prenom.trim(),
-          nom: e.nom.trim(),
-          codeClasse: e.codeClasse.trim().toUpperCase(),
-        }));
+        body.enfants = (payload.enfants ?? []).map((e) => {
+          // Adult child: only the e-mail of their existing student account.
+          if (e.type === 'MAJEUR') {
+            const codesClasse = Array.from(new Set((e.codesClasse ?? []).map((c) => c.trim().toUpperCase()).filter(Boolean)));
+            return { type: 'MAJEUR', email: (e.email ?? '').trim(), codesClasse };
+          }
+          return {
+            prenom: (e.prenom ?? '').trim(),
+            nom: (e.nom ?? '').trim(),
+            codeClasse: (e.codeClasse ?? '').trim().toUpperCase(),
+          };
+        });
       }
       const { data } = await apiClient.post<SignupResponse>('/utilisateurs', body);
       return data ?? {};

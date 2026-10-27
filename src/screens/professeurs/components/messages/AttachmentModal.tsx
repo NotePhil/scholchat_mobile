@@ -2,10 +2,11 @@ import React, { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Modal } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { useThemeColors } from "../../../../styles/theme";
+import { useT } from "../../../../i18n";
 
 type ThemeColors = ReturnType<typeof useThemeColors>;
 
-export type AttachmentType = "link" | "media" | "document";
+export type AttachmentType = "link" | "media" | "camera" | "video" | "document";
 
 interface AttachmentModalProps {
   onClose: () => void;
@@ -14,15 +15,19 @@ interface AttachmentModalProps {
   allowLink?: boolean;
 }
 
-const OPTIONS: { type: AttachmentType; icon: React.ComponentProps<typeof FontAwesome5>["name"]; label: string }[] = [
-  { type: "media", icon: "image", label: "Photo ou vidéo" },
-  { type: "document", icon: "file-pdf", label: "Document / PDF" },
-  { type: "link", icon: "link", label: "Lien" },
-];
+type Option = { type: AttachmentType; icon: React.ComponentProps<typeof FontAwesome5>["name"]; label: string };
 
 const AttachmentModal = ({ onClose, onAttach, allowLink = false }: AttachmentModalProps) => {
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const { t } = useT();
+  const OPTIONS: Option[] = [
+    { type: "camera", icon: "camera", label: t("camera.takePhoto") },
+    { type: "video", icon: "video", label: t("camera.recordVideo") },
+    { type: "media", icon: "image", label: t("camera.fromGallery") },
+    { type: "document", icon: "file-pdf", label: "Document / PDF" },
+    { type: "link", icon: "link", label: "Lien" },
+  ];
   return (
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
       <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>

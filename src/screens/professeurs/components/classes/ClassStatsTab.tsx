@@ -7,6 +7,7 @@ import { radius, spacing, typography, useThemeColors } from "../../../../styles/
 import { fmtNote, learningService, pct } from "../../../../services/api";
 import type { ClasseStatistiques, EleveStat } from "../../../../services/api";
 import { useT } from "../../../../i18n";
+import { formatDuration } from "../../../../utils/duration";
 
 type SortKey = "name" | "progress" | "average" | "late";
 const SORTS: SortKey[] = ["name", "progress", "average", "late"];
@@ -162,6 +163,31 @@ const ClassStatsTab = ({ classId, onOpenCorrections, refreshKey = 0 }: Props) =>
                   </TouchableOpacity>
                   <ProgressBar value={p} color={scoreColor(p / 100, colors)} />
                   <Text style={styles.muted}>{t("learning.stats.courseProgress", { pct: p })}</Text>
+                  <View style={styles.rowHead}>
+                    <FontAwesome5 name="clock" size={11} color={colors.textMuted} />
+                    <Text style={styles.muted}>
+                      {c.tempsMoyenSecondes != null
+                        ? `${t("learning.stats.avgReadingTime", { time: formatDuration(c.tempsMoyenSecondes) })} · ${t("learning.stats.readers", { count: c.nbLecteurs })}`
+                        : t("learning.stats.noReadingTime")}
+                    </Text>
+                  </View>
+                  {open && c.tempsMoyenSecondes != null && c.chapitres.length > 0 ? (
+                    <View style={styles.chapterTimes}>
+                      <Text style={[styles.muted, { fontWeight: "700" }]}>{t("learning.stats.chapterTimes")}</Text>
+                      {c.chapitres.map((ch, i) => (
+                        <View key={ch.chapitreId || String(i)} style={styles.rowHead}>
+                          <Text style={[styles.muted, { flex: 1 }]} numberOfLines={1}>
+                            {`${i + 1}. ${ch.titre || t("courseViewer.chapterFallback", { n: i + 1 })}`}
+                          </Text>
+                          <Text style={styles.muted}>
+                            {ch.tempsMoyenSecondes != null
+                              ? `${formatDuration(ch.tempsMoyenSecondes)} · ${t("learning.stats.readers", { count: ch.nbLecteurs })}`
+                              : "—"}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
                   {open ? (
                     c.exercices.length === 0 ? (
                       <Text style={styles.muted}>{t("learning.classCourses.noExercises")}</Text>
@@ -249,6 +275,9 @@ const ClassStatsTab = ({ classId, onOpenCorrections, refreshKey = 0 }: Props) =>
                   <View style={styles.rowHead}>
                     <Text style={styles.muted}>{t("learning.stats.progressPct", { pct: p })}</Text>
                     <Text style={styles.muted}>{t("learning.stats.devoirs", { done: e.devoirsRendus, total: e.devoirsTotal })}</Text>
+                    {e.tempsLectureSecondes > 0 ? (
+                      <Text style={styles.muted}>{t("learning.stats.readingTime", { time: formatDuration(e.tempsLectureSecondes) })}</Text>
+                    ) : null}
                     <Text style={[styles.muted, { marginLeft: "auto", fontWeight: "700", color: scoreColor(e.moyenne != null ? e.moyenne / 20 : null, colors) }]}>
                       {e.moyenne == null ? "—" : `${fmtNote(e.moyenne)}/20`}
                     </Text>
@@ -275,6 +304,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     segBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: radius.sm },
     segBtnOn: { backgroundColor: colors.primary },
     segText: { ...typography.captionBold, color: colors.textMuted },
+    chapterTimes: { gap: 4, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
     exRow: { gap: 4, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
     exTitle: { ...typography.captionBold, color: colors.text, fontSize: 13 },
     badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.full, backgroundColor: colors.warning },

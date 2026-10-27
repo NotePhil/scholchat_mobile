@@ -30,15 +30,29 @@ export const useMessagesRealtime = (userId?: string | null) => {
         release = stompClient.connect(token, userId);
         unsubscribe = stompClient.subscribe(`/topic/messages/${userId}`, (body) => {
           const event = body as MessageRealtimeEvent | null;
-          if (!event || typeof event !== 'object' || !event.type || !event.message) return;
+          if (!event || typeof event !== 'object' || !event.type) return;
+          const ownViewChange = event.type === 'CONVERSATION_UPDATED' || event.type === 'CORBEILLE_UPDATED';
+          if (!event.message && !event.conversationId && !ownViewChange) return;
           const msg = event.message;
-          const isIncomingUnread = msg.expediteur?.id !== userId && msg.lu === false;
-          if (event.type === 'NEW_MESSAGE') {
+          const isIncomingUnread = !!msg && msg.expediteur?.id !== userId && msg.lu === false;
+          if (event.type === 'CONVERSATION_READ') {
+            // Read on this or another device: the unread badge goes down.
+            if (event.lecteurId === userId) useMessagesStore.getState().refresh(userId);
+          } else if (event.type === 'NEW_MESSAGE') {
             if (isIncomingUnread) {
+              // Bump right away, then re-read the server total: a conversation that was "marquée non
+              // lue" already counted once and must not count twice.
               const { unreadCount, setUnreadCount } = useMessagesStore.getState();
               setUnreadCount(unreadCount + 1);
+              useMessagesStore.getState().refresh(userId);
             }
-          } else if (event.type === 'MESSAGE_DELETED' || event.type === 'MESSAGE_RESTORED') {
+          } else if (
+            event.type === 'MESSAGE_DELETED' ||
+            event.type === 'MESSAGE_RESTORED' ||
+            event.type === 'CONVERSATION_UPDATED' ||
+            event.type === 'CORBEILLE_UPDATED'
+          ) {
+            // CONVERSATION_UPDATED: marked unread / moved to or restored from the trash (here or on another device).
             // The delete payload doesn't say whether it was unread — recompute from the server.
             useMessagesStore.getState().refresh(userId);
           }

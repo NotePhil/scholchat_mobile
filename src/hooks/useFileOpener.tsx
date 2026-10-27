@@ -1,58 +1,17 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Alert, Linking, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import ImageViewerModal from '../components/common/ImageViewerModal';
+import VideoViewerModal from '../components/common/VideoViewerModal';
+import { PdfViewerView } from '../screens/shared/PdfViewerScreen';
 import { radius, spacing, typography, useThemeColors } from '../styles/theme';
+import { useThemeStore } from '../store/useThemeStore';
 import { TFunction, useT } from '../i18n';
-import {
-  CachedFile,
-  FileOpenError,
-  OpenableFile,
-  downloadToCache,
-  fileKindOf,
-  fileNameOf,
-  openCachedWithNativeApp,
-  shareCachedFile,
-} from '../services/fileOpener';
+import { OpenableFile, downloadToCache, fileKindOf, fileNameOf } from '../services/fileOpener';
+import { alertDownloadError, openExternallyWithAlert, shareWithAlert } from './fileOpenerAlerts';
 
-/** Shares a cached file, with a friendly error. */
-export const shareWithAlert = async (cached: CachedFile, t: TFunction) => {
-  try {
-    await shareCachedFile(cached, cached.fileName);
-  } catch {
-    Alert.alert(t('common.error'), t('fileViewer.shareFailed'));
-  }
-};
-
-/**
- * Hands a cached file to the OS ("Open with" chooser on Android, share / "Open
- * in…" sheet on iOS). When no app can open it, explains it and offers to share.
- */
-export const openExternallyWithAlert = async (cached: CachedFile, t: TFunction) => {
-  try {
-    await openCachedWithNativeApp(cached, t('fileViewer.openWith'));
-  } catch (e) {
-    if (e instanceof FileOpenError && e.code === 'noApp') {
-      Alert.alert(t('fileViewer.noAppTitle'), t('fileViewer.noAppMessage', { name: cached.fileName }), [
-        { text: t('common.cancel'), style: 'cancel' },
-        { text: t('fileViewer.share'), onPress: () => shareWithAlert(cached, t) },
-      ]);
-    } else {
-      Alert.alert(t('common.error'), t('fileViewer.openFailed'));
-    }
-  }
-};
-
-/** Alert for a failed download (nothing for a user cancel). */
-export const alertDownloadError = (e: unknown, t: TFunction) => {
-  if (e instanceof FileOpenError && e.code === 'cancelled') return;
-  if (e instanceof FileOpenError && e.code === 'unavailable') {
-    Alert.alert(t('fileViewer.unavailableTitle'), t('fileViewer.unavailable'));
-  } else {
-    Alert.alert(t('common.error'), t('fileViewer.downloadFailed'));
-  }
-};
+export { alertDownloadError, openExternallyWithAlert, shareWithAlert } from './fileOpenerAlerts';
 
 /** Web links that aren't stored files (articles, videos sites…) still go to the browser. */
 const openInBrowser = (url: string, t: TFunction) =>
@@ -72,13 +31,21 @@ interface DownloadState {
  *
  * Render `host` once in the screen (it holds the download dialog and the image viewer).
  * `openingKey` is the key passed to `open` while that file is being prepared.
+ *
+ * `overlay: true` keeps everything inside the current screen, for screens that
+ * must stay alive (live call): PDFs open in a full-screen Modal instead of the
+ * PdfViewer stack screen, and videos play in an in-app full-screen player
+ * Modal instead of being handed to another app.
  */
-export const useFileOpener = () => {
+export const useFileOpener = ({ overlay = false }: { overlay?: boolean } = {}) => {
   const navigation = useNavigation<any>();
   const { t } = useT();
   const colors = useThemeColors();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const isDark = useThemeStore((st) => st.mode) === 'dark';
   const [image, setImage] = useState<OpenableFile | null>(null);
+  const [pdf, setPdf] = useState<OpenableFile | null>(null);
+  const [video, setVideo] = useState<OpenableFile | null>(null);
   const [download, setDownload] = useState<DownloadState | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -87,7 +54,12 @@ export const useFileOpener = () => {
       if (controllerRef.current) return; // one download at a time
       const kind = fileKindOf(file);
       if (kind === 'pdf') {
-        navigation.navigate('PdfViewer', { file });
+        if (overlay) setPdf(file);
+        else navigation.navigate('PdfViewer', { file });
+        return;
+      }
+      if (kind === 'video' && overlay) {
+        setVideo(file);
         return;
       }
       if (kind === 'image') {
@@ -112,7 +84,7 @@ export const useFileOpener = () => {
         controllerRef.current = null;
       }
     },
-    [navigation, t]
+    [navigation, t, overlay]
   );
 
   /** Opens a link found in course content: stored files in-app/with an app, other web pages in the browser. */
@@ -132,6 +104,24 @@ export const useFileOpener = () => {
   const host = (
     <>
       <ImageViewerModal file={image} onClose={() => setImage(null)} onShare={(c) => shareWithAlert(c, t)} />
+      {overlay ? (
+        <>
+          <Modal
+            visible={!!pdf}
+            animationType="slide"
+            onRequestClose={() => setPdf(null)}
+            statusBarTranslucent
+            navigationBarTranslucent
+          >
+            <View style={{ flex: 1 }} testID="pdf-viewer-modal">
+              {/* The live screen uses light status-bar icons: match the viewer's light header. */}
+              <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
+              {pdf ? <PdfViewerView file={pdf} onClose={() => setPdf(null)} /> : null}
+            </View>
+          </Modal>
+          <VideoViewerModal file={video} onClose={() => setVideo(null)} />
+        </>
+      ) : null}
       <Modal visible={!!download} transparent animationType="fade" onRequestClose={cancel}>
         <View style={styles.backdrop}>
           <View style={styles.card}>

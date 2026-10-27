@@ -3,8 +3,11 @@ import { statusesHaveApprovedChild, useSelectedChildStore } from '../store/useSe
 import { userService } from './api/userService';
 import type { AppRole, AuthUser } from '../types';
 
-/** Dashboard tabs a parent can use while no child is approved (plus notifications and logout). */
-export const PARENT_LIMITED_TABS = new Set(['children', 'my-children', 'settings']);
+/**
+ * Dashboard tabs a parent can use while no child is approved (plus notifications and logout).
+ * "activities" shows only the general (public, class-less) news — the server filters the feed.
+ */
+export const PARENT_LIMITED_TABS = new Set(['children', 'my-children', 'activities', 'settings']);
 
 /** Parent in limited mode: the session says no child has an approved class yet. */
 export const isParentLimited = (role: AppRole, user: AuthUser | null | undefined) =>

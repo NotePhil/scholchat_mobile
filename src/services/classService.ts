@@ -178,6 +178,16 @@ export const classService = {
     }
   },
 
+  /** Offer's "Élèves max" restriction for the class (GET /classes/{id}/capacite). */
+  getCapacity: async (classId: string): Promise<{ elevesMax: number | null; nombreEleves: number; complete: boolean }> => {
+    const { data } = await apiClient.get(`/classes/${classId}/capacite`);
+    return {
+      elevesMax: typeof data?.elevesMax === 'number' ? data.elevesMax : null,
+      nombreEleves: Number(data?.nombreEleves ?? 0),
+      complete: data?.complete === true,
+    };
+  },
+
   approveAccessRequest: async (requestId: string): Promise<ApiSuccess> => {
     try {
       await apiClient.post(`/acceder/demandes/${requestId}/approve`);

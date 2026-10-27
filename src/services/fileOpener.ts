@@ -221,6 +221,19 @@ const sourcesOf = (file: OpenableFile): (() => Promise<Source | null>)[] => {
   return list;
 };
 
+/**
+ * Candidate sources to STREAM a file (in-app video player), best first — same
+ * order as the download. `headers` carries the Bearer token for backend URLs.
+ */
+export const streamSourcesOf = (file: OpenableFile) =>
+  sourcesOf(file).map((next) => async (): Promise<{ uri: string; headers?: Record<string, string> } | null> => {
+    const source = await next().catch(() => null);
+    if (!source) return null;
+    if (!source.auth) return { uri: source.url };
+    const token = await storageService.getUserToken().catch(() => null);
+    return { uri: source.url, headers: token ? { Authorization: `Bearer ${token}` } : undefined };
+  });
+
 // ── Download ────────────────────────────────────────────────────────────────
 
 const CACHE_DIR_NAME = 'opened-files';

@@ -1,6 +1,6 @@
+import { pickImageFromCameraOrFiles, PickedImageFile } from "../../utils/cameraCapture";
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import * as DocumentPicker from "expo-document-picker";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { mediaService, userService } from "../../services/api";
 import { extractErrorMessage } from "../../services/api/client";
@@ -61,11 +61,10 @@ const ProfessorDocumentsSection = ({ userId, docs, statut, motifRejet, onUpdated
   const status = (statut && statut in STATUS_STYLE ? statut : undefined) as ProfessorVerificationStatus | undefined;
 
   const replace = async (doc: (typeof PROFESSOR_DOCS)[number]) => {
-    let picked: DocumentPicker.DocumentPickerAsset | undefined;
+    let picked: PickedImageFile | null;
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ["image/*"], copyToCacheDirectory: true });
-      if (result.canceled || !result.assets?.length) return;
-      picked = result.assets[0];
+      picked = await pickImageFromCameraOrFiles();
+      if (!picked) return;
     } catch {
       Alert.alert(t("common.error"), t("profVerification.docs.pickFailed"));
       return;

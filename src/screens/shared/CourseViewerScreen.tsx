@@ -26,6 +26,8 @@ import CourseRichContent, {
 } from "./CourseRichContent";
 import { useFileOpener } from "../../hooks/useFileOpener";
 import { extensionOf } from "../../services/fileOpener";
+import { useReadingTimer } from "../../hooks/useReadingTimer";
+import { formatDuration } from "../../utils/duration";
 
 export interface CourseViewerParams {
   coursId: string;
@@ -42,6 +44,10 @@ interface Progression {
   chapitresCompletesIds: string[];
   chapitresCompletes?: number;
   totalChapitres?: number;
+  /** Reading time (seconds) on the completed chapters. */
+  tempsTotalSecondes?: number;
+  /** chapitreId → reading time (seconds). */
+  dureesParChapitre?: Record<string, number>;
 }
 
 interface GeneralFile {
@@ -124,6 +130,13 @@ const CourseViewerScreen = () => {
   const listY = useRef(0);
 
   const chapterKey = (ch: Chapitre, idx: number) => ch.id || `ch_${idx + 1}`;
+  const readingTimer = useReadingTimer();
+  const { markOpened } = readingTimer;
+
+  // A chapter's reading time starts when it is first displayed (expanded).
+  useEffect(() => {
+    if (expandedKey) markOpened(expandedKey);
+  }, [expandedKey, markOpened]);
 
   const fetchProgression = useCallback(async () => {
     if (!coursId || !learnerId) return;
@@ -134,6 +147,12 @@ const CourseViewerScreen = () => {
         chapitresCompletesIds: (data?.chapitresCompletesIds as string[]) ?? [],
         chapitresCompletes: data?.chapitresCompletes as number | undefined,
         totalChapitres: data?.totalChapitres as number | undefined,
+        tempsTotalSecondes: typeof data?.tempsTotalSecondes === "number" ? data.tempsTotalSecondes : undefined,
+        dureesParChapitre: Object.fromEntries(
+          ((data as { chapitres?: { chapitreId?: string; dureeSecondes?: number }[] })?.chapitres ?? [])
+            .filter((c) => c.chapitreId)
+            .map((c) => [c.chapitreId as string, Number(c.dureeSecondes) || 0])
+        ),
       });
     } catch {
       /* web: progression is best-effort */
@@ -242,7 +261,9 @@ const CourseViewerScreen = () => {
     if (completedIds.includes(ch.id)) return; // the backend only exposes "mark complete"
     setMarking(ch.id);
     try {
-      await coursService.markChapterComplete(coursId, ch.id, learnerId);
+      const key = chapterKey(ch, chapters.indexOf(ch));
+      await coursService.markChapterComplete(coursId, ch.id, learnerId, readingTimer.peek(key));
+      readingTimer.commit();
       await fetchProgression();
     } catch (err) {
       Alert.alert(t("common.error"), err instanceof Error ? err.message : t("courseViewer.markFailed"));
@@ -266,12 +287,12 @@ const CourseViewerScreen = () => {
   };
 
   /** A link tapped inside chapter HTML: reuse the name/type extracted for the resources list when known. */
-  const openChapterLink = (url: string) => {
+  const openChapterLink = (url: string, meta?: { fileName?: string; contentType?: string }) => {
     const known = Object.values(chapterFiles)
       .flat()
       .find((f) => f.url === url);
     if (known) openFile(known);
-    else fileOpener.openLink(url, {}, `link:${url}`);
+    else fileOpener.openLink(url, meta ?? {}, `link:${url}`);
   };
 
   const goToChapter = (key: string) => {
@@ -456,6 +477,12 @@ const CourseViewerScreen = () => {
                 {doneCount}/{totalChapters}
               </Text>
             </View>
+            {progression.tempsTotalSecondes ? (
+              <View style={styles.statRow}>
+                <Text style={styles.statLabel}>{t("courseViewer.readingTime")}</Text>
+                <Text style={styles.statValue}>{formatDuration(progression.tempsTotalSecondes)}</Text>
+              </View>
+            ) : null}
             <View style={styles.statRow}>
               <Text style={styles.statLabel}>{t("courseViewer.status")}</Text>
               <Text style={styles.statValue}>
@@ -512,6 +539,12 @@ const CourseViewerScreen = () => {
                           <>
                             <FontAwesome5 name="check-circle" solid size={10} color={colors.success} />
                             <Text style={styles.chapterDoneText}>{t("courseViewer.chapterDone")}</Text>
+                            {ch.id && progression.dureesParChapitre?.[ch.id] ? (
+                              <>
+                                <FontAwesome5 name="clock" size={10} color={colors.textMuted} />
+                                <Text style={styles.chapterMeta}>{formatDuration(progression.dureesParChapitre[ch.id])}</Text>
+                              </>
+                            ) : null}
                           </>
                         ) : null}
                       </View>

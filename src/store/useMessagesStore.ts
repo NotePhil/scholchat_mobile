@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { messageService } from '../services/messageService';
+import { conversationService } from '../services/conversationService';
 import { MessageRealtimeEvent } from '../types';
 
 /** What the open Messages screen receives: a pushed event, or a "re-fetch everything once" after a reconnect. */
@@ -11,7 +11,10 @@ const listeners = new Set<MessagesStreamListener>();
 interface MessagesState {
   unreadCount: number;
   setUnreadCount: (count: number) => void;
-  /** Refreshes the real unread-received count from /messages/utilisateur/{id}/non-lus/count. */
+  /**
+   * Refreshes the badge from GET /conversations/non-lus/count (`total`): unread received messages
+   * plus conversations "marquées non lues" — the same number the conversation list shows.
+   */
   refresh: (userId?: string | null) => Promise<void>;
   reset: () => void;
 }
@@ -28,8 +31,8 @@ export const useMessagesStore = create<MessagesState>((set) => ({
   refresh: async (userId) => {
     if (!userId) return;
     try {
-      const count = await messageService.countUnread(userId);
-      set({ unreadCount: count });
+      const count = await conversationService.unreadCount();
+      set({ unreadCount: Math.max(0, count) });
     } catch {
       // best-effort — leave the last known count on failure
     }

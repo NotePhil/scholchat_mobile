@@ -39,7 +39,12 @@ export const openNotification = (n: NotificationItem, ctx: OpenContext): boolean
   const isLearner = role === 'student' || role === 'parent';
 
   // Parent in limited mode (no approved child yet): only "Mes enfants" / the profile are reachable.
-  if (isParentLimited(role, useAuthStore.getState().user) && target.kind !== 'children' && target.kind !== 'profile') {
+  if (
+    isParentLimited(role, useAuthStore.getState().user) &&
+    target.kind !== 'children' &&
+    target.kind !== 'profile' &&
+    target.kind !== 'parentLinks'
+  ) {
     ui.requestTab('children');
     showDashboard();
     return true;
@@ -111,6 +116,9 @@ export const openNotification = (n: NotificationItem, ctx: OpenContext): boolean
       });
       return true;
     }
+    case 'parentLinks':
+      navigation.navigate('ParentLinkRequests');
+      return true;
     case 'tab':
       ui.requestTab(target.tab);
       showDashboard();

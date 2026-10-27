@@ -16,8 +16,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "ScholChat a besoin d'accéder à votre caméra pour les sessions de cours en direct.",
-        "NSMicrophoneUsageDescription": "ScholChat a besoin d'accéder à votre microphone pour les sessions de cours en direct."
+        "NSCameraUsageDescription": "ScholChat utilise votre caméra pour prendre des photos et vidéos (événements, messages, cours, documents) et pour les sessions de cours en direct.",
+        "NSMicrophoneUsageDescription": "ScholChat utilise votre microphone pour enregistrer le son des vidéos et pour les sessions de cours en direct.",
+        "NSPhotoLibraryUsageDescription": "ScholChat accède à vos photos pour joindre des images et vidéos aux événements, messages et cours."
       }
     },
     "android": {
@@ -57,8 +58,16 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "ScholChat a besoin d'accéder à votre caméra pour les sessions de cours en direct.",
-          "microphonePermission": "ScholChat a besoin d'accéder à votre microphone pour les sessions de cours en direct."
+          "cameraPermission": "ScholChat utilise votre caméra pour prendre des photos et vidéos (événements, messages, cours, documents) et pour les sessions de cours en direct.",
+          "microphonePermission": "ScholChat utilise votre microphone pour enregistrer le son des vidéos et pour les sessions de cours en direct."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "ScholChat accède à vos photos pour joindre des images et vidéos aux événements, messages et cours.",
+          "cameraPermission": "ScholChat utilise votre caméra pour prendre des photos et vidéos (événements, messages, cours, documents) et pour les sessions de cours en direct.",
+          "microphonePermission": "ScholChat utilise votre microphone pour enregistrer le son des vidéos et pour les sessions de cours en direct."
         }
       ]
     ]

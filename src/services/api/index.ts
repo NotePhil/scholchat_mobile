@@ -36,6 +36,8 @@ export { notificationService } from './notificationService';
 export { offerService } from './offerService';
 export { parentAccessService } from './parentAccessService';
 export { parentService } from './parentService';
+export { parentLinkService, parentLinkName, parentLinkStudentName } from './parentLinkService';
+export type { ParentLinkRequest, ParentLinkEtat } from './parentLinkService';
 export { professorService } from './professorService';
 export { publicationRightsService } from './publicationRightsService';
 export { rejectionClassService } from './rejectionClassService';

@@ -27,6 +27,7 @@ import { useUiStore } from "../../../../store/useUiStore";
 import { useMountedRef } from "../../../../hooks/useMountedRef";
 import { useT } from "../../../../i18n";
 import { formatDateTime as formatServerDateTime } from "../../../../utils/dates";
+import { useHardwareBack } from "../../../../hooks/useHardwareBack";
 
 // LinearGradient via expo-linear-gradient (safe fallback to View if unavailable)
 let LinearGradient: any;
@@ -389,6 +390,15 @@ const DashboardCoursBody = ({ onNavigateToCreate, onEditCours }: DashboardCoursB
     setSelectedCours(null);
     setViewMode("schedule");
   };
+
+  // Android Back: course detail → course list (the scheduling view handles its own Back).
+  useHardwareBack(
+    () => {
+      setSelectedCours(null);
+      setViewMode("list");
+    },
+    viewMode === "detail"
+  );
 
   if (openingCourse) {
     return <LoadingSpinner label={t("notifications.opening")} fullScreen />;

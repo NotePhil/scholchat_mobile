@@ -17,10 +17,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FontAwesome5 } from "@expo/vector-icons";
 import AttachmentModal, { AttachmentType } from "./AttachmentModal";
 import PromptSheet from "../../../../components/common/PromptSheet";
+import KeyboardInsetView from "../../../../components/common/KeyboardInsetView";
 import { messageService } from "../../../../services/messageService";
 import { useUser } from "../../../../context/UserContext";
 import { useThemeColors } from "../../../../styles/theme";
-import { MessageContact, MessageContactClass } from "../../../../types";
+import { MessageContact, MessageContactClass, MessageItem } from "../../../../types";
 import { contactMatches, getInitials, getRoleLabel, toUtilisateurPayload } from "./messageHelpers";
 import { PendingAttachmentsBar, useMessageAttachments } from "./messageMedia";
 
@@ -36,7 +37,8 @@ interface Recipient {
 
 interface ComposeMessageModalProps {
   onClose: () => void;
-  onSend: () => void;
+  /** Called after a successful send with the created message (carries conversationId when the backend sets it). */
+  onSend: (sent?: MessageItem) => void;
 }
 
 const toRecipient = (u: MessageContact): Recipient => ({
@@ -159,6 +161,8 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
     }
     try {
       if (type === "media") await attachments.pickMedia();
+      else if (type === "camera") await attachments.captureMedia("photo");
+      else if (type === "video") await attachments.captureMedia("video");
       else await attachments.pickDocument();
     } catch (err) {
       Alert.alert("Erreur", err instanceof Error ? err.message : "Impossible d'ajouter la pièce jointe.");
@@ -206,8 +210,9 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
 
     setIsSending(true);
     try {
+      let created: MessageItem | undefined;
       if (isGroupMessage) {
-        await messageService.sendGroupMessage({
+        created = await messageService.sendGroupMessage({
           classIds: selectedClassIds,
           objet: subject.trim() || undefined,
           content: body,
@@ -215,14 +220,14 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
           medias: medias.length ? medias : undefined,
         });
       } else {
-        await messageService.sendIndividualMessage({
+        created = await messageService.sendIndividualMessage({
           objet: subject.trim() || undefined,
           contenu: body,
           destinataires: dedupeById([...recipients, ...ccRecipients]).map((r) => toUtilisateurPayload(r)),
           medias: medias.length ? medias : undefined,
         });
       }
-      animateOut(onSend);
+      animateOut(() => onSend(created));
     } catch (error) {
       Alert.alert("Erreur", error instanceof Error ? error.message : "Impossible d'envoyer le message.");
     } finally {
@@ -346,6 +351,8 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
     <Modal transparent visible animationType="none" onRequestClose={() => animateOut(onClose)}>
       <View style={styles.modalOverlay}>
         <Animated.View style={[styles.composeModal, { transform: [{ translateY: slideAnim }] }]}>
+          {/* RN Modals are separate windows: the app-root KeyboardInsetView does not reach them (Android edge-to-edge). */}
+          <KeyboardInsetView>
           <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={styles.composeHeader}>
               <Text style={styles.composeTitle}>Nouveau message</Text>
@@ -478,6 +485,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
                 onChangeText={setMessage}
                 placeholder="Tapez votre message ici..."
                 placeholderTextColor={colors.textLight}
+                onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300)}
                 multiline
                 textAlignVertical="top"
               />
@@ -504,6 +512,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
               </TouchableOpacity>
             </View>
           </KeyboardAvoidingView>
+          </KeyboardInsetView>
         </Animated.View>
       </View>
       {showAttachmentModal && (

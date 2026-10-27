@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatDate } from '../../utils/dates';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -117,6 +117,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
   const [nouvelleOffreId, setNouvelleOffreId] = useState('');
   const [periodicite, setPeriodicite] = useState<'MENSUEL' | 'ANNUEL'>('MENSUEL');
   const [success, setSuccess] = useState(false);
+  const [offreModifiee, setOffreModifiee] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
 
@@ -155,6 +156,7 @@ const RenewalWithToken = ({ token }: { token: string }) => {
       } else {
         await contratService.extendByToken(token, { periodicite, paymentInfo });
       }
+      setOffreModifiee(action === 'changer');
       setShowPayment(false);
       setSuccess(true);
     } catch (err) {
@@ -183,8 +185,8 @@ const RenewalWithToken = ({ token }: { token: string }) => {
       <Card>
         <View style={styles.center}>
           <FontAwesome5 name="check-circle" size={36} color={colors.success} />
-          <Text style={styles.title}>{t('auth.renewal.successTitle')}</Text>
-          <Text style={styles.message}>{t('auth.renewal.successMessage')}</Text>
+          <Text style={styles.title}>{t(offreModifiee ? 'auth.renewal.changedTitle' : 'auth.renewal.successTitle')}</Text>
+          <Text style={styles.message}>{t(offreModifiee ? 'auth.renewal.changedMessage' : 'auth.renewal.successMessage')}</Text>
         </View>
       </Card>
     );
@@ -288,7 +290,33 @@ const RenewalWithToken = ({ token }: { token: string }) => {
             return;
           }
           setError('');
-          setShowPayment(true);
+          if (action !== 'changer') {
+            setShowPayment(true);
+            return;
+          }
+          // Same behaviour as ContratBusiness#appliquerRenouvellement: the new contract starts now and ends at
+          // (current end if still running, otherwise now) + the new offer's duration (remaining time carried over).
+          const enCours = contrat?.statut === 'ACTIF' && !!contrat?.dateFin && new Date(contrat.dateFin).getTime() > Date.now();
+          const minutes = periodicite === 'ANNUEL' ? offreCible?.dureeAnnuelleMinutes : offreCible?.dureeMensuelleMinutes;
+          const fin =
+            minutes != null && !Number.isNaN(Number(minutes))
+              ? new Date((enCours ? new Date(contrat.dateFin).getTime() : Date.now()) + Number(minutes) * 60000)
+              : null;
+          const intro = t('auth.renewal.changeConfirmIntro', {
+            offre: offreCible?.nom || '—',
+            prix: montant.toLocaleString('fr-FR'),
+            periodicite: t(periodicite === 'ANNUEL' ? 'auth.renewal.changeYearly' : 'auth.renewal.changeMonthly'),
+            actuelle: contrat?.offreNom || '—',
+            fin: contrat?.dateFin ? t('auth.renewal.changeCurrentEnd', { date: formatDate(contrat.dateFin) }) : '',
+          });
+          const reste =
+            t(enCours ? 'auth.renewal.changeCarryOver' : 'auth.renewal.changeStartsNow') +
+            (fin ? t('auth.renewal.changeNewEnd', { date: formatDate(fin.toISOString()) }) : '') +
+            '.';
+          Alert.alert(t('auth.renewal.changeConfirmTitle'), `${intro}\n\n${reste}\n\n${t('auth.renewal.changeConfirmQuestion')}`, [
+            { text: t('auth.renewal.changeCancel'), style: 'cancel' },
+            { text: t('auth.renewal.changeConfirm'), onPress: () => setShowPayment(true) },
+          ]);
         }}
         disabled={montant <= 0}
         fullWidth

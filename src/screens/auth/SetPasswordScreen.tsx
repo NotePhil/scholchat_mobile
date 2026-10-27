@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { Button, Input } from '../../components/ui';
@@ -7,13 +8,8 @@ import { colors, spacing, typography, useThemeColors } from '../../styles/theme'
 import { authService } from '../../services/home/authService';
 import { translate, useT } from '../../i18n';
 import { resetToLogin } from '../../navigation/authRoutes';
+import { PASSWORD_RULES } from './components/passwordRules';
 
-const PASSWORD_RULES: { test: (v: string) => boolean; key: 'length' | 'uppercase' | 'digit' | 'special' }[] = [
-  { test: (v) => v.length >= 8, key: 'length' },
-  { test: (v) => /[A-Z]/.test(v), key: 'uppercase' },
-  { test: (v) => /[0-9]/.test(v), key: 'digit' },
-  { test: (v) => /[!@#$%^&*(),.?":{}|<>]/.test(v), key: 'special' },
-];
 
 /** The equivalent of scholchat_front's PasswordPage — sets the initial password right after activation. */
 const SetPasswordScreen = () => {
@@ -33,8 +29,7 @@ const SetPasswordScreen = () => {
 
   const handleSubmit = async () => {
     setError('');
-    // Lowercase is required too (web PasswordPage / backend policy), though not listed as a rule chip.
-    if (!PASSWORD_RULES.every((rule) => rule.test(password)) || !/[a-z]/.test(password)) {
+    if (!PASSWORD_RULES.every((rule) => rule.test(password))) {
       setError(t('auth.setPassword.tooWeak'));
       return;
     }
@@ -80,7 +75,7 @@ const SetPasswordScreen = () => {
                       color={rule.test(password) ? colors.success : colors.grayLight}
                       solid={rule.test(password)}
                     />
-                    <Text style={[styles.ruleText, rule.test(password) && styles.ruleTextMet]}>{t(`auth.setPassword.rules.${rule.key}`)}</Text>
+                    <Text style={[styles.ruleText, rule.test(password) && styles.ruleTextMet]}>{t(rule.label)}</Text>
                   </View>
                 ))}
               </View>

@@ -5,15 +5,21 @@ import { useFocusEffect } from "@react-navigation/native";
 import { Avatar, Badge, EmptyState, LoadingSpinner } from "../../components/ui";
 import type { BadgeTone } from "../../components/ui/Badge";
 import { radius, spacing, typography, useThemeColors } from "../../styles/theme";
-import { parentService } from "../../services/api";
-import type { ChildClassStatus } from "../../services/api/parentService";
+import { parentLinkService, parentService } from "../../services/api";
+import { isLinkedChild, type ChildClassStatus, type ChildStatus } from "../../services/api/parentService";
 import { useUser } from "../../context/UserContext";
-import { useSelectedChildStore } from "../../store/useSelectedChildStore";
+import { isAdultChild, useSelectedChildStore } from "../../store/useSelectedChildStore";
 import { refreshParentAccess, useParentLimited } from "../../services/parentAccess";
 import { formatDate } from "../../utils/dates";
 import { translate, useT } from "../../i18n";
 import AddChildSheet from "./AddChildSheet";
 import JoinClassSheet from "../shared/JoinClassSheet";
+
+/** Follow request of an adult child not active yet (awaiting the professor's validation, or refused). */
+const LINK_BADGE: Record<string, { key: "pendingProfessor" | "refused"; tone: BadgeTone; icon: string }> = {
+  EN_ATTENTE_VALIDATION_PROFESSEUR: { key: "pendingProfessor", tone: "warning", icon: "user-clock" },
+  REFUSE: { key: "refused", tone: "danger", icon: "user-times" },
+};
 
 const STATUS_BADGE: Record<string, { key: "approved" | "pending" | "rejected"; tone: BadgeTone; icon: string }> = {
   APPROUVEE: { key: "approved", tone: "success", icon: "check" },
@@ -40,6 +46,8 @@ const ParentChildrenBody = () => {
   const limited = useParentLimited();
   const [showAdd, setShowAdd] = useState(false);
   const [joinChildId, setJoinChildId] = useState<string | null>(null);
+  /** "Suivre une autre classe" of an adult child (e-mail known: only the class codes). */
+  const [followAnother, setFollowAnother] = useState<{ email: string; name: string } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const refresh = useCallback(() => refreshParentAccess(), []);
@@ -56,6 +64,8 @@ const ParentChildrenBody = () => {
     await refresh();
     setRefreshing(false);
   };
+
+  const statusOf = (childId: string): ChildStatus | undefined => statuses?.find((s) => s.enfantId === childId);
 
   const classesOf = (childId: string): ChildClassStatus[] => {
     const st = statuses?.find((s) => s.enfantId === childId);
@@ -81,7 +91,27 @@ const ParentChildrenBody = () => {
     ]);
   };
 
-  const renderClass = (c: ChildClassStatus, i: number) => {
+  /** The parent cancels his own follow request of a class while it awaits the professor (POST /demandes-suivi/{id}/annuler). */
+  const handleCancelRequest = (demandeId: string, name: string, classe: string) =>
+    Alert.alert(t("adultChild.cancelRequest.title"), t("adultChild.cancelRequest.message", { name, classe }), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("adultChild.cancelRequest.confirm"),
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await parentLinkService.cancel(demandeId);
+            refresh();
+          } catch (err) {
+            Alert.alert(translate("common.error"), err instanceof Error && err.message ? err.message : translate("parentLinks.actionFailed"));
+            refresh();
+          }
+        },
+      },
+    ]);
+
+  /** One class of a child. Adult child: the follow request of that class (validated by its professor). */
+  const renderClass = (c: ChildClassStatus, i: number, adult = false, childName = "") => {
     const meta = STATUS_BADGE[String(c.statut).toUpperCase()] ?? STATUS_BADGE.EN_ATTENTE;
     const date = formatDate(c.dateDemande);
     return (
@@ -97,7 +127,20 @@ const ParentChildrenBody = () => {
         {meta.key === "rejected" && c.motifRejet ? (
           <Text style={styles.reason}>{t("parentChildren.reason", { reason: c.motifRejet })}</Text>
         ) : null}
-        {meta.key === "pending" ? <Text style={styles.classMeta}>{t("parentChildren.pendingHint")}</Text> : null}
+        {meta.key === "pending" ? (
+          <Text style={styles.classMeta}>{adult ? t("adultChild.link.pendingProfessor") : t("parentChildren.pendingHint")}</Text>
+        ) : null}
+        {adult && meta.key === "pending" && c.demandeSuiviId ? (
+          <TouchableOpacity
+            style={styles.joinBtn}
+            onPress={() => handleCancelRequest(String(c.demandeSuiviId), childName, c.classeNom || "")}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+          >
+            <FontAwesome5 name="times-circle" size={12} color={colors.danger} />
+            <Text style={[styles.joinText, { color: colors.danger }]}>{t("adultChild.cancelRequest.action")}</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     );
   };
@@ -149,6 +192,12 @@ const ParentChildrenBody = () => {
             const selectable = children.some((c) => c.id === child.id);
             const isSelected = selectable && selectedChildId === child.id;
             const classes = classesOf(child.id);
+            const st = statusOf(child.id);
+            const linked = isLinkedChild(st);
+            const adult = isAdultChild(child, statuses);
+            const link = !linked && st?.lienStatut ? LINK_BADGE[st.lienStatut] : undefined;
+            const linkHintKey =
+              link?.key === "pendingProfessor" ? "adultChild.link.pendingProfessorHint" : "adultChild.link.refusedHint";
             return (
               <View key={child.id} style={[styles.childCard, isSelected && styles.childCardActive]}>
                 <TouchableOpacity
@@ -163,35 +212,68 @@ const ParentChildrenBody = () => {
                     <Text style={styles.childName}>{name || t("header.child")}</Text>
                     <View style={styles.metaRow}>
                       {child.niveau ? <Text style={styles.childMeta}>{child.niveau}</Text> : null}
+                      {adult ? <Badge label={t("adultChild.badgeAdult")} tone="neutral" icon="user-graduate" /> : null}
+                      {adult && linked ? <Badge label={t("adultChild.readOnly")} tone="neutral" icon="eye" /> : null}
+                      {link ? <Badge label={t(`adultChild.link.${link.key}`)} tone={link.tone} icon={link.icon} /> : null}
                       {isSelected ? <Badge label={t("parentChildren.selected")} tone="info" /> : null}
                     </View>
+                    {adult && (st?.email || child.email) ? (
+                      <Text style={styles.childMeta} numberOfLines={1}>
+                        {st?.email || child.email}
+                      </Text>
+                    ) : null}
                   </View>
+                  {/* An adult child's follow link can only be removed by his professor or the administration. */}
+                  {linked && !adult ? (
+                    <TouchableOpacity
+                      style={styles.removeButton}
+                      onPress={() => handleRemove(child.id, name)}
+                      accessibilityLabel={t("parentChildren.remove.title")}
+                    >
+                      <FontAwesome5 name="trash" size={14} color={colors.danger} />
+                    </TouchableOpacity>
+                  ) : null}
+                </TouchableOpacity>
+
+                {link ? <Text style={styles.linkHint}>{t(linkHintKey, { name: name || st?.email || "" })}</Text> : null}
+
+                {/* Adult child: one entry per requested class (Acceptée / En attente / Refusée + motif). */}
+                {link && !adult ? null : (
+                  <View style={styles.classes}>
+                    {classes.length ? (
+                      classes.map((c, i) => renderClass(c, i, adult, name || st?.email || ""))
+                    ) : (
+                      <Text style={styles.classMeta}>{statuses ? t("parentChildren.noRequest") : t("parentChildren.statusUnavailable")}</Text>
+                    )}
+                  </View>
+                )}
+
+                {/* An adult child requests class access himself; the parent can't do it for him. */}
+                {linked && !adult ? (
                   <TouchableOpacity
-                    style={styles.removeButton}
-                    onPress={() => handleRemove(child.id, name)}
-                    accessibilityLabel={t("parentChildren.remove.title")}
+                    style={styles.joinBtn}
+                    onPress={() => setJoinChildId(child.id)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
                   >
-                    <FontAwesome5 name="trash" size={14} color={colors.danger} />
+                    <FontAwesome5 name="user-plus" size={12} color={colors.primary} />
+                    <Text style={styles.joinText}>{t("parentChildren.joinAnother")}</Text>
                   </TouchableOpacity>
-                </TouchableOpacity>
-
-                <View style={styles.classes}>
-                  {classes.length ? (
-                    classes.map(renderClass)
-                  ) : (
-                    <Text style={styles.classMeta}>{statuses ? t("parentChildren.noRequest") : t("parentChildren.statusUnavailable")}</Text>
-                  )}
-                </View>
-
-                <TouchableOpacity
-                  style={styles.joinBtn}
-                  onPress={() => setJoinChildId(child.id)}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                >
-                  <FontAwesome5 name="user-plus" size={12} color={colors.primary} />
-                  <Text style={styles.joinText}>{t("parentChildren.joinAnother")}</Text>
-                </TouchableOpacity>
+                ) : null}
+                {linked && adult ? (
+                  <Text style={styles.linkHint}>{t("adultChild.readOnlyHint", { name: child.prenom || name })}</Text>
+                ) : null}
+                {adult && (st?.email || child.email) ? (
+                  <TouchableOpacity
+                    style={styles.joinBtn}
+                    onPress={() => setFollowAnother({ email: String(st?.email || child.email), name: name || String(st?.email || child.email) })}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                  >
+                    <FontAwesome5 name="plus" size={12} color={colors.primary} />
+                    <Text style={styles.joinText}>{t("adultChild.followAnother.action")}</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             );
           })
@@ -207,6 +289,14 @@ const ParentChildrenBody = () => {
       </ScrollView>
 
       <AddChildSheet visible={showAdd} onClose={() => setShowAdd(false)} onAdded={refresh} parentId={parentId} />
+      <AddChildSheet
+        visible={!!followAnother}
+        onClose={() => setFollowAnother(null)}
+        onAdded={refresh}
+        parentId={parentId}
+        adultEmail={followAnother?.email}
+        adultName={followAnother?.name}
+      />
       <JoinClassSheet
         visible={!!joinChildId}
         onClose={() => setJoinChildId(null)}
@@ -265,6 +355,7 @@ const createStyles = (colors: ReturnType<typeof useThemeColors>) =>
     className: { ...typography.body, color: colors.text, fontWeight: "600", flex: 1 },
     classMeta: { ...typography.caption, color: colors.textMuted, paddingVertical: 2 },
     reason: { ...typography.caption, color: colors.danger },
+    linkHint: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm, lineHeight: 17 },
     joinBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", marginTop: spacing.sm, paddingVertical: 4 },
     joinText: { ...typography.caption, color: colors.primary, fontWeight: "700" },
     addRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: spacing.md },

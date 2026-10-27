@@ -34,6 +34,12 @@ type IconName = ComponentProps<typeof FontAwesome5>['name'];
  *  - OFFRE_EXPIRATION_BIENTOT / OFFRE_EXPIREE / SUPPRESSION_IMMINENTE  CLASSE | ETABLISSEMENT id
  *  - CHILD_ACCESS_APPROVED / CHILD_ACCESS_REJECTED  CLASS classeId, actorId = the child (when sent)
  *                                       → parent's "Mes enfants" (child selected on approval)
+ *  - PARENT_LINK_REQUEST     CLASS      classeId (class managers: an adult student's parent asks to follow
+ *                                       him in that class) → ClassDetails "Demandes"
+ *  - PARENT_LINK_ACCEPTED / PARENT_LINK_REMOVED
+ *                            CHILD      eleveId (parent) → "Mes enfants";
+ *                            PARENT_LINK demandeId (the student, informative) → "Suivi parental"
+ *  - PARENT_LINK_REJECTED    CHILD      eleveId (parent) → "Mes enfants"
  */
 export type NotificationTarget =
   /** Profile decision: "Mes profils" + session roles refreshed (services/roleNotifications). */
@@ -51,11 +57,14 @@ export type NotificationTarget =
   | { kind: 'activity'; eventId: string }
   /** Parent: a child's class request was decided → "Mes enfants" (child selected when approved). */
   | { kind: 'children'; approved: boolean; childId?: string; classId?: string }
+  /** Student: a parent now follows (or no longer follows) their schooling → "Suivi parental" (read-only). */
+  | { kind: 'parentLinks' }
   /** Just a dashboard tab (DashboardShell.renderBody key). */
   | { kind: 'tab'; tab: string };
 
-/** Decision on a child's class request (parent). */
-export const isChildAccessNotification = (type?: string | null) => /^CHILD_ACCESS_/i.test(type ?? '');
+/** Decision on a child's class request (parent), or on / removal of an adult child's follow-up (PARENT_LINK_*). */
+export const isChildAccessNotification = (type?: string | null) =>
+  /^(CHILD_ACCESS_|PARENT_LINK_(ACCEPTED|REJECTED|REMOVED))/i.test(type ?? '');
 
 const isClassEntity = (entity: string) => entity === 'CLASS' || entity === 'CLASSE';
 
@@ -89,6 +98,20 @@ export const getNotificationTarget = (
   const exercisesTab: NotificationTarget | null = isLearner || isProf ? { kind: 'tab', tab: 'exercises' } : null;
 
   switch (type) {
+    case 'PARENT_LINK_REQUEST':
+      // Per-class follow request: the class managers decide in that class's "Demandes" tab.
+      return id && isClassEntity(entity) ? { kind: 'class', classId: id, tab: 'access-requests' } : null;
+    case 'PARENT_LINK_ACCEPTED':
+    case 'PARENT_LINK_REJECTED':
+    case 'PARENT_LINK_REMOVED':
+      // Student (informative): who follows him. Parent: "Mes enfants" (child selected when accepted).
+      if (role === 'student' || entity === 'PARENT_LINK') return role === 'parent' ? { kind: 'tab', tab: 'children' } : { kind: 'parentLinks' };
+      if (role !== 'parent') return null;
+      return {
+        kind: 'children',
+        approved: type === 'PARENT_LINK_ACCEPTED',
+        childId: (entity === 'CHILD' ? id : actorId) || undefined,
+      };
     case 'CHILD_ACCESS_APPROVED':
     case 'CHILD_ACCESS_REJECTED':
       if (role !== 'parent') return id && isClassEntity(entity) ? classTarget('overview') : null;
@@ -201,6 +224,13 @@ export const getNotificationIcon = (type?: string): { icon: IconName; color: str
       return { icon: 'check-circle', color: '#10B981' };
     case 'CHILD_ACCESS_APPROVED':
       return { icon: 'child', color: '#10B981' };
+    case 'PARENT_LINK_REQUEST':
+      return { icon: 'user-friends', color: '#3B82F6' };
+    case 'PARENT_LINK_ACCEPTED':
+      return { icon: 'user-friends', color: '#10B981' };
+    case 'PARENT_LINK_REJECTED':
+    case 'PARENT_LINK_REMOVED':
+      return { icon: 'user-friends', color: '#EF4444' };
     case 'CHILD_ACCESS_REJECTED':
       return { icon: 'child', color: '#EF4444' };
     case 'CLASS_CREATED':
@@ -209,7 +239,7 @@ export const getNotificationIcon = (type?: string): { icon: IconName; color: str
     case 'ACTIVITY_CREATED':
     case 'NEW_ACTIVITY':
     case 'EVENT_UPDATED':
-      return { icon: 'calendar-alt', color: '#22C55E' };
+      return { icon: 'newspaper', color: '#22C55E' };
     case 'NEW_COURSE':
     case 'COURSE_SCHEDULED':
       return { icon: 'book-open', color: '#6366F1' };

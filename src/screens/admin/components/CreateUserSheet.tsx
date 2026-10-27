@@ -1,7 +1,7 @@
+import { pickImageFromCameraOrFiles } from "../../../utils/cameraCapture";
 import React, { useMemo, useState } from "react";
 import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import * as DocumentPicker from "expo-document-picker";
 import { BottomSheet, Button, Input } from "../../../components/ui";
 import { radius, spacing, typography, useThemeColors } from "../../../styles/theme";
 import { mediaService, parentService, studentService, userService } from "../../../services/api";
@@ -67,9 +67,8 @@ const CreateUserSheet = ({ kind, onClose, onCreated }: CreateUserSheetProps) => 
 
   const pick = async (key: ProfessorDocKey) => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({ type: ["image/*"], copyToCacheDirectory: true });
-      if (!result.canceled && result.assets?.length) {
-        const asset = result.assets[0];
+      const asset = await pickImageFromCameraOrFiles();
+      if (asset) {
         setFiles((prev) => ({ ...prev, [key]: { uri: asset.uri, name: asset.name || `${key}.jpg`, mimeType: asset.mimeType || "image/jpeg" } }));
       }
     } catch {
