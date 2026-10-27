@@ -19,6 +19,8 @@ import AttachmentModal, { AttachmentType } from "./AttachmentModal";
 import PromptSheet from "../../../../components/common/PromptSheet";
 import KeyboardInsetView from "../../../../components/common/KeyboardInsetView";
 import { messageService } from "../../../../services/messageService";
+import { accederService } from "../../../../services/api/accederService";
+import { classService } from "../../../../services/classService";
 import { useUser } from "../../../../context/UserContext";
 import { useThemeColors } from "../../../../styles/theme";
 import { MessageContact, MessageContactClass, MessageItem } from "../../../../types";
@@ -84,6 +86,12 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
   const [showClassDropdown, setShowClassDropdown] = useState(false);
 
   const [isGroupMessage, setIsGroupMessage] = useState(false);
+  // Original flow: pick the class(es) first, then the person among their members.
+  // null = members unreadable (falls back to all contacts).
+  const [classMembers, setClassMembers] = useState<Record<string, string[] | null>>({});
+  const role = String(user?.userRole ?? "").toUpperCase();
+  // "Message général" (whole class) is not offered to parents and students.
+  const canGeneralMessage = !(role.includes("PARENT") || role.includes("ELEVE") || role.includes("STUDENT"));
   const [recipients, setRecipients] = useState<Recipient[]>([]);
   const [ccRecipients, setCcRecipients] = useState<Recipient[]>([]);
   const [activeField, setActiveField] = useState<"to" | "cc" | null>(null);
@@ -130,15 +138,52 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
   }, [userId]);
 
   const toggleClass = (id: string) =>
-    setSelectedClassIds((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
+    setSelectedClassIds((prev) => {
+      return prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id];
+    });
+
+  // Members (and moderator) of each newly selected class, loaded once per class.
+  useEffect(() => {
+    let cancelled = false;
+    selectedClassIds
+      .filter((id) => !(id in classMembers))
+      .forEach(async (classId) => {
+        const [members, details] = await Promise.all([
+          accederService.getUsersWithAccess(classId).catch(() => null),
+          classService.getClassDetails(classId).catch(() => null),
+        ]);
+        if (cancelled) return;
+        let ids: string[] | null = null;
+        if (Array.isArray(members)) {
+          ids = members.map((m) => String(m.id));
+          const d = details as { moderatorId?: string; moderator?: { id?: string } } | null;
+          const moderatorId = d?.moderator?.id ?? d?.moderatorId;
+          if (moderatorId) ids.push(String(moderatorId));
+        }
+        setClassMembers((prev) => ({ ...prev, [classId]: ids }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedClassIds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** People the caller may write to: all contacts, or only the members of the selected classes. */
+  const classPeople = useMemo(() => {
+    if (selectedClassIds.length === 0) return contacts;
+    const lists = selectedClassIds.map((id) => classMembers[id]);
+    if (lists.some((l) => l === null)) return contacts;
+    const ids = new Set(lists.flatMap((l) => l ?? []));
+    return contacts.filter((c) => ids.has(c.id));
+  }, [selectedClassIds, classMembers, contacts]);
+  const membersLoading = selectedClassIds.some((id) => !(id in classMembers));
 
   /** Contacts matching the typed query, minus anyone already in À or CC. */
   const selectedIds = useMemo(
     () => new Set([...recipients, ...ccRecipients].map((r) => r.id)),
     [recipients, ccRecipients]
   );
-  const toSuggestions = useMemo(() => filterSuggestions(contacts, toQuery, selectedIds), [contacts, toQuery, selectedIds]);
-  const ccSuggestions = useMemo(() => filterSuggestions(contacts, ccQuery, selectedIds), [contacts, ccQuery, selectedIds]);
+  const toSuggestions = useMemo(() => filterSuggestions(classPeople, toQuery, selectedIds), [classPeople, toQuery, selectedIds]);
+  const ccSuggestions = useMemo(() => filterSuggestions(classPeople, ccQuery, selectedIds), [classPeople, ccQuery, selectedIds]);
 
   const addRecipient = (target: "to" | "cc", person: Recipient) => {
     const setter = target === "cc" ? setCcRecipients : setRecipients;
@@ -185,14 +230,17 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
       Alert.alert("Erreur", "Utilisateur non identifié.");
       return;
     }
-    if (isGroupMessage && selectedClassIds.length === 0) {
-      Alert.alert("Champs manquants", "Sélectionnez au moins une classe.");
+    // Général: every class the caller can write to. Otherwise the chosen people,
+    // or — when no one is named — every member of the selected classes.
+    if (isGroupMessage && availableClasses.length === 0) {
+      Alert.alert("Champs manquants", "Aucune classe à laquelle vous pouvez écrire.");
       return;
     }
-    if (!isGroupMessage && recipients.length === 0) {
-      Alert.alert("Champs manquants", "Sélectionnez au moins un destinataire.");
+    if (!isGroupMessage && recipients.length === 0 && selectedClassIds.length === 0) {
+      Alert.alert("Champs manquants", "Sélectionnez une classe ou au moins un destinataire.");
       return;
     }
+    const sendToClasses = isGroupMessage || recipients.length === 0;
     if (attachments.isUploading) {
       Alert.alert("Patientez", "Les pièces jointes sont en cours de téléversement.");
       return;
@@ -211,9 +259,9 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
     setIsSending(true);
     try {
       let created: MessageItem | undefined;
-      if (isGroupMessage) {
+      if (sendToClasses) {
         created = await messageService.sendGroupMessage({
-          classIds: selectedClassIds,
+          classIds: isGroupMessage ? availableClasses.map((c) => c.id) : selectedClassIds,
           objet: subject.trim() || undefined,
           content: body,
           copieRecipientIds: ccRecipients.map((cc) => cc.id),
@@ -259,7 +307,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
     const showList = activeField === target && query.trim().length > 0;
     return (
       <View onLayout={(e) => (fieldY.current[target] = e.nativeEvent.layout.y)}>
-        <Text style={styles.inputLabel}>{target === "cc" ? "Copie (CC)" : "À *"}</Text>
+        <Text style={styles.inputLabel}>{target === "cc" ? "Copie (CC)" : "À"}</Text>
         {renderChips(picked, (id) =>
           (target === "cc" ? setCcRecipients : setRecipients)((p) => p.filter((r) => r.id !== id))
         )}
@@ -281,7 +329,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
             onSubmitEditing={() => suggestions[0] && addRecipient(target, suggestions[0])}
             blurOnSubmit={false}
             placeholder={
-              contactsLoading
+              contactsLoading || membersLoading
                 ? "Chargement des contacts..."
                 : target === "cc"
                   ? "Ajouter en copie : nom ou e-mail"
@@ -304,7 +352,7 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
         ) : null}
         {showList && !contactsError ? (
           <View style={styles.pickerBox}>
-            {contactsLoading ? (
+            {contactsLoading || membersLoading ? (
               <ActivityIndicator color={colors.primary} style={{ paddingVertical: 16 }} />
             ) : suggestions.length === 0 ? (
               <Text style={styles.pickerEmpty}>Aucun contact trouvé</Text>
@@ -368,29 +416,33 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="none"
             >
-              {/* Group toggle */}
-              <TouchableOpacity
-                style={[styles.groupToggle, { marginTop: 0 }, isGroupMessage && styles.groupToggleActive]}
-                onPress={() => {
-                  setIsGroupMessage((v) => !v);
-                  setRecipients([]);
-                  setToQuery("");
-                }}
-              >
-                <View style={[styles.checkbox, isGroupMessage && styles.checkboxChecked]}>
-                  {isGroupMessage && <FontAwesome5 name="check" size={10} color={colors.white} />}
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.groupToggleTitle}>Message général</Text>
-                  <Text style={styles.groupToggleSub}>Envoyé à tous les membres des classes sélectionnées</Text>
-                </View>
-                <FontAwesome5 name="users" size={14} color={isGroupMessage ? colors.primary : colors.textLight} />
-              </TouchableOpacity>
+              {/* Message général: everyone in every class the caller can write to */}
+              {canGeneralMessage ? (
+                <TouchableOpacity
+                  style={[styles.groupToggle, { marginTop: 0 }, isGroupMessage && styles.groupToggleActive]}
+                  onPress={() => {
+                    setIsGroupMessage((v) => !v);
+                    setRecipients([]);
+                    setToQuery("");
+                    setSelectedClassIds([]);
+                    setShowClassDropdown(false);
+                  }}
+                >
+                  <View style={[styles.checkbox, isGroupMessage && styles.checkboxChecked]}>
+                    {isGroupMessage && <FontAwesome5 name="check" size={10} color={colors.white} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.groupToggleTitle}>Message général</Text>
+                    <Text style={styles.groupToggleSub}>Envoyé à tous les utilisateurs de toutes vos classes</Text>
+                  </View>
+                  <FontAwesome5 name="users" size={14} color={isGroupMessage ? colors.primary : colors.textLight} />
+                </TouchableOpacity>
+              ) : null}
 
-              {isGroupMessage ? (
+              {/* Classes (hidden for a general message) */}
+              {!isGroupMessage ? (
                 <>
-                  {/* Classes */}
-                  <Text style={styles.inputLabel}>Classes *</Text>
+                  <Text style={styles.inputLabel}>Classes</Text>
                   <TouchableOpacity style={styles.selector} onPress={() => setShowClassDropdown((v) => !v)}>
                     <Text style={[styles.selectorText, selectedClassIds.length > 0 && { color: colors.text }]} numberOfLines={1}>
                       {selectedClassIds.length > 0
@@ -430,13 +482,16 @@ const ComposeMessageModal = ({ onClose, onSend }: ComposeMessageModalProps) => {
                       )}
                     </View>
                   )}
+                  <Text style={styles.groupToggleSub}>
+                    Sans destinataire précis, le message est envoyé à tous les membres des classes sélectionnées.
+                  </Text>
                 </>
-              ) : (
-                <>
-                  {/* To */}
-                  {renderAutocomplete("to")}
-                </>
-              )}
+              ) : null}
+
+              {/* To: greyed out for a general message */}
+              <View pointerEvents={isGroupMessage ? "none" : "auto"} style={isGroupMessage ? { opacity: 0.45 } : undefined}>
+                {renderAutocomplete("to")}
+              </View>
 
               {/* CC */}
               {renderAutocomplete("cc")}
